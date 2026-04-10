@@ -58,14 +58,29 @@ func NewRemoteAPIChat(chatConfig *ChatConfig) (*RemoteAPIChat, error) {
 	}
 
 	apiKey := chatConfig.APIKey
-	config := openai.DefaultConfig(apiKey)
-	if baseURL := chatConfig.BaseURL; baseURL != "" {
-		config.BaseURL = baseURL
-	}
-
 	providerName := provider.ProviderName(chatConfig.Provider)
 	if providerName == "" {
 		providerName = provider.DetectProvider(chatConfig.BaseURL)
+	}
+
+	var config openai.ClientConfig
+	if providerName == provider.ProviderAzureOpenAI {
+		config = openai.DefaultAzureConfig(apiKey, chatConfig.BaseURL)
+		config.AzureModelMapperFunc = func(model string) string {
+			return model
+		}
+		if chatConfig.Extra != nil {
+			if v, ok := chatConfig.Extra["api_version"]; ok {
+				if vs, ok := v.(string); ok && vs != "" {
+					config.APIVersion = vs
+				}
+			}
+		}
+	} else {
+		config = openai.DefaultConfig(apiKey)
+		if baseURL := chatConfig.BaseURL; baseURL != "" {
+			config.BaseURL = baseURL
+		}
 	}
 
 	return &RemoteAPIChat{
@@ -315,7 +330,11 @@ func (c *RemoteAPIChat) chatWithRawHTTP(ctx context.Context, endpoint string, cu
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.provider == provider.ProviderAzureOpenAI {
+		httpReq.Header.Set("api-key", c.apiKey)
+	} else {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := rawHTTPClient.Do(httpReq)
 	if err != nil {
@@ -467,7 +486,11 @@ func (c *RemoteAPIChat) chatStreamWithRawHTTP(ctx context.Context, endpoint stri
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.provider == provider.ProviderAzureOpenAI {
+		httpReq.Header.Set("api-key", c.apiKey)
+	} else {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	httpReq.Header.Set("Accept", "text/event-stream")
 
 	resp, err := rawHTTPClient.Do(httpReq)

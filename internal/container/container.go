@@ -172,6 +172,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
 	must(container.Provide(service.NewDataTableSummaryService, dig.Name("dataTableSummary")))
 	must(container.Provide(service.NewImageMultimodalService, dig.Name("imageMultimodal")))
+	must(container.Provide(service.NewVideoMultimodalService, dig.Name("videoMultimodal")))
 
 	must(container.Provide(service.NewMessageService))
 	must(container.Provide(service.NewMCPServiceService))
@@ -909,6 +910,7 @@ func registerWebSearchProviders(registry *infra_web_search.Registry) {
 	registry.Register("google", infra_web_search.NewGoogleProvider)
 	registry.Register("bing", infra_web_search.NewBingProvider)
 	registry.Register("tavily", infra_web_search.NewTavilyProvider)
+	registry.Register("ollama", infra_web_search.NewOllamaProvider)
 }
 
 // registerIMAdapterFactories registers adapter factories for each IM platform

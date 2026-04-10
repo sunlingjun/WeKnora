@@ -87,6 +87,8 @@ export default {
     noValidFilesSelected: 'Все выбранные файлы не поддерживаются',
     hiddenFilesFiltered: 'Отфильтровано {count} скрытых файлов',
     imagesFilteredNoVLM: 'Отфильтровано {count} изображений (VLM не включен)',
+    videosFilteredNoVLM: 'Отфильтровано {count} видеофайлов (VLM не включен)',
+    audiosFilteredNoASR: 'Отфильтровано {count} аудиофайлов (ASR не включен)',
     invalidFilesFiltered: 'Отфильтровано {count} неподдерживаемых файлов',
     unsupportedFileType: 'Неподдерживаемый тип файла',
     unsupportedTypesHint: 'Некоторые типы документов ({types}) не имеют доступного парсера и не могут быть обработаны',
@@ -95,7 +97,7 @@ export default {
     andMoreFiles: '...и ещё {count} файлов',
     duplicateFilesSkipped: 'Пропущено {count} повторяющихся файлов',
     uploadFile: 'Загрузить файл',
-    uploadFileDesc: 'Поддерживает PDF, Word, TXT и т.д.',
+    uploadFileDesc: 'Поддерживает PDF, Word, TXT, изображения, видео, аудио и т.д.',
     importURL: 'Импорт из URL',
     importURLDesc: 'Импорт по ссылке URL',
     importURLTitle: 'Импорт из URL',
@@ -1446,6 +1448,10 @@ export default {
         openai: {
           label: 'OpenAI',
           description: 'gpt-5.2, gpt-5-mini, etc.'
+        },
+        azure_openai: {
+          label: 'Azure OpenAI',
+          description: 'Сервис OpenAI на платформе Microsoft Azure',
         },
         aliyun: {
           label: 'Aliyun DashScope',

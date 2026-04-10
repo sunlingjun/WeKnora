@@ -24,6 +24,7 @@ type AsynqTaskParams struct {
 	ChunkExtractor       interfaces.TaskHandler `name:"chunkExtractor"`
 	DataTableSummary     interfaces.TaskHandler `name:"dataTableSummary"`
 	ImageMultimodal      interfaces.TaskHandler `name:"imageMultimodal"`
+	VideoMultimodal      interfaces.TaskHandler `name:"videoMultimodal"`
 }
 
 // getAsynqRedisConnOpt 返回通用的 Redis 连接配置，支持单机和集群模式。
@@ -139,6 +140,9 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 
 	// Register image multimodal handler
 	mux.HandleFunc(types.TypeImageMultimodal, params.ImageMultimodal.Handle)
+
+	// Register video multimodal handler
+	mux.HandleFunc(types.TypeVideoMultimodal, params.VideoMultimodal.Handle)
 
 	// Register data source sync handler
 	mux.HandleFunc(types.TypeDataSourceSync, params.DataSourceService.ProcessSync)
