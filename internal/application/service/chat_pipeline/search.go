@@ -15,15 +15,15 @@ import (
 
 // PluginSearch implements search functionality for chat pipeline
 type PluginSearch struct {
-	knowledgeBaseService      interfaces.KnowledgeBaseService
-	knowledgeService          interfaces.KnowledgeService
-	chunkService              interfaces.ChunkService
-	config                    *config.Config
-	webSearchService          interfaces.WebSearchService
-	tenantService             interfaces.TenantService
-	sessionService            interfaces.SessionService
-	webSearchStateService     interfaces.WebSearchStateService
-	webSearchProviderRepo     interfaces.WebSearchProviderRepository
+	knowledgeBaseService  interfaces.KnowledgeBaseService
+	knowledgeService      interfaces.KnowledgeService
+	chunkService          interfaces.ChunkService
+	config                *config.Config
+	webSearchService      interfaces.WebSearchService
+	tenantService         interfaces.TenantService
+	sessionService        interfaces.SessionService
+	webSearchStateService interfaces.WebSearchStateService
+	webSearchProviderRepo interfaces.WebSearchProviderRepository
 }
 
 func NewPluginSearch(eventManager *EventManager,

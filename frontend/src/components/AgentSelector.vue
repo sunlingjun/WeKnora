@@ -247,11 +247,11 @@
                   </div>
                   <div v-if="shared.org_name || shared.shared_by_username" class="agent-tooltip-meta-list">
                     <div v-if="shared.org_name" class="agent-tooltip-meta-row">
-                      <img src="@/assets/img/organization-green.svg" class="agent-tooltip-meta-icon" alt="" aria-hidden="true" />
+                      <SvgIcon name="organization" variant="green" :size="12" class="agent-tooltip-meta-icon" />
                       <span class="agent-tooltip-meta-text">{{ shared.org_name }}</span>
                     </div>
                     <div v-if="shared.shared_by_username" class="agent-tooltip-meta-row">
-                      <img src="@/assets/img/user.svg" class="agent-tooltip-meta-icon" alt="" aria-hidden="true" />
+                      <SvgIcon name="user" variant="default" theme="secondary" :size="12" class="agent-tooltip-meta-icon" />
                       <span class="agent-tooltip-meta-text">{{ shared.shared_by_username }}</span>
                     </div>
                   </div>
@@ -277,6 +277,7 @@ import { useRouter } from 'vue-router';
 import { Icon as TIcon, Popup as TPopup, Tooltip as TTooltip } from 'tdesign-vue-next';
 import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
 import AgentAvatar from '@/components/AgentAvatar.vue';
+import { SvgIcon } from '@/components/icons';
 import { useOrganizationStore } from '@/stores/organization';
 import { useSettingsStore } from '@/stores/settings';
 import type { SharedAgentInfo } from '@/api/organization';
@@ -646,7 +647,7 @@ watch(() => props.visible, (newVal) => {
   }
   
   &.agent {
-    background: rgba(124, 77, 255, 0.1);
+    background: rgba(from var(--td-purple-color, #7c4dff) r g b / 0.1);
     color: var(--td-brand-color);
   }
 }

@@ -1,6 +1,7 @@
 export default {
   menu: {
     knowledgeBase: 'База знаний',
+    sharedKnowledgeBaseSquare: 'Площадь баз знаний',
     chat: 'Диалог',
     createChat: 'Создать диалог',
     tenant: 'Информация об аккаунте',
@@ -47,6 +48,7 @@ export default {
     description: 'Описание',
     files: 'Файлы',
     settings: 'Настройки',
+    settingsNoPermission: 'Только владелец может управлять настройками базы знаний',
     documentCategoryTitle: 'Категории документов',
     faqCategoryTitle: 'Категории FAQ',
     untagged: 'Без метки',
@@ -106,6 +108,9 @@ export default {
     urlExists: 'Этот URL уже существует',
     urlLabel: 'Адрес URL',
     urlPlaceholder: 'Введите URL веб-страницы, например: https://example.com',
+    urlTitleLabel: 'Отображаемое название (обязательно)',
+    urlTitlePlaceholder: 'Будет показано как название знания; подставляется из URL, можно изменить',
+    urlTitleRequired: 'Введите отображаемое название',
     urlTip: 'Поддерживает импорт различного веб-содержимого. Система автоматически извлечет и проанализирует текстовое содержимое с веб-страницы',
     typeURL: 'URL',
     typeManual: 'Вручную',
@@ -3408,6 +3413,7 @@ export default {
     connectionFailed: 'Подключение не удалось',
     isRequired: 'обязательно для заполнения',
     resourceHint: 'Выберите пространства или папки для синхронизации',
+    untitled: 'Без названия',
     resourceLoadFailed: 'Не удалось загрузить список ресурсов',
     noResources: 'Пространства вики не найдены',
     noResourcesHint: 'Сначала сохраните источник данных и проверьте права доступа',

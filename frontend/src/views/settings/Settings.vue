@@ -119,8 +119,8 @@
                   <TenantInfo />
                 </div>
 
-                <!-- API 信息 -->
-                <div v-if="currentSection === 'api'" class="section">
+                <!-- API 信息（仅租户 ID <= 10001 时显示） -->
+                <div v-if="currentSection === 'api' && showApiInfo" class="section">
                   <ApiInfo />
                 </div>
 
@@ -141,6 +141,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUIStore } from '@/stores/ui'
+import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 import SystemInfo from './SystemInfo.vue'
 import TenantInfo from './TenantInfo.vue'
@@ -157,57 +158,72 @@ import StorageEngineSettings from './StorageEngineSettings.vue'
 const route = useRoute()
 const router = useRouter()
 const uiStore = useUIStore()
+const authStore = useAuthStore()
 const { t } = useI18n()
 
 const currentSection = ref<string>('general')
 const currentSubSection = ref<string>('')
 const expandedMenus = ref<string[]>([])
 
-const navItems = computed(() => [
-  { key: 'general', icon: 'setting', label: t('general.title') },
-  { 
-    key: 'models', 
-    icon: 'control-platform', 
-    label: t('settings.modelManagement'),
-    children: [
-      { key: 'chat', label: t('model.llmModel') },
-      { key: 'embedding', label: t('model.embeddingModel') },
-      { key: 'rerank', label: t('model.rerankModel') },
-      { key: 'vllm', label: t('model.vlmModel') }
-    ]
-  },
-  { key: 'ollama', icon: 'server', label: 'Ollama' },
-  { key: 'websearch', icon: 'search', label: t('settings.webSearchConfig')  },
-  { key: 'chathistory', icon: 'chat', label: t('chatHistorySettings.title') },
-  {
-    key: 'parser',
-    icon: 'file-search',
-    label: t('settings.parserEngine'),
-    children: [
-      { key: 'builtin', label: 'Builtin (DocReader)' },
-      { key: 'simple', label: 'Simple' },
-      { key: 'markitdown', label: 'Markitdown' },
-      { key: 'mineru', label: 'MinerU' },
-      { key: 'mineru_cloud', label: 'MinerU Cloud' },
-    ]
-  },
-  {
-    key: 'storage',
-    icon: 'cloud',
-    label: t('settings.storageEngine'),
-    children: [
-      { key: 'local', label: 'Local' },
-      { key: 'minio', label: 'MinIO' },
-      { key: 'cos', label: t('settings.storage.cos') },
-      { key: 'tos', label: t('settings.storage.tos') },
-      { key: 's3', label: 'AWS S3' },
-    ]
-  },
-  { key: 'mcp', icon: 'tools', label: t('settings.mcpService') },
-  { key: 'system', icon: 'info-circle', label: t('settings.systemSettings') },
-  { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
-  { key: 'api', icon: 'secured', label: t('settings.apiInfo') }
-])
+// 检查是否显示 API 信息（租户 ID <= 10001）
+const showApiInfo = computed(() => {
+  const tenantId = authStore.effectiveTenantId
+  return tenantId !== null && tenantId <= 10001
+})
+
+const navItems = computed(() => {
+  const items = [
+    { key: 'general', icon: 'setting', label: t('general.title') },
+    {
+      key: 'models',
+      icon: 'control-platform',
+      label: t('settings.modelManagement'),
+      children: [
+        { key: 'chat', label: t('model.llmModel') },
+        { key: 'embedding', label: t('model.embeddingModel') },
+        { key: 'rerank', label: t('model.rerankModel') },
+        { key: 'vllm', label: t('model.vlmModel') }
+      ]
+    },
+    { key: 'ollama', icon: 'server', label: 'Ollama' },
+    { key: 'websearch', icon: 'search', label: t('settings.webSearchConfig')  },
+    { key: 'chathistory', icon: 'chat', label: t('chatHistorySettings.title') },
+    {
+      key: 'parser',
+      icon: 'file-search',
+      label: t('settings.parserEngine'),
+      children: [
+        { key: 'builtin', label: 'Builtin (DocReader)' },
+        { key: 'simple', label: 'Simple' },
+        { key: 'markitdown', label: 'Markitdown' },
+        { key: 'mineru', label: 'MinerU' },
+        { key: 'mineru_cloud', label: 'MinerU Cloud' },
+      ]
+    },
+    {
+      key: 'storage',
+      icon: 'cloud',
+      label: t('settings.storageEngine'),
+      children: [
+        { key: 'local', label: 'Local' },
+        { key: 'minio', label: 'MinIO' },
+        { key: 'cos', label: t('settings.storage.cos') },
+        { key: 'tos', label: t('settings.storage.tos') },
+        { key: 's3', label: 'AWS S3' },
+      ]
+    },
+    { key: 'mcp', icon: 'tools', label: t('settings.mcpService') },
+    { key: 'system', icon: 'info-circle', label: t('settings.systemSettings') },
+    { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
+  ]
+
+  // 只有当租户 ID <= 10001 时才添加 API 信息菜单项
+  if (showApiInfo.value) {
+    items.push({ key: 'api', icon: 'secured', label: t('settings.apiInfo') })
+  }
+
+  return items
+})
 
 // 导航项点击处理
 const handleNavClick = (item: any) => {
@@ -321,7 +337,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 1100;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(from var(--td-text-color-primary) r g b / 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -337,7 +353,7 @@ onUnmounted(() => {
   height: 700px;
   background: var(--td-bg-color-container);
   border-radius: 12px;
-  box-shadow: 0 6px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--td-shadow-2);
   overflow: hidden;
   display: flex;
   flex-direction: column;

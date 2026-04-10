@@ -7,7 +7,7 @@ import (
 	_ "github.com/duckdb/duckdb-go/v2"
 )
 
-func downloadSpatial() {
+func downloadExtensions() {
 	ctx := context.Background()
 
 	sqlDB, err := sql.Open("duckdb", ":memory:")
@@ -16,19 +16,17 @@ func downloadSpatial() {
 	}
 	defer sqlDB.Close()
 
-	// Try to install spatial extension (may already be installed or network unavailable)
-	installSQL := "INSTALL spatial;"
-	if _, err := sqlDB.ExecContext(ctx, installSQL); err != nil {
-		panic(err)
-	}
-
-	// Try to load spatial extension
-	loadSQL := "LOAD spatial;"
-	if _, err := sqlDB.ExecContext(ctx, loadSQL); err != nil {
-		panic(err)
+	// httpfs: 用于 read_csv_auto('http(s)://...') 等远程文件读取
+	for _, ext := range []string{"httpfs", "spatial"} {
+		if _, err := sqlDB.ExecContext(ctx, "INSTALL "+ext+";"); err != nil {
+			panic(err)
+		}
+		if _, err := sqlDB.ExecContext(ctx, "LOAD "+ext+";"); err != nil {
+			panic(err)
+		}
 	}
 }
 
 func main() {
-	downloadSpatial()
+	downloadExtensions()
 }

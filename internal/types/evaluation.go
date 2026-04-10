@@ -2,13 +2,31 @@ package types
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/yanyiwu/gojieba"
 )
 
-// Jieba is a global instance of Chinese text segmentation tool
-var Jieba *gojieba.Jieba = gojieba.NewJieba()
+var (
+	// jiebaOnce ensures Jieba is initialized only once
+	jiebaOnce sync.Once
+	// Jieba is a global instance of Chinese text segmentation tool
+	Jieba *gojieba.Jieba
+)
+
+// initJieba initializes the Jieba instance lazily
+func initJieba() {
+	jiebaOnce.Do(func() {
+		Jieba = gojieba.NewJieba()
+	})
+}
+
+// GetJieba returns the Jieba instance, initializing it if necessary
+func GetJieba() *gojieba.Jieba {
+	initJieba()
+	return Jieba
+}
 
 // EvaluationStatue represents the status of an evaluation task
 type EvaluationStatue int

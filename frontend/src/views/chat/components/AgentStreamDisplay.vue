@@ -235,7 +235,13 @@
         >
           <div class="action-header" @click="handleActionHeaderClick(event)" :class="{ 'no-results': !hasResults(event) }">
             <div class="action-title">
-              <img v-if="event.tool_name && !isBookIcon(event.tool_name)" class="action-title-icon" :src="getToolIcon(event.tool_name)" alt="" />
+              <SvgIcon
+                v-if="event.tool_name && !isBookIcon(event.tool_name)"
+                class="action-title-icon"
+                :name="getToolIcon(event.tool_name)"
+                theme='brand'
+                :size="14"
+              />
               <t-icon v-if="event.tool_name && isBookIcon(event.tool_name)" class="action-title-icon" name="book" />
               <t-tooltip v-if="event.tool_name === 'todo_write' && event.tool_data?.steps" :content="t('agent.updatePlan')" placement="top">
                 <span class="action-name">
@@ -344,6 +350,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import ToolResultRenderer from './ToolResultRenderer.vue';
 import picturePreview from '@/components/picture-preview.vue';
+import { SvgIcon, type IconName } from '@/components/icons';
 import { getChunkByIdOnly } from '@/api/knowledge-base';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUIStore } from '@/stores/ui';
@@ -564,14 +571,6 @@ const openFloatForEl = (el: HTMLElement, widthAdjust = 120) => {
   // Cancel any pending close when opening
   cancelFloatClose();
 };
-
-// Import icons
-import agentIcon from '@/assets/img/agent.svg';
-import thinkingIcon from '@/assets/img/Frame3718.svg';
-import knowledgeIcon from '@/assets/img/zhishiku-thin.svg';
-import documentIcon from '@/assets/img/ziliao.svg';
-import fileAddIcon from '@/assets/img/file-add-green.svg';
-import webSearchGlobeGreenIcon from '@/assets/img/websearch-globe-green.svg';
 
 interface SessionData {
   isAgentMode?: boolean;
@@ -1580,25 +1579,25 @@ const isBookIcon = (toolName: string): boolean => {
 };
 
 // Get icon for tool type
-const getToolIcon = (toolName: string): string => {
+const getToolIcon = (toolName: string): IconName => {
   if (toolName === 'thinking') {
-    return thinkingIcon;
+    return 'thinking';
   } else if (toolName === 'search_knowledge' || toolName === 'knowledge_search') {
-    return knowledgeIcon;
+    return 'zhishikuThin';
   } else if (toolName === 'grep_chunks') {
-    return knowledgeIcon; // Use same icon as knowledge_search for consistency
+    return 'zhishikuThin';
   } else if (toolName === 'web_search') {
-    return webSearchGlobeGreenIcon;
+    return 'websearch';
   } else if (toolName === 'get_document_info' || toolName === 'list_knowledge_chunks') {
-    return documentIcon;
+    return 'ziliao';
   } else if (toolName === 'todo_write') {
-    return fileAddIcon;
+    return 'fileAdd';
   } else if (toolName === 'image_analysis') {
-    return thinkingIcon;
+    return 'thinking';
   } else if (toolName.startsWith('mcp_')) {
-    return documentIcon; // MCP external tool icon
+    return 'ziliao'; // MCP external tool icon
   } else {
-    return documentIcon; // default icon
+    return 'ziliao'; // default icon
   }
 };
 
@@ -2772,7 +2771,7 @@ const handleAddToKnowledge = (answerEvent: any) => {
   background: var(--td-bg-color-secondarycontainer);
   border-radius: 6px;
   border: none !important;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+  box-shadow: var(--td-shadow-3);
   padding: 12px 14px;
   color: var(--td-text-color-primary);
   line-height: 1.5;

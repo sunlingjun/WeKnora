@@ -28,7 +28,16 @@ type Config struct {
 	ExtractManager  *ExtractManagerConfig  `yaml:"extract"          json:"extract"`
 	WebSearch       *WebSearchConfig       `yaml:"web_search"       json:"web_search"`
 	PromptTemplates *PromptTemplatesConfig `yaml:"prompt_templates" json:"prompt_templates"`
+	CAS             *CASConfig             `yaml:"cas"              json:"cas"`
 	IM              *IMConfig              `yaml:"im"               json:"im"`
+	Agent           *AgentConfig           `yaml:"agent"            json:"agent"`
+}
+
+// AgentConfig represents the global agent settings.
+type AgentConfig struct {
+	// LLMCallTimeout is the default timeout for a single LLM call in seconds.
+	// Default: 120 (standard agents) or 300 (can be overridden by Env).
+	LLMCallTimeout int `yaml:"llm_call_timeout" json:"llm_call_timeout"`
 }
 
 // IMConfig configures the IM integration service.
@@ -133,12 +142,27 @@ type SummaryConfig struct {
 	ContextTemplate string `yaml:"-" json:"context_template"`
 }
 
+// HTTPSConfig 进程内 TLS（与前置 Nginx/Ingress 终结 TLS 二选一；未启用时可省略整个 https 块）。
+type HTTPSConfig struct {
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	CertFile string `yaml:"cert_file" json:"cert_file"`
+	KeyFile  string `yaml:"key_file" json:"key_file"`
+}
+
 // ServerConfig 服务器配置
 type ServerConfig struct {
 	Port            int           `yaml:"port"             json:"port"`
 	Host            string        `yaml:"host"             json:"host"`
 	LogPath         string        `yaml:"log_path"         json:"log_path"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" json:"shutdown_timeout" default:"30s"`
+	// BehindProxy: Gin 仅在来自 TrustedProxies 的请求上信任 X-Forwarded-Proto / X-Forwarded-For 等头。
+	// 生产环境由 Nginx、Ingress、负载均衡终结 TLS 且直连为 HTTP 时应开启。
+	BehindProxy bool `yaml:"behind_proxy" json:"behind_proxy"`
+	// TrustedProxies: 反向代理的 IP 或 CIDR 列表；BehindProxy 为 true 且本项为空时使用常见私网段默认值。
+	TrustedProxies []string `yaml:"trusted_proxies" json:"trusted_proxies"`
+
+	// HTTPS: 可选；enabled 为 true 时必须同时配置 cert_file 与 key_file（无内置默认路径）。
+	HTTPS *HTTPSConfig `yaml:"https" json:"https"`
 }
 
 // KnowledgeBaseConfig 知识库配置
@@ -261,7 +285,9 @@ func DefaultTemplateByMode(templates []PromptTemplate, mode string) *PromptTempl
 
 // LocalizeTemplates returns a deep copy of the template list with Name and
 // Description replaced according to the given locale.  Fallback chain:
-//   locale → primary language (e.g. "zh" from "zh-CN") → original Name/Description.
+//
+//	locale → primary language (e.g. "zh" from "zh-CN") → original Name/Description.
+//
 // The returned slice is safe to serialise directly; it never mutates the original.
 func LocalizeTemplates(templates []PromptTemplate, locale string) []PromptTemplate {
 	if len(templates) == 0 {
@@ -408,6 +434,7 @@ func LoadConfig() (*Config, error) {
 
 	// Validate configuration values
 	applyOIDCEnvOverrides(&cfg)
+	applyAgentEnvOverrides(&cfg)
 
 	if err := ValidateConfig(&cfg); err != nil {
 		return nil, err
@@ -464,6 +491,11 @@ func ValidateConfig(cfg *Config) error {
 	if cfg.Server != nil {
 		if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
 			errs = append(errs, "server.port must be between 1 and 65535")
+		}
+		if h := cfg.Server.HTTPS; h != nil && h.Enabled {
+			if strings.TrimSpace(h.CertFile) == "" || strings.TrimSpace(h.KeyFile) == "" {
+				errs = append(errs, "server.https.enabled requires non-empty server.https.cert_file and server.https.key_file")
+			}
 		}
 	}
 
@@ -532,6 +564,20 @@ func applyOIDCEnvOverrides(cfg *Config) {
 	}
 	if cfg.OIDCAuth.DiscoveryURL == "" && cfg.OIDCAuth.IssuerURL != "" {
 		cfg.OIDCAuth.DiscoveryURL = strings.TrimRight(cfg.OIDCAuth.IssuerURL, "/") + "/.well-known/openid-configuration"
+	}
+}
+
+func applyAgentEnvOverrides(cfg *Config) {
+	if cfg.Agent == nil {
+		cfg.Agent = &AgentConfig{}
+	}
+	if value := strings.TrimSpace(os.Getenv("WEKNORA_AGENT_LLM_TIMEOUT")); value != "" {
+		if timeout, err := time.ParseDuration(value); err == nil {
+			cfg.Agent.LLMCallTimeout = int(timeout.Seconds())
+		} else if sec, err := time.ParseDuration(value + "s"); err == nil {
+			// Handle case where user just provides a number like "300"
+			cfg.Agent.LLMCallTimeout = int(sec.Seconds())
+		}
 	}
 }
 
@@ -719,4 +765,44 @@ func loadPromptTemplates(configDir string) (*PromptTemplatesConfig, error) {
 // WebSearchConfig represents the web search configuration
 type WebSearchConfig struct {
 	Timeout int `yaml:"timeout" json:"timeout"` // 超时时间（秒）
+}
+
+// CASConfig CAS 单点登录配置
+type CASConfig struct {
+	Environment string        `yaml:"environment" json:"environment"` // production 或 test
+	Production  *CASEnvConfig `yaml:"production"  json:"production"`
+	Test        *CASEnvConfig `yaml:"test"        json:"test"`
+}
+
+// CASEnvConfig CAS 环境配置
+type CASEnvConfig struct {
+	APIHost   string `yaml:"api_host"   json:"api_host"`   // API 主机地址（如：open.nxin.com）
+	LoginHost string `yaml:"login_host" json:"login_host"` // 登录页面主机地址（如：cas.nxin.com）
+	CookieSID string `yaml:"cookie_sid" json:"cookie_sid"` // Cookie SID 名称（如：_cas_sid）
+	CookieUID string `yaml:"cookie_uid" json:"cookie_uid"` // Cookie UID 名称（如：_cas_uid）
+	ImageHost string `yaml:"image_host" json:"image_host"` // 头像图片主机地址（可选）
+}
+
+// GetCurrentConfig 获取当前环境的配置
+func (c *CASConfig) GetCurrentConfig() *CASEnvConfig {
+	if c == nil {
+		return nil
+	}
+
+	// 从环境变量获取环境类型，如果没有则使用配置中的值
+	env := os.Getenv("CAS_ENVIRONMENT")
+	if env == "" {
+		env = c.Environment
+	}
+
+	if env == "test" && c.Test != nil {
+		return c.Test
+	}
+
+	// 默认返回生产环境配置
+	if c.Production != nil {
+		return c.Production
+	}
+
+	return c.Test // 如果生产环境配置不存在，返回测试环境配置
 }

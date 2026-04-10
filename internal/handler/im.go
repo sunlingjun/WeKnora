@@ -45,13 +45,13 @@ func (h *IMHandler) CreateIMChannel(c *gin.Context) {
 	}
 
 	var req struct {
-		Platform        string         `json:"platform" binding:"required"`
-		Name            string         `json:"name"`
-		Mode            string         `json:"mode"`
-		OutputMode      string         `json:"output_mode"`
-		KnowledgeBaseID string         `json:"knowledge_base_id"`
-		Credentials     types.JSON     `json:"credentials"`
-		Enabled         *bool          `json:"enabled"`
+		Platform        string     `json:"platform" binding:"required"`
+		Name            string     `json:"name"`
+		Mode            string     `json:"mode"`
+		OutputMode      string     `json:"output_mode"`
+		KnowledgeBaseID string     `json:"knowledge_base_id"`
+		Credentials     types.JSON `json:"credentials"`
+		Enabled         *bool      `json:"enabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

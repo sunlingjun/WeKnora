@@ -124,6 +124,9 @@ export default {
     urlExists: "해당 URL이 이미 존재합니다",
     urlLabel: "URL 주소",
     urlPlaceholder: "웹페이지 URL을 입력하세요. 예: https://example.com",
+    urlTitleLabel: "표시 제목(필수)",
+    urlTitlePlaceholder: "지식 제목으로 표시됩니다. URL 기준으로 미리 채우며 수정 가능합니다",
+    urlTitleRequired: "표시 제목을 입력하세요",
     urlTip:
       "다양한 웹페이지 콘텐츠를 가져올 수 있으며, 시스템이 자동으로 텍스트를 추출하고 분석합니다",
     typeURL: "웹페이지",
@@ -3501,6 +3504,7 @@ export default {
     connectionFailed: "연결 실패",
     isRequired: "은(는) 필수입니다",
     resourceHint: "동기화할 공간/폴더를 선택하세요",
+    untitled: "제목 없음",
     resourceLoadFailed: "리소스 목록 로드 실패",
     noResources: "동기화 가능한 위키 공간을 찾을 수 없습니다",
     noResourcesHint: "먼저 데이터 소스를 저장하고 권한 설정을 확인하세요",

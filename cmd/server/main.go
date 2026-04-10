@@ -24,11 +24,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,9 +42,20 @@ import (
 	"github.com/Tencent/WeKnora/internal/runtime"
 	"github.com/Tencent/WeKnora/internal/tracing"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
-
-	"golang.org/x/sys/unix"
 )
+
+// resolveInProcessTLSFromConfig returns cert paths when server.https is enabled.
+// Paths must be set in YAML (validated in config.ValidateConfig); there is no default file path.
+func resolveInProcessTLSFromConfig(cfg *config.Config) (certFile, keyFile string, useTLS bool) {
+	if cfg == nil || cfg.Server == nil {
+		return "", "", false
+	}
+	httpsCfg := cfg.Server.HTTPS
+	if httpsCfg == nil || !httpsCfg.Enabled {
+		return "", "", false
+	}
+	return strings.TrimSpace(httpsCfg.CertFile), strings.TrimSpace(httpsCfg.KeyFile), true
+}
 
 func main() {
 	// Set Gin mode
@@ -68,9 +81,25 @@ func main() {
 		}
 
 		addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-		listener, err := listenWithRetry(addr, 10, 300*time.Millisecond)
+		tcpListener, err := listenWithRetry(addr, 10, 300*time.Millisecond)
 		if err != nil {
 			return fmt.Errorf("failed to start server: %v", err)
+		}
+
+		certFile, keyFile, tlsOK := resolveInProcessTLSFromConfig(cfg)
+		serveListener := tcpListener
+		if tlsOK {
+			cert, tlsErr := tls.LoadX509KeyPair(certFile, keyFile)
+			if tlsErr != nil {
+				_ = tcpListener.Close()
+				return fmt.Errorf("load TLS certificate: %w", tlsErr)
+			}
+			tlsCfg := &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				MinVersion:   tls.VersionTLS12,
+			}
+			serveListener = tls.NewListener(tcpListener, tlsCfg)
+			logger.Infof(context.Background(), "in-process HTTPS enabled, cert=%s key=%s", certFile, keyFile)
 		}
 
 		ctx, done := context.WithCancel(context.Background())
@@ -83,7 +112,7 @@ func main() {
 
 			// Close listener first to release port immediately,
 			// so the next process can bind during our graceful drain.
-			listener.Close()
+			_ = serveListener.Close()
 
 			shutdownTimeout := cfg.Server.ShutdownTimeout
 			if shutdownTimeout == 0 {
@@ -113,8 +142,15 @@ func main() {
 			done()
 		}()
 
-		logger.Infof(context.Background(), "Server is running at %s", addr)
-		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+		scheme := "http"
+		if tlsOK {
+			scheme = "https"
+		}
+		logger.Infof(context.Background(), "Server is running at %s://%s", scheme, addr)
+		if scheme == "http" {
+			logger.Infof(context.Background(), "Tip: 进程内 TLS 在 config.yaml 中配置 server.https（enabled + cert_file + key_file）；前置 Nginx 终结 TLS 时设置 server.behind_proxy=true，并省略 https 块。")
+		}
+		if err := server.Serve(serveListener); err != nil && err != http.ErrServerClosed {
 			return fmt.Errorf("server error: %v", err)
 		}
 
@@ -132,7 +168,7 @@ func listenWithRetry(addr string, maxRetries int, baseDelay time.Duration) (net.
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
+				_ = syscall.SetsockoptInt(syscall.Handle(int(fd)), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 			})
 		},
 	}

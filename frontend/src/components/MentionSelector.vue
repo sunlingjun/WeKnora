@@ -55,9 +55,9 @@
                   {{ $t('mentionDetail.kbCount', { count: detailCache[item.id].data.knowledge_count ?? detailCache[item.id].data.count ?? 0 }) }}
                 </span>
                 <span v-if="detailCache[item.id].data.org_name || item.orgName" class="detail-org">
-                  <img src="@/assets/img/organization-green.svg" class="detail-icon-img" alt="" aria-hidden="true" />
+                  <SvgIcon name="organization" variant="green" :size="14" class="detail-icon-img" />
                   <span class="detail-label">{{ $t('mentionDetail.belongsToOrg') }}</span>
-                  <span 
+                  <span
                     class="detail-value clickable"
                     @click.stop="handleOrgClick(detailCache[item.id].data.org_name || item.orgName)"
                   >
@@ -119,7 +119,7 @@
                 <span v-if="detailCache[item.id].data.knowledge_base_name || item.kbName" class="detail-kb">
                   <t-icon name="folder" class="detail-icon" />
                   <span class="detail-label">{{ $t('mentionDetail.belongsToKb') }}</span>
-                  <span 
+                  <span
                     class="detail-value clickable"
                     @click.stop="handleKbClick(detailCache[item.id].data.knowledge_base_id || (item as any).kbId)"
                   >
@@ -127,9 +127,9 @@
                   </span>
                 </span>
                 <span v-if="item.orgName" class="detail-org">
-                  <img src="@/assets/img/organization-green.svg" class="detail-icon-img" alt="" aria-hidden="true" />
+                  <SvgIcon name="organization" variant="green" :size="14" class="detail-icon-img" />
                   <span class="detail-label">{{ $t('mentionDetail.belongsToOrg') }}</span>
-                  <span 
+                  <span
                     class="detail-value clickable"
                     @click.stop="handleOrgClick(item.orgName)"
                   >
@@ -160,6 +160,7 @@ import { getKnowledgeBaseById } from '@/api/knowledge-base';
 import { getKnowledgeDetails } from '@/api/knowledge-base';
 import { useOrganizationStore } from '@/stores/organization';
 import { useSettingsStore } from '@/stores/settings';
+import { SvgIcon } from '@/components/icons';
 
 type DetailState = { loading: boolean; error?: string; data?: any };
 

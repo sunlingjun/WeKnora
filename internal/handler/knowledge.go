@@ -32,6 +32,7 @@ type KnowledgeHandler struct {
 	kbShareService    interfaces.KBShareService
 	agentShareService interfaces.AgentShareService
 	asynqClient       interfaces.TaskEnqueuer
+	sharedKBService   interfaces.SharedKnowledgeBaseService
 }
 
 // NewKnowledgeHandler creates a new knowledge handler instance
@@ -41,6 +42,7 @@ func NewKnowledgeHandler(
 	kbShareService interfaces.KBShareService,
 	agentShareService interfaces.AgentShareService,
 	asynqClient interfaces.TaskEnqueuer,
+	sharedKBService interfaces.SharedKnowledgeBaseService,
 ) *KnowledgeHandler {
 	return &KnowledgeHandler{
 		kgService:         kgService,
@@ -48,6 +50,7 @@ func NewKnowledgeHandler(
 		kbShareService:    kbShareService,
 		agentShareService: agentShareService,
 		asynqClient:       asynqClient,
+		sharedKBService:   sharedKBService,
 	}
 }
 
@@ -91,6 +94,13 @@ func (h *KnowledgeHandler) validateKnowledgeBaseAccessWithKBID(c *gin.Context, k
 			}
 		}
 	}
+	if userExists && h.sharedKBService != nil {
+		role, err := h.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID.(string))
+		if err == nil && role != "" {
+			logger.Infof(ctx, "User %s accessing direct shared KB %s with role %s", userID.(string), kbID, role)
+			return kb, kbID, kb.TenantID, types.OrgRoleViewer, nil
+		}
+	}
 	if userExists && h.agentShareService != nil {
 		can, err := h.agentShareService.UserCanAccessKBViaSomeSharedAgent(ctx, userID.(string), tenantID, kb)
 		if err == nil && can {
@@ -128,6 +138,13 @@ func (h *KnowledgeHandler) resolveKnowledgeAndValidateKBAccess(c *gin.Context, k
 		if permErr == nil && isShared && permission.HasPermission(requiredPermission) {
 			effectiveTenantID := knowledge.TenantID
 			return knowledge, context.WithValue(ctx, types.TenantIDContextKey, effectiveTenantID), nil
+		}
+	}
+	// Direct shared KB: check if user is member
+	if userExists && h.sharedKBService != nil && requiredPermission == types.OrgRoleViewer {
+		role, err := h.sharedKBService.GetMemberRoleByKBAndUser(ctx, knowledge.KnowledgeBaseID, userID.(string))
+		if err == nil && role != "" {
+			return knowledge, context.WithValue(ctx, types.TenantIDContextKey, knowledge.TenantID), nil
 		}
 	}
 	// Shared agent: request passes agent_id, or user has any shared agent that can access this KB

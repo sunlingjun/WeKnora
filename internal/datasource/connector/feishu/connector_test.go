@@ -66,7 +66,9 @@ func fakeFeishu(nodes []wikiNode) (*httptest.Server, *Config) {
 		if r.Method == http.MethodPost {
 			writeJSON(w, exportTaskCreateResponse{
 				apiResponse: apiResponse{Code: 0},
-				Data:        struct{ Ticket string `json:"ticket"` }{Ticket: "ticket-123"},
+				Data: struct {
+					Ticket string `json:"ticket"`
+				}{Ticket: "ticket-123"},
 			})
 			return
 		}

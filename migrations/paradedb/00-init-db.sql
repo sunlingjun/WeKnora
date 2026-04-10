@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     retriever_engines JSONB NOT NULL DEFAULT '[]',
     status VARCHAR(50) DEFAULT 'active',
     business VARCHAR(255) NOT NULL,
-    storage_quota BIGINT NOT NULL DEFAULT 10737418240, -- 默认10GB配额(Bytes)
+    storage_quota BIGINT NOT NULL DEFAULT 1073741824, -- 默认1GB配额(Bytes)
     storage_used BIGINT NOT NULL DEFAULT 0, -- 已使用的存储空间(Bytes)
     agent_config JSONB DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS messages (
 COMMENT ON COLUMN messages.agent_steps IS 'Agent execution steps (reasoning process and tool calls)';
 
 -- Create Index for messages
-CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id); 
+CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 
 
 CREATE TABLE IF NOT EXISTS chunks (

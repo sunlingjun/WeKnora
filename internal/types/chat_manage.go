@@ -46,12 +46,12 @@ type PipelineRequest struct {
 	ChatModelSupportsVision bool     `json:"-"`
 
 	// Misc request-scoped config
-	TenantID              uint64 `json:"-"`
-	WebSearchEnabled      bool   `json:"-"`
-	WebSearchProviderID   string `json:"-"` // Resolved from agent config or tenant default
-	WebFetchEnabled       bool   `json:"-"` // Auto-fetch full page content for web search results after rerank
-	WebFetchTopN          int    `json:"-"` // Max pages to fetch (default 3)
-	Language              string `json:"-"`
+	TenantID            uint64 `json:"-"`
+	WebSearchEnabled    bool   `json:"-"`
+	WebSearchProviderID string `json:"-"` // Resolved from agent config or tenant default
+	WebFetchEnabled     bool   `json:"-"` // Auto-fetch full page content for web search results after rerank
+	WebFetchTopN        int    `json:"-"` // Max pages to fetch (default 3)
+	Language            string `json:"-"`
 }
 
 // QueryIntent represents the classified intent of a user query.
@@ -187,9 +187,9 @@ func (c *ChatManage) Clone() *ChatManage {
 			ChatModelSupportsVision:  c.ChatModelSupportsVision,
 			TenantID:                 c.TenantID,
 			WebSearchEnabled:         c.WebSearchEnabled,
-			WebSearchProviderID:     c.WebSearchProviderID,
-			WebFetchEnabled:         c.WebFetchEnabled,
-			WebFetchTopN:            c.WebFetchTopN,
+			WebSearchProviderID:      c.WebSearchProviderID,
+			WebFetchEnabled:          c.WebFetchEnabled,
+			WebFetchTopN:             c.WebFetchTopN,
 			Language:                 c.Language,
 		},
 		PipelineState: PipelineState{

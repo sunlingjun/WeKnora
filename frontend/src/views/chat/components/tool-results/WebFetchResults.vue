@@ -223,8 +223,8 @@ const indexKey = (index: number, item: WebFetchResultItem): string => {
   display: inline-flex;
   align-items: center;
   padding: 2px 6px;
-  border-radius: 999px;
-  background: rgba(7, 192, 95, 0.08);
+  border-radius: var(--td-radius-round);
+  background: var(--td-brand-color-light);
   color: var(--td-success-color);
   font-size: 10px;
   font-weight: 600;

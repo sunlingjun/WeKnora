@@ -25,6 +25,7 @@ var noAuthAPI = map[string][]string{
 	"/api/v1/auth/oidc/url":      {"GET"},
 	"/api/v1/auth/oidc/callback": {"GET"},
 	"/api/v1/auth/refresh":       {"POST"},
+	"/api/v1/cas/validate":       {"GET"}, // CAS 会话验证（认证过程本身）
 }
 
 // 检查请求是否在无需认证的API列表中
@@ -131,21 +132,25 @@ func Auth(
 					return
 				}
 
-				// 存储用户和租户信息到上下文
+				// 存储用户和租户信息到上下文（同时设置 UserContextKey 与 UserInfoContextKey 以兼容上下游）
 				c.Set(types.TenantIDContextKey.String(), targetTenantID)
 				c.Set(types.TenantInfoContextKey.String(), tenant)
 				c.Set(types.UserContextKey.String(), user)
 				c.Set(types.UserIDContextKey.String(), user.ID)
+				c.Set(types.UserInfoContextKey.String(), user)
 				c.Request = c.Request.WithContext(
 					context.WithValue(
 						context.WithValue(
 							context.WithValue(
-								context.WithValue(c.Request.Context(), types.TenantIDContextKey, targetTenantID),
-								types.TenantInfoContextKey, tenant,
+								context.WithValue(
+									context.WithValue(c.Request.Context(), types.TenantIDContextKey, targetTenantID),
+									types.TenantInfoContextKey, tenant,
+								),
+								types.UserContextKey, user,
 							),
-							types.UserContextKey, user,
+							types.UserIDContextKey, user.ID,
 						),
-						types.UserIDContextKey, user.ID,
+						types.UserInfoContextKey, user,
 					),
 				)
 				c.Next()

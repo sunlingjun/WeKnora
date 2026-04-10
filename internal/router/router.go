@@ -31,49 +31,108 @@ import (
 type RouterParams struct {
 	dig.In
 
-	Config                *config.Config
-	UserService           interfaces.UserService
-	KBService             interfaces.KnowledgeBaseService
-	KnowledgeService      interfaces.KnowledgeService
-	ChunkService          interfaces.ChunkService
-	SessionService        interfaces.SessionService
-	MessageService        interfaces.MessageService
-	ModelService          interfaces.ModelService
-	EvaluationService     interfaces.EvaluationService
-	KBHandler             *handler.KnowledgeBaseHandler
-	KnowledgeHandler      *handler.KnowledgeHandler
-	TenantHandler         *handler.TenantHandler
-	TenantService         interfaces.TenantService
-	ChunkHandler          *handler.ChunkHandler
-	SessionHandler        *session.Handler
-	MessageHandler        *handler.MessageHandler
-	ModelHandler          *handler.ModelHandler
-	EvaluationHandler     *handler.EvaluationHandler
-	AuthHandler           *handler.AuthHandler
-	InitializationHandler *handler.InitializationHandler
-	SystemHandler         *handler.SystemHandler
-	MCPServiceHandler     *handler.MCPServiceHandler
-	WebSearchHandler              *handler.WebSearchHandler
-	WebSearchProviderHandler      *handler.WebSearchProviderHandler
-	FAQHandler            *handler.FAQHandler
-	TagHandler            *handler.TagHandler
-	CustomAgentHandler    *handler.CustomAgentHandler
-	SkillHandler          *handler.SkillHandler
-	OrganizationHandler   *handler.OrganizationHandler
-	IMHandler             *handler.IMHandler
-	DataSourceHandler     *handler.DataSourceHandler
+	Config                   *config.Config
+	UserService              interfaces.UserService
+	KBService                interfaces.KnowledgeBaseService
+	KnowledgeService         interfaces.KnowledgeService
+	ChunkService             interfaces.ChunkService
+	SessionService           interfaces.SessionService
+	MessageService           interfaces.MessageService
+	ModelService             interfaces.ModelService
+	EvaluationService        interfaces.EvaluationService
+	KBHandler                *handler.KnowledgeBaseHandler
+	KnowledgeHandler         *handler.KnowledgeHandler
+	TenantHandler            *handler.TenantHandler
+	TenantService            interfaces.TenantService
+	ChunkHandler             *handler.ChunkHandler
+	SessionHandler           *session.Handler
+	MessageHandler           *handler.MessageHandler
+	ModelHandler             *handler.ModelHandler
+	EvaluationHandler        *handler.EvaluationHandler
+	AuthHandler              *handler.AuthHandler
+	InitializationHandler    *handler.InitializationHandler
+	SystemHandler            *handler.SystemHandler
+	MCPServiceHandler        *handler.MCPServiceHandler
+	WebSearchHandler         *handler.WebSearchHandler
+	WebSearchProviderHandler *handler.WebSearchProviderHandler
+	FAQHandler               *handler.FAQHandler
+	TagHandler               *handler.TagHandler
+	CustomAgentHandler       *handler.CustomAgentHandler
+	SkillHandler             *handler.SkillHandler
+	OrganizationHandler      *handler.OrganizationHandler
+	IMHandler                *handler.IMHandler
+	DataSourceHandler        *handler.DataSourceHandler
+	CASAuthHandler           *handler.CASAuthHandler
+}
+
+// defaultTrustedPrivateProxies 当 behind_proxy 开启但未配置 trusted_proxies 时的保守默认值（私网 + 本机）。
+func defaultTrustedPrivateProxies() []string {
+	return []string{
+		"127.0.0.1",
+		"::1",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+	}
+}
+
+func applyGinTrustedProxies(r *gin.Engine, cfg *config.Config) {
+	if r == nil || cfg == nil || cfg.Server == nil || !cfg.Server.BehindProxy {
+		return
+	}
+	proxies := cfg.Server.TrustedProxies
+	if len(proxies) == 0 {
+		proxies = defaultTrustedPrivateProxies()
+		logger.Infof(context.Background(), "server.behind_proxy=true with empty trusted_proxies, using default private ranges")
+	}
+	if err := r.SetTrustedProxies(proxies); err != nil {
+		logger.Warnf(context.Background(), "SetTrustedProxies failed: %v", err)
+	}
 }
 
 // NewRouter 创建新的路由
 func NewRouter(params RouterParams) *gin.Engine {
 	r := gin.New()
 	r.ContextWithFallback = true
+	applyGinTrustedProxies(r, params.Config)
 
 	// CORS 中间件应放在最前面
+	// 注意：当 AllowCredentials 为 true 时，不能使用通配符 "*"，必须明确指定允许的源
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		// 使用 AllowOriginFunc 动态返回请求的 Origin，支持多个环境
+		AllowOriginFunc: func(origin string) bool {
+			// 允许的源列表（包括协议、域名和端口）
+			allowedOrigins := []string{
+				"https://zsk.t.nxin.com",
+				"https://zsk.t.nxin.com:443",
+				"https://zsk.t.nxin.com:80",
+				"https://zsk.nxin.com",
+				"https://zsk.nxin.com:443",
+				"https://zsk.nxin.com:80",
+				"https://localhost",
+				"https://localhost:443",
+				"https://localhost:80",
+				"https://localhost:8081",
+				"http://localhost",
+				"http://localhost:8081",
+			}
+
+			// 检查请求的 Origin 是否在允许列表中
+			for _, allowed := range allowedOrigins {
+				if origin == allowed {
+					return true
+				}
+			}
+
+			// 开发环境：允许 localhost 的所有端口（仅用于开发）
+			if strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "https://localhost:") {
+				return true
+			}
+
+			return false
+		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-API-Key", "X-Request-ID"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-API-Key", "X-Request-ID", "X-Tenant-ID"},
 		ExposeHeaders:    []string{"Content-Length", "Access-Control-Allow-Origin"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
@@ -109,6 +168,11 @@ func NewRouter(params RouterParams) *gin.Engine {
 
 	// IM 回调路由（在认证中间件之前注册，使用各平台自身的签名验证）
 	RegisterIMRoutes(r, params.IMHandler)
+
+	// CAS 认证路由（不需要认证中间件，因为它是认证过程本身）
+	if params.CASAuthHandler != nil {
+		RegisterCASRoutes(r, params.CASAuthHandler)
+	}
 
 	// 认证中间件
 	r.Use(middleware.Auth(params.TenantService, params.UserService, params.Config))
@@ -272,6 +336,24 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		kb.GET("/copy/progress/:task_id", handler.GetKBCloneProgress)
 		// 获取可移动目标知识库列表
 		kb.GET("/:id/move-targets", handler.ListMoveTargets)
+
+		// 共享知识库相关路由
+		// 创建共享知识库
+		kb.POST("/shared", handler.CreateSharedKnowledgeBase)
+		// 列出共享知识库广场
+		kb.GET("/shared", handler.ListSharedKnowledgeBases)
+		// 列出用户的知识库（个人 + 加入的共享知识库）
+		kb.GET("/user", handler.ListUserKnowledgeBases)
+		// 加入共享知识库
+		kb.POST("/:id/join", handler.JoinSharedKnowledgeBase)
+		// 离开共享知识库
+		kb.POST("/:id/leave", handler.LeaveSharedKnowledgeBase)
+		// 列出知识库成员
+		kb.GET("/:id/members", handler.ListKnowledgeBaseMembers)
+		// 更新成员权限
+		kb.PUT("/:id/members/:user_id", handler.UpdateMemberRole)
+		// 移除成员
+		kb.DELETE("/:id/members/:user_id", handler.RemoveMember)
 	}
 }
 
@@ -390,6 +472,15 @@ func RegisterEvaluationRoutes(r *gin.RouterGroup, handler *handler.EvaluationHan
 	{
 		evaluationRoutes.POST("/", handler.Evaluation)
 		evaluationRoutes.GET("/", handler.GetEvaluationResult)
+	}
+}
+
+// RegisterCASRoutes 注册 CAS 认证相关的路由（不需要认证中间件）
+func RegisterCASRoutes(r *gin.Engine, handler *handler.CASAuthHandler) {
+	// CAS 路由不需要认证中间件，因为它是认证过程本身
+	cas := r.Group("/api/v1/cas")
+	{
+		cas.GET("/validate", handler.ValidateCASSession)
 	}
 }
 

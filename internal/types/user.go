@@ -24,6 +24,14 @@ type User struct {
 	IsActive bool `json:"is_active"  gorm:"default:true"`
 	// Whether the user can access all tenants (cross-tenant access)
 	CanAccessAllTenants bool `json:"can_access_all_tenants" gorm:"default:false"`
+	// CAS user ID (from CAS system)
+	CASUserID string `json:"cas_user_id" gorm:"type:varchar(64);index"`
+	// CAS login name (from CAS system)
+	CASLoginName string `json:"cas_login_name" gorm:"type:varchar(100);index"`
+	// CAS real name (from CAS system)
+	CASRealName string `json:"cas_real_name" gorm:"type:varchar(100)"`
+	// CAS mobile phone (from CAS system)
+	CASMobilePhone string `json:"cas_mobile_phone" gorm:"type:varchar(20)"`
 	// Creation time of the user
 	CreatedAt time.Time `json:"created_at"`
 	// Last updated time of the user

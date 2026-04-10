@@ -60,23 +60,24 @@ var (
 // knowledgeService implements the knowledge service interface
 // service 实现知识服务接口
 type knowledgeService struct {
-	config         *config.Config
-	retrieveEngine interfaces.RetrieveEngineRegistry
-	repo           interfaces.KnowledgeRepository
-	kbService      interfaces.KnowledgeBaseService
-	tenantRepo     interfaces.TenantRepository
-	documentReader interfaces.DocumentReader
-	chunkService   interfaces.ChunkService
-	chunkRepo      interfaces.ChunkRepository
-	tagRepo        interfaces.KnowledgeTagRepository
-	tagService     interfaces.KnowledgeTagService
-	fileSvc        interfaces.FileService
-	modelService   interfaces.ModelService
-	task           interfaces.TaskEnqueuer
-	graphEngine    interfaces.RetrieveGraphRepository
-	redisClient    *redis.Client
-	kbShareService interfaces.KBShareService
-	imageResolver  *docparser.ImageResolver
+	config          *config.Config
+	retrieveEngine  interfaces.RetrieveEngineRegistry
+	repo            interfaces.KnowledgeRepository
+	kbService       interfaces.KnowledgeBaseService
+	tenantRepo      interfaces.TenantRepository
+	documentReader  interfaces.DocumentReader
+	chunkService    interfaces.ChunkService
+	chunkRepo       interfaces.ChunkRepository
+	tagRepo         interfaces.KnowledgeTagRepository
+	tagService      interfaces.KnowledgeTagService
+	fileSvc         interfaces.FileService
+	modelService    interfaces.ModelService
+	task            interfaces.TaskEnqueuer
+	graphEngine     interfaces.RetrieveGraphRepository
+	redisClient     redis.UniversalClient
+	kbShareService  interfaces.KBShareService
+	imageResolver   *docparser.ImageResolver
+	sharedKBService interfaces.SharedKnowledgeBaseService
 }
 
 const (
@@ -101,28 +102,30 @@ func NewKnowledgeService(
 	task interfaces.TaskEnqueuer,
 	graphEngine interfaces.RetrieveGraphRepository,
 	retrieveEngine interfaces.RetrieveEngineRegistry,
-	redisClient *redis.Client,
+	redisClient redis.UniversalClient,
 	kbShareService interfaces.KBShareService,
 	imageResolver *docparser.ImageResolver,
+	sharedKBService interfaces.SharedKnowledgeBaseService,
 ) (interfaces.KnowledgeService, error) {
 	return &knowledgeService{
-		config:         config,
-		repo:           repo,
-		kbService:      kbService,
-		tenantRepo:     tenantRepo,
-		documentReader: documentReader,
-		chunkService:   chunkService,
-		chunkRepo:      chunkRepo,
-		tagRepo:        tagRepo,
-		tagService:     tagService,
-		fileSvc:        fileSvc,
-		modelService:   modelService,
-		task:           task,
-		graphEngine:    graphEngine,
-		retrieveEngine: retrieveEngine,
-		redisClient:    redisClient,
-		kbShareService: kbShareService,
-		imageResolver:  imageResolver,
+		config:          config,
+		repo:            repo,
+		kbService:       kbService,
+		tenantRepo:      tenantRepo,
+		documentReader:  documentReader,
+		chunkService:    chunkService,
+		chunkRepo:       chunkRepo,
+		tagRepo:         tagRepo,
+		tagService:      tagService,
+		fileSvc:         fileSvc,
+		modelService:    modelService,
+		task:            task,
+		graphEngine:     graphEngine,
+		retrieveEngine:  retrieveEngine,
+		redisClient:     redisClient,
+		kbShareService:  kbShareService,
+		imageResolver:   imageResolver,
+		sharedKBService: sharedKBService,
 	}, nil
 }
 
@@ -541,6 +544,9 @@ func (s *knowledgeService) CreateKnowledgeFromURL(ctx context.Context,
 		EmbeddingModelID: kb.EmbeddingModelID,
 		TagID:            tagID, // 设置分类ID，用于知识分类管理
 	}
+	if strings.TrimSpace(knowledge.Title) == "" {
+		knowledge.Title = defaultTitleFromWebURL(url)
+	}
 
 	// Save knowledge record
 	logger.Infof(ctx, "Saving knowledge record to database, ID: %s", knowledge.ID)
@@ -626,6 +632,33 @@ func extractFileNameFromURL(rawURL string) string {
 		return ""
 	}
 	return base
+}
+
+// defaultTitleFromWebURL builds a short display title when the client does not pass one
+// for webpage (type=url) imports. file_url branch already falls back to displayName.
+func defaultTitleFromWebURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return strings.TrimSpace(rawURL)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return strings.TrimSpace(rawURL)
+	}
+	p := strings.Trim(u.Path, "/")
+	if p == "" {
+		return host
+	}
+	seg := path.Base(p)
+	if seg == "" || seg == "." {
+		return host
+	}
+	const maxSeg = 80
+	runes := []rune(seg)
+	if len(runes) > maxSeg {
+		seg = string(runes[:maxSeg-3]) + "..."
+	}
+	return host + " / " + seg
 }
 
 // extractFileNameFromContentDisposition extracts filename from Content-Disposition header
@@ -3037,6 +3070,24 @@ func (s *knowledgeService) GetKnowledgeBatch(ctx context.Context,
 	return s.repo.GetKnowledgeBatch(ctx, tenantID, ids)
 }
 
+// userHasAccessToSharedKnowledgeBase is true if the user may read the KB via org share or square/member join.
+func (s *knowledgeService) userHasAccessToSharedKnowledgeBase(ctx context.Context, kbID, userID string) bool {
+	if kbID == "" || userID == "" {
+		return false
+	}
+	if s.kbShareService != nil {
+		if ok, _ := s.kbShareService.HasKBPermission(ctx, kbID, userID, types.OrgRoleViewer); ok {
+			return true
+		}
+	}
+	if s.sharedKBService != nil {
+		if role, _ := s.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID); role != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // GetKnowledgeBatchWithSharedAccess retrieves knowledge by IDs, including items from shared KBs the user has access to.
 // Used when building search targets so that @mentioned files from shared KBs are included.
 func (s *knowledgeService) GetKnowledgeBatchWithSharedAccess(ctx context.Context,
@@ -3071,8 +3122,7 @@ func (s *knowledgeService) GetKnowledgeBatchWithSharedAccess(ctx context.Context
 		if err != nil || k == nil || k.KnowledgeBaseID == "" {
 			continue
 		}
-		hasPermission, err := s.kbShareService.HasKBPermission(ctx, k.KnowledgeBaseID, userID, types.OrgRoleViewer)
-		if err != nil || !hasPermission {
+		if !s.userHasAccessToSharedKnowledgeBase(ctx, k.KnowledgeBaseID, userID) {
 			continue
 		}
 		foundSet[k.ID] = true
@@ -9378,28 +9428,52 @@ func (s *knowledgeService) SearchKnowledge(ctx context.Context, keyword string, 
 	}
 
 	scopes := make([]types.KnowledgeSearchScope, 0)
+	seenScope := make(map[string]struct{})
 
-	// Own tenant: document-type knowledge bases
-	ownKBs, err := s.kbService.ListKnowledgeBases(ctx)
-	if err == nil {
-		for _, kb := range ownKBs {
-			if kb != nil && kb.Type == types.KnowledgeBaseTypeDocument {
-				scopes = append(scopes, types.KnowledgeSearchScope{TenantID: tenantID, KBID: kb.ID})
+	addScope := func(tid uint64, kbID string) {
+		if kbID == "" {
+			return
+		}
+		key := fmt.Sprintf("%d:%s", tid, kbID)
+		if _, dup := seenScope[key]; dup {
+			return
+		}
+		seenScope[key] = struct{}{}
+		scopes = append(scopes, types.KnowledgeSearchScope{TenantID: tid, KBID: kbID})
+	}
+
+	// Document KBs visible to the user (same contract as GET /knowledge-bases): private + shared + square-joined.
+	// Each row carries the KB's real tenant_id (required for cross-tenant joined shared KBs).
+	if s.sharedKBService != nil {
+		userKBs, err := s.sharedKBService.ListUserKnowledgeBases(ctx, true)
+		if err != nil {
+			logger.Warnf(ctx, "SearchKnowledge: ListUserKnowledgeBases failed: %v", err)
+		} else {
+			for _, kb := range userKBs {
+				if kb != nil && kb.Type == types.KnowledgeBaseTypeDocument {
+					addScope(kb.TenantID, kb.ID)
+				}
+			}
+		}
+	} else {
+		ownKBs, err := s.kbService.ListKnowledgeBases(ctx)
+		if err == nil {
+			for _, kb := range ownKBs {
+				if kb != nil && kb.Type == types.KnowledgeBaseTypeDocument {
+					addScope(tenantID, kb.ID)
+				}
 			}
 		}
 	}
 
-	// Shared knowledge bases (document type only)
+	// Organization-shared KBs (user may have access without square membership); dedupe via addScope.
 	if userIDVal := ctx.Value(types.UserIDContextKey); userIDVal != nil {
-		if userID, ok := userIDVal.(string); ok && userID != "" {
+		if userID, ok := userIDVal.(string); ok && userID != "" && s.kbShareService != nil {
 			sharedList, err := s.kbShareService.ListSharedKnowledgeBases(ctx, userID, tenantID)
 			if err == nil {
 				for _, info := range sharedList {
 					if info != nil && info.KnowledgeBase != nil && info.KnowledgeBase.Type == types.KnowledgeBaseTypeDocument {
-						scopes = append(scopes, types.KnowledgeSearchScope{
-							TenantID: info.SourceTenantID,
-							KBID:     info.KnowledgeBase.ID,
-						})
+						addScope(info.SourceTenantID, info.KnowledgeBase.ID)
 					}
 				}
 			}

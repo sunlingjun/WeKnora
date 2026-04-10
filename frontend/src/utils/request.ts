@@ -6,7 +6,10 @@ import i18n from '@/i18n'
 const t = (key: string) => i18n.global.t(key)
 
 // API基础URL
-const BASE_URL = import.meta.env.VITE_IS_DOCKER ? "" : "http://localhost:8080";
+// 注意：生产环境必须使用 HTTPS，开发环境也需要 HTTPS 以支持 CAS Cookie
+const BASE_URL = import.meta.env.VITE_IS_DOCKER 
+  ? ""  // Docker 环境使用相对路径（同源）
+  : (import.meta.env.VITE_API_URL || (window.location.protocol === 'https:' ? "https://zsk.t.nxin.com:8080" : "http://zsk.t.nxin.com:8080"));  // 根据当前协议自动选择
 
 
 // 创建Axios实例
@@ -17,6 +20,7 @@ const instance = axios.create({
     "Content-Type": "application/json",
     "X-Request-ID": `${generateRandomString(12)}`,
   },
+  withCredentials: true, // 允许携带 Cookie（用于 CAS 认证）
 });
 
 // 获取当前用户语言（用于 Accept-Language header）

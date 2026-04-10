@@ -6,7 +6,7 @@ import { MessagePlugin } from "tdesign-vue-next";
 import { useSettingsStore } from '@/stores/settings';
 import { useUIStore } from '@/stores/ui';
 import { useMenuStore } from '@/stores/menu';
-import { listKnowledgeBases, searchKnowledge, batchQueryKnowledge } from '@/api/knowledge-base';
+import { listKnowledgeBases, listUserKnowledgeBases, searchKnowledge, batchQueryKnowledge } from '@/api/knowledge-base';
 import { stopSession } from '@/api/chat';
 import { useOrganizationStore } from '@/stores/organization';
 import KnowledgeBaseSelector from './KnowledgeBaseSelector.vue';
@@ -883,7 +883,13 @@ const loadMentionItems = async (q: string, resetIndex = true, append = false) =>
   if (shouldLoadFiles) {
     mentionLoading.value = true;
     try {
-      const fileTypesParam = agentSupportedFileTypes.value.length > 0 ? agentSupportedFileTypes.value : undefined;
+      // 智能体限制 supported_file_types 时仍要在 @ 中列出网页/URL 类知识（与后端 SearchKnowledgeInScopes 的 url 类型一致）
+      const mentionExtraTypes = ['url', 'html'];
+      const restricted = agentSupportedFileTypes.value;
+      const fileTypesParam =
+        restricted.length > 0
+          ? [...new Set([...restricted.map((t: string) => String(t).toLowerCase()), ...mentionExtraTypes])]
+          : undefined;
       const sourceTenantId = settingsStore.selectedAgentSourceTenantId;
       const agentId = selectedAgentId.value;
       const searchOptions = sourceTenantId && agentId ? { agent_id: agentId } : undefined;
@@ -1998,7 +2004,7 @@ defineExpose({
           </template>
           <div
             class="control-btn image-upload-btn"
-            :class="{ 
+            :class="{
               'active': uploadedImages.length > 0,
               'disabled': !isImageUploadEnabledByAgent
             }"
@@ -2475,11 +2481,12 @@ const getImgSrc = (url: string) => {
   position: relative;
   
   &.active {
-    background: rgba(16, 185, 129, 0.1);
+    background: var(--td-success-color-light);
     color: var(--td-brand-color);
     
     &:hover {
-      background: rgba(16, 185, 129, 0.15);
+      background: var(--td-success-color-light);
+      opacity: 0.8;
     }
   }
   
@@ -2492,7 +2499,7 @@ const getImgSrc = (url: string) => {
     }
     
     &.active:hover {
-      background: rgba(16, 185, 129, 0.1);
+      background: var(--td-success-color-light);
     }
   }
 }
@@ -2505,7 +2512,7 @@ const getImgSrc = (url: string) => {
   height: 16px;
   padding: 0 4px;
   background: var(--td-brand-color);
-  color: white;
+  color: var(--td-text-color-anti);
   font-size: 10px;
   font-weight: 600;
   border-radius: 8px;
@@ -2543,8 +2550,8 @@ const getImgSrc = (url: string) => {
   }
 
   &.active {
-    background: rgba(16, 185, 129, 0.1);
-    color: #07C05F;
+    background: var(--td-success-color-light);
+    color: var(--td-brand-color);
   }
 
   .image-count {
@@ -2618,14 +2625,15 @@ const getImgSrc = (url: string) => {
   position: relative;
   
   &.active {
-    background: rgba(16, 185, 129, 0.1);
+    background: var(--td-success-color-light);
     
     .websearch-icon {
       color: var(--td-brand-color);
     }
     
     &:hover {
-      background: rgba(16, 185, 129, 0.15);
+      background: var(--td-success-color-light);
+      opacity: 0.8;
     }
   }
   
@@ -2709,21 +2717,24 @@ const getImgSrc = (url: string) => {
   width: 28px;
   height: 28px;
   padding: 0;
-  background: rgba(16, 185, 129, 0.08);
+  background: var(--td-success-color-light);
   color: var(--td-brand-color);
-  border: 1.5px solid rgba(16, 185, 129, 0.2);
+  border: 1.5px solid var(--td-success-color-4);
+  opacity: 0.8;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   
   &:hover {
-    background: rgba(16, 185, 129, 0.12);
+    background: var(--td-success-color-light);
+    opacity: 1;
     border-color: var(--td-brand-color);
   }
   
   &:active {
-    background: rgba(16, 185, 129, 0.15);
+    background: var(--td-success-color-light);
+    opacity: 0.9;
   }
   
   svg {
@@ -2987,7 +2998,7 @@ const getImgSrc = (url: string) => {
 }
 
 .model-badge-local {
-  background: rgba(139, 145, 150, 0.1);
+  background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-secondary);
 }
 

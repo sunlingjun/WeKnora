@@ -25,21 +25,22 @@ func generateEventID(suffix string) string {
 
 // sessionService implements the SessionService interface for managing conversation sessions
 type sessionService struct {
-	cfg                  *config.Config                   // Application configuration
-	sessionRepo          interfaces.SessionRepository     // Repository for session data
-	messageRepo          interfaces.MessageRepository     // Repository for message data
-	knowledgeBaseService interfaces.KnowledgeBaseService  // Service for knowledge base operations
-	modelService         interfaces.ModelService          // Service for model operations
-	tenantService        interfaces.TenantService         // Service for tenant operations
-	eventManager         *chatpipeline.EventManager        // Event manager for chat pipeline
-	agentService         interfaces.AgentService          // Service for agent operations
-	sessionStorage       llmcontext.ContextStorage        // Session storage
-	knowledgeService     interfaces.KnowledgeService      // Service for knowledge operations
-	chunkService         interfaces.ChunkService          // Service for chunk operations
-	webSearchStateRepo    interfaces.WebSearchStateService          // Service for web search state
-	webSearchProviderRepo interfaces.WebSearchProviderRepository   // Repository for web search provider entities
-	kbShareService        interfaces.KBShareService                // Service for KB sharing operations
-	memoryService         interfaces.MemoryService                 // Service for memory operations
+	cfg                   *config.Config                         // Application configuration
+	sessionRepo           interfaces.SessionRepository           // Repository for session data
+	messageRepo           interfaces.MessageRepository           // Repository for message data
+	knowledgeBaseService  interfaces.KnowledgeBaseService        // Service for knowledge base operations
+	modelService          interfaces.ModelService                // Service for model operations
+	tenantService         interfaces.TenantService               // Service for tenant operations
+	eventManager          *chatpipeline.EventManager             // Event manager for chat pipeline
+	agentService          interfaces.AgentService                // Service for agent operations
+	sessionStorage        llmcontext.ContextStorage              // Session storage
+	knowledgeService      interfaces.KnowledgeService            // Service for knowledge operations
+	chunkService          interfaces.ChunkService                // Service for chunk operations
+	webSearchStateRepo    interfaces.WebSearchStateService       // Service for web search state
+	webSearchProviderRepo interfaces.WebSearchProviderRepository // Repository for web search provider entities
+	kbShareService        interfaces.KBShareService              // Service for KB sharing operations
+	memoryService         interfaces.MemoryService               // Service for memory operations
+	sharedKBService       interfaces.SharedKnowledgeBaseService  // Service for member-based shared KB (System 2)
 }
 
 // NewSessionService creates a new session service instance with all required dependencies
@@ -58,6 +59,7 @@ func NewSessionService(cfg *config.Config,
 	webSearchProviderRepo interfaces.WebSearchProviderRepository,
 	kbShareService interfaces.KBShareService,
 	memoryService interfaces.MemoryService,
+	sharedKBService interfaces.SharedKnowledgeBaseService,
 ) interfaces.SessionService {
 	return &sessionService{
 		cfg:                   cfg,
@@ -75,6 +77,7 @@ func NewSessionService(cfg *config.Config,
 		webSearchProviderRepo: webSearchProviderRepo,
 		kbShareService:        kbShareService,
 		memoryService:         memoryService,
+		sharedKBService:       sharedKBService,
 	}
 }
 

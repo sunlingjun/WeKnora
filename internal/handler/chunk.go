@@ -19,14 +19,27 @@ type ChunkHandler struct {
 	kgService         interfaces.KnowledgeService
 	kbShareService    interfaces.KBShareService
 	agentShareService interfaces.AgentShareService
+	sharedKBService   interfaces.SharedKnowledgeBaseService
 }
 
 // NewChunkHandler creates a new chunk handler
-func NewChunkHandler(service interfaces.ChunkService, kgService interfaces.KnowledgeService, kbShareService interfaces.KBShareService, agentShareService interfaces.AgentShareService) *ChunkHandler {
-	return &ChunkHandler{service: service, kgService: kgService, kbShareService: kbShareService, agentShareService: agentShareService}
+func NewChunkHandler(
+	service interfaces.ChunkService,
+	kgService interfaces.KnowledgeService,
+	kbShareService interfaces.KBShareService,
+	agentShareService interfaces.AgentShareService,
+	sharedKBService interfaces.SharedKnowledgeBaseService,
+) *ChunkHandler {
+	return &ChunkHandler{
+		service:           service,
+		kgService:         kgService,
+		kbShareService:    kbShareService,
+		agentShareService: agentShareService,
+		sharedKBService:   sharedKBService,
+	}
 }
 
-// effectiveCtxForKnowledge resolves knowledge by ID, validates KB access (owner or shared with required role), and returns context with effectiveTenantID for downstream service calls.
+// effectiveCtxForKnowledge resolves knowledge by ID, validates KB access (owner, org shared, agent shared, or direct shared), and returns context with effectiveTenantID.
 func (h *ChunkHandler) effectiveCtxForKnowledge(c *gin.Context, knowledgeID string, requiredPermission types.OrgMemberRole) (context.Context, error) {
 	ctx := c.Request.Context()
 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
@@ -54,6 +67,14 @@ func (h *ChunkHandler) effectiveCtxForKnowledge(c *gin.Context, knowledgeID stri
 			return context.WithValue(ctx, types.TenantIDContextKey, knowledge.TenantID), nil
 		}
 	}
+	// Check direct shared KB access
+	if h.sharedKBService != nil {
+		role, err := h.sharedKBService.GetMemberRoleByKBAndUser(ctx, knowledge.KnowledgeBaseID, userID.(string))
+		if err == nil && role != "" && requiredPermission == types.OrgRoleViewer {
+			return context.WithValue(ctx, types.TenantIDContextKey, knowledge.TenantID), nil
+		}
+	}
+	// Check agent shared access
 	if requiredPermission == types.OrgRoleViewer && h.agentShareService != nil {
 		kbRef := &types.KnowledgeBase{ID: knowledge.KnowledgeBaseID, TenantID: knowledge.TenantID}
 		can, err := h.agentShareService.UserCanAccessKBViaSomeSharedAgent(ctx, userID.(string), tenantID, kbRef)
@@ -120,7 +141,7 @@ func (h *ChunkHandler) GetChunkByIDOnly(c *gin.Context) {
 
 // ListKnowledgeChunks godoc
 // @Summary      获取知识分块列表
-// @Description  获取指定知识下的所有分块列表，支持分页
+// @Description  获取指定知识下的所有分块列表，支持分页（支持共享知识库）
 // @Tags         分块管理
 // @Accept       json
 // @Produce      json

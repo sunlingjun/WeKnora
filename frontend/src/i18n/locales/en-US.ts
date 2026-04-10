@@ -1,6 +1,7 @@
 export default {
   menu: {
     knowledgeBase: 'Knowledge Base',
+    sharedKnowledgeBaseSquare: 'Knowledge Base Square',
     agents: 'Agents',
     organizations: 'Shared Spaces',
     chat: 'Chat',
@@ -125,6 +126,9 @@ export default {
     urlExists: 'This URL already exists',
     urlLabel: 'URL Address',
     urlPlaceholder: 'Enter webpage URL, e.g., https://example.com',
+    urlTitleLabel: 'Display title (required)',
+    urlTitlePlaceholder: 'Shown as the knowledge title; prefilled from the URL and editable',
+    urlTitleRequired: 'Please enter a display title',
     urlTip: 'Supports importing various webpage contents. The system will automatically extract and parse text content from the webpage',
     typeURL: 'URL',
     typeManual: 'Manual',
@@ -1410,6 +1414,15 @@ export default {
       file: 'File',
       knowledgeBase: 'Knowledge Base',
       noResult: 'No results',
+      leftSuccess: 'Left shared knowledge base',
+      leftFailed: 'Failed to leave',
+      joinedSuccess: 'Joined shared knowledge base',
+      joinedFailed: 'Failed to join',
+      fetchMembersFailed: 'Failed to fetch members',
+      roleUpdated: 'Member role updated',
+      roleUpdateFailed: 'Failed to update role',
+      memberRemoved: 'Member removed',
+      memberRemoveFailed: 'Failed to remove member'
     },
     detail: {
       title: 'Shared Knowledge Base',
@@ -1456,7 +1469,49 @@ export default {
       refreshing: 'Refreshing list to show parsing status...',
       errorTip: 'Some files failed to upload. Please check the notifications.',
       unknownKb: 'Knowledge Base {id}',
+    },
+    filter: {
+      all: 'All',
+      private: 'Private',
+      shared: 'My Shared',
+      joined: 'Joined'
+    },
+    sharedTag: 'Shared',
+    privateTag: 'Private',
+    leave: 'Leave',
+    role: {
+      owner: 'Owner',
+      editor: 'Editor',
+      viewer: 'Viewer'
+    },
+    members: {
+      title: 'Members',
+      description: 'Manage members of knowledge base "{name}"',
+      searchPlaceholder: 'Search by email or name',
+      empty: 'No members',
+      unknownUser: 'Unknown User',
+      joinedAt: 'Joined at',
+      confirmRemoveTitle: 'Remove Member',
+      confirmRemoveMessage: 'Are you sure you want to remove member "{name}"?',
+      actions: {
+        setEditor: 'Set as Editor',
+        setViewer: 'Set as Viewer',
+        remove: 'Remove Member'
+      }
     }
+  },
+  sharedKbSquare: {
+    title: 'Shared Knowledge Base Square',
+    subtitle: 'Browse and join knowledge bases shared by other users',
+    searchPlaceholder: 'Search by name or description...',
+    search: 'Search',
+    join: 'Join',
+    empty: 'No shared knowledge bases',
+    noSearchResult: 'No matching shared knowledge bases found',
+    noDescription: 'No description',
+    memberCount: '{count} members',
+    knowledgeCount: '{count} knowledge',
+    fetchFailed: 'Failed to load shared knowledge bases'
   },
   knowledgeEditor: {
     titleCreate: 'Create Knowledge Base',
@@ -3449,6 +3504,7 @@ export default {
     connectionFailed: 'Connection failed',
     isRequired: 'is required',
     resourceHint: 'Select the spaces or folders to sync',
+    untitled: 'Untitled',
     resourceLoadFailed: 'Failed to load resources',
     noResources: 'No wiki spaces found',
     noResourcesDesc: 'The app needs wiki access via a group chat to fetch content',

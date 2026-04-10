@@ -14,7 +14,7 @@ CREATE TABLE tenants (
     retriever_engines JSON NOT NULL,
     status VARCHAR(50) DEFAULT 'active',
     business VARCHAR(255) NOT NULL,
-    storage_quota BIGINT NOT NULL DEFAULT 10737418240,
+    storage_quota BIGINT NOT NULL DEFAULT 1073741824,
     storage_used BIGINT NOT NULL DEFAULT 0,
     agent_config JSON DEFAULT NULL COMMENT 'Tenant-level agent configuration in JSON format',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

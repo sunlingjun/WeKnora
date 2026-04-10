@@ -2,7 +2,7 @@
     <div class="refer" v-if="session.knowledge_references && session.knowledge_references.length">
         <div class="refer_header" @click="referBoxSwitch">
             <div class="refer_title">
-                <img src="@/assets/img/ziliao.svg" :alt="$t('chat.referenceIconAlt')" />
+              <SvgIcon name="ziliao" theme="brand" :size="16" />
                 <span>{{ headerText }}</span>
             </div>
             <div class="refer_show_icon">
@@ -63,6 +63,7 @@ import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { sanitizeHTML } from '@/utils/security';
 import ContentPopup from './tool-results/ContentPopup.vue';
+import { SvgIcon } from '@/components/icons';
 
 const router = useRouter();
 const { t } = useI18n();
@@ -236,7 +237,7 @@ const getWebSearchDisplayText = (item) => {
     }
 
     .refer_header:hover {
-        background-color: rgba(7, 192, 95, 0.04);
+        background-color: var(--td-brand-color-light);
         cursor: pointer;
     }
 

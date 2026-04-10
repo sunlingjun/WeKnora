@@ -121,7 +121,7 @@ type KnowledgeMoveProgress struct {
 	SourceKBID string            `json:"source_kb_id"`
 	TargetKBID string            `json:"target_kb_id"`
 	Status     KBCloneTaskStatus `json:"status"`
-	Progress   int               `json:"progress"`  // 0-100
+	Progress   int               `json:"progress"`   // 0-100
 	Total      int               `json:"total"`      // 总知识数
 	Processed  int               `json:"processed"`  // 已处理数
 	Failed     int               `json:"failed"`     // 失败数
@@ -138,8 +138,8 @@ type ManualProcessPayload struct {
 	TenantID        uint64 `json:"tenant_id"`
 	KnowledgeID     string `json:"knowledge_id"`
 	KnowledgeBaseID string `json:"knowledge_base_id"`
-	Content         string `json:"content"`           // cleaned markdown content
-	NeedCleanup     bool   `json:"need_cleanup"`      // true for update, false for create
+	Content         string `json:"content"`      // cleaned markdown content
+	NeedCleanup     bool   `json:"need_cleanup"` // true for update, false for create
 }
 
 // ImageMultimodalPayload represents the image multimodal processing task payload.
@@ -147,9 +147,9 @@ type ImageMultimodalPayload struct {
 	TenantID        uint64 `json:"tenant_id"`
 	KnowledgeID     string `json:"knowledge_id"`
 	KnowledgeBaseID string `json:"knowledge_base_id"`
-	ChunkID         string `json:"chunk_id"`          // parent text chunk
-	ImageURL        string `json:"image_url"`          // provider:// URL (e.g. local://..., minio://...)
-	ImageLocalPath  string `json:"image_local_path"`   // deprecated: kept for backward compat with in-flight tasks
+	ChunkID         string `json:"chunk_id"`         // parent text chunk
+	ImageURL        string `json:"image_url"`        // provider:// URL (e.g. local://..., minio://...)
+	ImageLocalPath  string `json:"image_local_path"` // deprecated: kept for backward compat with in-flight tasks
 	EnableOCR       bool   `json:"enable_ocr"`
 	EnableCaption   bool   `json:"enable_caption"`
 	Language        string `json:"language,omitempty"` // Request locale for {{language}} in prompt templates

@@ -112,18 +112,18 @@ func buildStreamResponse(evt interfaces.StreamEvent, requestID string) *types.St
 			for _, ref := range refs {
 				if refMap, ok := ref.(map[string]interface{}); ok {
 					sr := &types.SearchResult{
-						ID:                getString(refMap, "id"),
-						Content:           getString(refMap, "content"),
-						KnowledgeID:       getString(refMap, "knowledge_id"),
-						ChunkIndex:        int(getFloat64(refMap, "chunk_index")),
-						KnowledgeTitle:    getString(refMap, "knowledge_title"),
-						StartAt:           int(getFloat64(refMap, "start_at")),
-						EndAt:             int(getFloat64(refMap, "end_at")),
-						Seq:               int(getFloat64(refMap, "seq")),
-						Score:             getFloat64(refMap, "score"),
-						ChunkType:         getString(refMap, "chunk_type"),
-						ParentChunkID:     getString(refMap, "parent_chunk_id"),
-						ImageInfo:         getString(refMap, "image_info"),
+						ID:                   getString(refMap, "id"),
+						Content:              getString(refMap, "content"),
+						KnowledgeID:          getString(refMap, "knowledge_id"),
+						ChunkIndex:           int(getFloat64(refMap, "chunk_index")),
+						KnowledgeTitle:       getString(refMap, "knowledge_title"),
+						StartAt:              int(getFloat64(refMap, "start_at")),
+						EndAt:                int(getFloat64(refMap, "end_at")),
+						Seq:                  int(getFloat64(refMap, "seq")),
+						Score:                getFloat64(refMap, "score"),
+						ChunkType:            getString(refMap, "chunk_type"),
+						ParentChunkID:        getString(refMap, "parent_chunk_id"),
+						ImageInfo:            getString(refMap, "image_info"),
 						KnowledgeFilename:    getString(refMap, "knowledge_filename"),
 						KnowledgeSource:      getString(refMap, "knowledge_source"),
 						KnowledgeDescription: getString(refMap, "knowledge_description"),
@@ -141,9 +141,10 @@ func buildStreamResponse(evt interfaces.StreamEvent, requestID string) *types.St
 
 // sendCompletionEvent sends a final completion event to the client
 // NOTE: This is now a no-op because:
-// 1. The 'complete' event from handleComplete already signals stream completion
-// 2. Sending an extra empty 'answer' event with done:true causes frontend issues
-//    (multiple done events can confuse state management)
+//  1. The 'complete' event from handleComplete already signals stream completion
+//  2. Sending an extra empty 'answer' event with done:true causes frontend issues
+//     (multiple done events can confuse state management)
+//
 // The frontend should use 'complete' response_type to detect stream completion
 func sendCompletionEvent(c *gin.Context, requestID string) {
 	// Intentionally empty - completion is signaled by the 'complete' event

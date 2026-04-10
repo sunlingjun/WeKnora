@@ -53,14 +53,14 @@ return 0
 // distributedLimiter tries Redis first, falls back to a local sliding-window
 // limiter when Redis is unavailable (nil client or transient error).
 type distributedLimiter struct {
-	redisClient *redis.Client
+	redisClient redis.UniversalClient
 	local       *slidingWindowLimiter
 	window      time.Duration
 	maxRequests int
 	instanceID  string // used to disambiguate ZSET members across instances
 }
 
-func newDistributedLimiter(redisClient *redis.Client, window time.Duration, maxRequests int, instanceID string) *distributedLimiter {
+func newDistributedLimiter(redisClient redis.UniversalClient, window time.Duration, maxRequests int, instanceID string) *distributedLimiter {
 	return &distributedLimiter{
 		redisClient: redisClient,
 		local:       newSlidingWindowLimiter(window, maxRequests),

@@ -94,7 +94,7 @@
           @click="handleCardClick(kb)"
         >
           <!-- 置顶标识 -->
-          <div v-if="kb.is_pinned" class="pin-indicator">
+          <div v-if="kb.is_pinned && kb.visibility !== 'shared'" class="pin-indicator">
             <t-icon name="pin-filled" size="14px" />
           </div>
           <!-- 卡片头部 -->
@@ -111,7 +111,7 @@
               </div>
               <template #content>
                 <div class="popup-menu" @click.stop>
-                  <div class="popup-menu-item" @click.stop="handleTogglePinById(kb.id)">
+                  <div v-if="kb.visibility !== 'shared'" class="popup-menu-item" @click.stop="handleTogglePinById(kb.id)">
                     <t-icon class="menu-icon" :name="kb.is_pinned ? 'pin-filled' : 'pin'" />
                     <span>{{ kb.is_pinned ? $t('knowledgeList.pin.unpin') : $t('knowledgeList.pin.pin') }}</span>
                   </div>
@@ -234,7 +234,7 @@
             <div class="bottom-right">
               <t-tooltip :content="kb.org_name" placement="top">
                   <div class="org-source">
-                    <img src="@/assets/img/organization-green.svg" class="org-source-icon" alt="" aria-hidden="true" />
+                    <SvgIcon name="organization" variant="green" :size="14" class="org-source-icon" />
                     <span>{{ kb.org_name }}</span>
                   </div>
                 </t-tooltip>
@@ -260,12 +260,25 @@
         @click="handleCardClick(kb)"
       >
         <!-- 置顶标识 -->
-        <div v-if="kb.is_pinned" class="pin-indicator">
+        <div v-if="kb.is_pinned && kb.visibility !== 'shared'" class="pin-indicator">
           <t-icon name="pin-filled" size="14px" />
         </div>
         <!-- 卡片头部 -->
         <div class="card-header">
-          <span class="card-title" :title="kb.name">{{ kb.name }}</span>
+          <div class="card-title-wrap">
+            <span class="card-title" :title="kb.name">{{ kb.name }}</span>
+            <!-- 知识库类型标签 -->
+            <t-tag v-if="kb.visibility === 'shared'" size="small" theme="success" variant="light">
+              {{ $t('knowledgeList.sharedTag') }}
+            </t-tag>
+            <t-tag v-else size="small" theme="default" variant="light">
+              {{ $t('knowledgeList.privateTag') }}
+            </t-tag>
+            <!-- 成员角色标签（共享知识库） -->
+            <t-tag v-if="kb.visibility === 'shared' && kb.memberRole" size="small" theme="primary" variant="light">
+              {{ getRoleLabel(kb.memberRole) }}
+            </t-tag>
+          </div>
           <t-popup
             v-model="kb.showMore"
             overlayClassName="card-more-popup"
@@ -284,15 +297,22 @@
             </div>
             <template #content>
               <div class="popup-menu" @click.stop>
-                <div class="popup-menu-item" @click.stop="handleTogglePin(kb)">
+                <div v-if="kb.visibility !== 'shared'" class="popup-menu-item" @click.stop="handleTogglePin(kb)">
                   <t-icon class="menu-icon" :name="kb.is_pinned ? 'pin-filled' : 'pin'" />
                   <span>{{ kb.is_pinned ? $t('knowledgeList.pin.unpin') : $t('knowledgeList.pin.pin') }}</span>
                 </div>
-                <div class="popup-menu-item" @click.stop="handleSettings(kb)">
+                <!-- 设置：只有创建者（个人知识库或共享知识库的创建者）才能看到 -->
+                <div v-if="kb.isOwner || kb.visibility === 'private'" class="popup-menu-item" @click.stop="handleSettings(kb)">
                   <t-icon class="menu-icon" name="setting" />
                   <span>{{ $t('knowledgeBase.settings') }}</span>
                 </div>
-                <div class="popup-menu-item delete" @click.stop="handleDelete(kb)">
+                <!-- 共享知识库：显示离开选项 -->
+                <div v-if="kb.visibility === 'shared' && !kb.isOwner" class="popup-menu-item" @click.stop="handleLeave(kb)">
+                  <t-icon class="menu-icon" name="logout" />
+                  <span>{{ $t('knowledgeList.leave') }}</span>
+                </div>
+                <!-- 个人知识库或创建者：显示删除选项 -->
+                <div v-if="kb.visibility === 'private' || kb.isOwner" class="popup-menu-item delete" @click.stop="handleDelete(kb)">
                   <t-icon class="menu-icon" name="delete" />
                   <span>{{ $t('common.delete') }}</span>
                 </div>
@@ -352,7 +372,7 @@
       </div>
     </div>
 
-    <!-- 卡片网格：共享给我 -->
+    <!-- 卡片网格：共享给我（组织共享） -->
     <div v-if="spaceSelection === 'shared' && sharedKbs.length > 0" class="kb-card-wrap">
       <div
         v-for="shared in sharedKbs"
@@ -391,7 +411,7 @@
           <div class="bottom-right">
             <t-tooltip :content="shared.org_name" placement="top">
               <div class="org-source">
-                <img src="@/assets/img/organization-green.svg" class="org-source-icon" alt="" aria-hidden="true" />
+                <SvgIcon name="organization" variant="green" :size="14" class="org-source-icon" />
                 <span>{{ shared.org_name }}</span>
               </div>
             </t-tooltip>
@@ -456,7 +476,7 @@
           <div class="bottom-right">
             <t-tooltip :content="shared.org_name" placement="top">
               <div class="org-source">
-                <img src="@/assets/img/organization-green.svg" class="org-source-icon" alt="" aria-hidden="true" />
+                <SvgIcon name="organization" variant="green" :size="14" class="org-source-icon" />
                 <span>{{ shared.org_name }}</span>
               </div>
             </t-tooltip>
@@ -595,6 +615,68 @@
       </Transition>
     </Teleport>
 
+    <!-- 成员管理对话框 -->
+    <t-dialog
+      v-model:visible="membersDialogVisible"
+      :header="currentKbForMembers ? `${$t('knowledgeList.members.title')} - ${currentKbForMembers.name}` : $t('knowledgeList.members.title')"
+      width="600px"
+      :footer="false"
+    >
+      <div v-if="membersLoading" class="members-loading">
+        <t-loading :loading="true" :text="$t('common.loading')" />
+      </div>
+      <div v-else-if="members.length === 0" class="members-empty">
+        <t-icon name="user-circle" size="48px" />
+        <p>{{ $t('knowledgeList.members.empty') }}</p>
+      </div>
+      <div v-else class="members-list">
+        <div
+          v-for="member in members"
+          :key="member.id"
+          class="member-item"
+        >
+          <div class="member-info">
+            <t-avatar :name="member.user?.name || member.user?.real_name || '用户'" size="32px" />
+            <div class="member-details">
+              <div class="member-name">{{ member.user?.name || member.user?.real_name || member.user?.email || $t('knowledgeList.members.unknownUser') }}</div>
+              <div v-if="member.user?.email" class="member-email">{{ member.user.email }}</div>
+            </div>
+          </div>
+          <div class="member-actions">
+            <t-tag :theme="member.role === 'owner' ? 'success' : member.role === 'editor' ? 'primary' : 'default'" size="small">
+              {{ getMemberRoleLabel(member.role) }}
+            </t-tag>
+            <t-dropdown
+              v-if="currentKbForMembers?.isOwner && member.role !== 'owner'"
+              :options="[
+                { content: $t('knowledgeList.members.actions.setEditor'), value: 'editor' },
+                { content: $t('knowledgeList.members.actions.setViewer'), value: 'viewer' },
+                { content: $t('knowledgeList.members.actions.remove'), value: 'remove', divider: true }
+              ]"
+              @click="(data: any) => {
+                if (data.value === 'remove') {
+                  handleRemoveMember(member.user_id)
+                } else if (data.value === 'editor' || data.value === 'viewer') {
+                  handleUpdateMemberRole(member.user_id, data.value)
+                }
+              }"
+            >
+              <t-button theme="default" variant="text" size="small">
+                <t-icon name="more" />
+              </t-button>
+            </t-dropdown>
+          </div>
+        </div>
+      </div>
+      <div v-if="membersTotal > membersPageSize" class="members-pagination">
+        <t-pagination
+          v-model="membersPage"
+          :total="membersTotal"
+          :page-size="membersPageSize"
+          @change="fetchMembers"
+        />
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -602,7 +684,7 @@
 import { onMounted, onUnmounted, ref, computed, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
-import { listKnowledgeBases, deleteKnowledgeBase, togglePinKnowledgeBase } from '@/api/knowledge-base'
+import { listUserKnowledgeBases, deleteKnowledgeBase, togglePinKnowledgeBase, joinSharedKnowledgeBase, leaveSharedKnowledgeBase, listKnowledgeBaseMembers, updateMemberRole, removeMember } from '@/api/knowledge-base'
 import { formatStringDate } from '@/utils/index'
 import { useUIStore } from '@/stores/ui'
 import { useOrganizationStore } from '@/stores/organization'
@@ -610,6 +692,7 @@ import { listOrganizationSharedKnowledgeBases, type SharedKnowledgeBase, type Or
 import KnowledgeBaseEditorModal from './KnowledgeBaseEditorModal.vue'
 import ShareKnowledgeBaseDialog from '@/components/ShareKnowledgeBaseDialog.vue'
 import ListSpaceSidebar from '@/components/ListSpaceSidebar.vue'
+import { SvgIcon } from '@/components/icons'
 import { useI18n } from 'vue-i18n'
 
 const router = useRouter()
@@ -626,6 +709,11 @@ interface KB {
   name: string; 
   description?: string; 
   updated_at?: string;
+  visibility?: 'private' | 'shared'; // 知识库可见性
+  owner_id?: string; // 创建者ID
+  isOwner?: boolean; // 是否为创建者
+  memberRole?: 'owner' | 'editor' | 'viewer'; // 成员角色（共享知识库）
+  member_count?: number; // 成员数量（共享知识库）
   embedding_model_id?: string;
   summary_model_id?: string;
   type?: 'document' | 'faq';
@@ -648,6 +736,13 @@ const loading = ref(false)
 const deleteVisible = ref(false)
 const deletingKb = ref<KB | null>(null)
 const currentMoreIndex = ref<number>(-1)
+const membersDialogVisible = ref(false)
+const currentKbForMembers = ref<KB | null>(null)
+const members = ref<any[]>([])
+const membersLoading = ref(false)
+const membersPage = ref(1)
+const membersPageSize = ref(20)
+const membersTotal = ref(0)
 const highlightedKbId = ref<string | null>(null)
 const highlightedCardRef = ref<HTMLElement | null>(null)
 const uploadTasks = ref<UploadTaskState[]>([])
@@ -756,16 +851,17 @@ interface UploadSummary {
 const fetchList = () => {
   loading.value = true
   return Promise.all([
-    listKnowledgeBases().then((res: any) => {
+    listUserKnowledgeBases(true).then((res: any) => {
       const data = res.data || []
-      // 格式化时间，并初始化 showMore 状态
-      // is_processing 字段由后端返回
       kbs.value = data.map((kb: any) => ({
         ...kb,
         updated_at: kb.updated_at ? formatStringDate(new Date(kb.updated_at)) : '',
         showMore: false,
         isProcessing: kb.is_processing || false,
-        processing_count: kb.processing_count || 0
+        processing_count: kb.processing_count || 0,
+        visibility: kb.visibility || 'private',
+        isOwner: kb.is_owner !== undefined ? kb.is_owner : (kb.visibility === 'private'),
+        memberRole: kb.member_role || (kb.visibility === 'private' ? 'owner' : undefined)
       }))
     }),
     orgStore.fetchSharedKnowledgeBases(),
@@ -795,6 +891,95 @@ watch(spaceSelection, (val) => {
     spaceKbsLoading.value = false
   })
 }, { immediate: true })
+
+
+// 获取角色标签
+const getRoleLabel = (role?: string) => {
+  const roleMap: Record<string, string> = {
+    owner: t('knowledgeList.role.owner'),
+    editor: t('knowledgeList.role.editor'),
+    viewer: t('knowledgeList.role.viewer')
+  }
+  return roleMap[role || 'viewer'] || t('knowledgeList.role.viewer')
+}
+
+// 加入共享知识库
+const handleJoin = async (kb: KB, event?: Event) => {
+  if (event) event.stopPropagation()
+  try {
+    await joinSharedKnowledgeBase(kb.id)
+    MessagePlugin.success(t('knowledgeList.messages.joinedSuccess'))
+    fetchList()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('knowledgeList.messages.joinedFailed'))
+  }
+}
+
+// 离开共享知识库
+const handleLeave = async (kb: KB) => {
+  try {
+    await leaveSharedKnowledgeBase(kb.id)
+    MessagePlugin.success(t('knowledgeList.messages.leftSuccess'))
+    fetchList()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('knowledgeList.messages.leftFailed'))
+  }
+}
+
+// 查看成员
+const handleViewMembers = async (kb: KB, event?: Event) => {
+  if (event) event.stopPropagation()
+  currentKbForMembers.value = kb
+  membersDialogVisible.value = true
+  membersPage.value = 1
+  fetchMembers()
+}
+
+// 获取成员列表
+const fetchMembers = async () => {
+  if (!currentKbForMembers.value) return
+  membersLoading.value = true
+  try {
+    const res = await listKnowledgeBaseMembers(currentKbForMembers.value.id, {
+      page: membersPage.value,
+      page_size: membersPageSize.value
+    })
+    const data = res.data || {}
+    members.value = data.members || data.list || []
+    membersTotal.value = data.total || 0
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('knowledgeList.messages.fetchMembersFailed'))
+  } finally {
+    membersLoading.value = false
+  }
+}
+
+// 更新成员角色
+const handleUpdateMemberRole = async (userId: string, role: 'viewer' | 'editor') => {
+  if (!currentKbForMembers.value) return
+  try {
+    await updateMemberRole(currentKbForMembers.value.id, userId, role)
+    MessagePlugin.success(t('knowledgeList.messages.roleUpdated'))
+    fetchMembers()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('knowledgeList.messages.roleUpdateFailed'))
+  }
+}
+
+// 移除成员
+const handleRemoveMember = async (userId: string) => {
+  if (!currentKbForMembers.value) return
+  try {
+    await removeMember(currentKbForMembers.value.id, userId)
+    MessagePlugin.success(t('knowledgeList.messages.memberRemoved'))
+    fetchMembers()
+    fetchList()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('knowledgeList.messages.memberRemoveFailed'))
+  }
+}
+
+const getMemberRoleLabel = (role: string) => getRoleLabel(role)
 
 onMounted(() => {
   fetchList().then(() => {
@@ -1270,7 +1455,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   display: inline-flex;
   align-items: center;
   padding: 2px 6px;
-  background: rgba(7, 192, 95, 0.1);
+  background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.1);
   border-radius: 4px;
   font-size: 12px;
   color: var(--td-brand-color);
@@ -1365,7 +1550,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(7, 192, 95, 0.1);
+  background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.1);
   border-radius: 4px;
   font-size: 12px;
   color: var(--td-brand-color);
@@ -1382,7 +1567,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  background: rgba(7, 192, 95, 0.06);
+  background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.06);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.4;
@@ -1416,7 +1601,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  background: rgba(7, 192, 95, 0.06);
+  background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.06);
   border-radius: 6px;
   font-size: 11px;
   line-height: 1.4;
@@ -1443,12 +1628,16 @@ const handleUploadFinishedEvent = (event: Event) => {
 
     &:hover {
       border-color: var(--td-brand-color) !important;
-      box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12) !important;
+      box-shadow: 0 4px 12px rgba(from var(--td-brand-color, #07c05f) r g b / 0.12) !important;
       background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.08) 100%) !important;
     }
 
     &::after {
-      background: linear-gradient(135deg, rgba(7, 192, 95, 0.08) 0%, transparent 100%) !important;
+      background: linear-gradient(
+          135deg,
+          rgba(from var(--td-brand-color, #07c05f) r g b / 0.08) 0%,
+          transparent 100%
+      ) !important;
     }
   }
 
@@ -1457,17 +1646,21 @@ const handleUploadFinishedEvent = (event: Event) => {
 
     &:hover {
       border-color: var(--td-brand-color) !important;
-      box-shadow: 0 4px 12px rgba(0, 82, 217, 0.12) !important;
+      box-shadow: 0 4px 12px rgba(from var(--td-info-color, #0052d9) r g b / 0.12) !important;
       background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(0, 82, 217, 0.08) 100%) !important;
     }
 
     &::after {
-      background: linear-gradient(135deg, rgba(0, 82, 217, 0.08) 0%, transparent 100%) !important;
+      background: linear-gradient(
+          135deg,
+          rgba(from var(--td-info-color, #0052d9) r g b / 0.08) 0%,
+          transparent 100%
+      ) !important;
     }
 
     // FAQ 类型共享标识使用蓝色
     .shared-badge {
-      background: rgba(0, 82, 217, 0.1);
+      background: rgba(from var(--td-info-color, #0052d9) r g b / 0.1);
       color: var(--td-brand-color);
 
       .t-icon {
@@ -1481,9 +1674,9 @@ const handleUploadFinishedEvent = (event: Event) => {
     align-items: center;
     gap: 4px;
     font-size: 12px;
-    border-color: rgba(0, 82, 217, 0.15);
+    border-color: rgba(from var(--td-info-color, #0052d9) r g b / 0.15);
     color: var(--td-brand-color);
-    background: rgba(0, 82, 217, 0.04);
+    background: rgba(from var(--td-info-color, #0052d9) r g b / 0.04);
     font-weight: 500;
     padding: 2px 8px;
     border-radius: 4px;
@@ -1590,7 +1783,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   border-radius: 12px;
   overflow: hidden;
   box-sizing: border-box;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--td-shadow-1);
   background: var(--td-bg-color-container);
   position: relative;
   cursor: pointer;
@@ -1603,7 +1796,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   &:hover {
     border-color: var(--td-brand-color);
-    box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12);
+    box-shadow: 0 4px 12px rgba(from var(--td-brand-color) r g b / 0.12);
   }
 
   &.uninitialized {
@@ -1627,7 +1820,7 @@ const handleUploadFinishedEvent = (event: Event) => {
       right: 0;
       width: 60px;
       height: 60px;
-      background: linear-gradient(135deg, rgba(7, 192, 95, 0.08) 0%, transparent 100%);
+      background: linear-gradient(135deg, var(--td-brand-color-light) 0%, transparent 100%);
       border-radius: 0 12px 0 100%;
       pointer-events: none;
       z-index: 0;
@@ -1640,7 +1833,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 
     &:hover {
       border-color: var(--td-brand-color);
-      box-shadow: 0 4px 12px rgba(0, 82, 217, 0.12);
+      box-shadow: 0 4px 12px rgba(from var(--td-info-color) r g b / 0.12);
       background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(0, 82, 217, 0.08) 100%);
     }
 
@@ -1652,7 +1845,7 @@ const handleUploadFinishedEvent = (event: Event) => {
       right: 0;
       width: 60px;
       height: 60px;
-      background: linear-gradient(135deg, rgba(0, 82, 217, 0.08) 0%, transparent 100%);
+      background: linear-gradient(135deg, var(--td-info-color-light) 0%, transparent 100%);
       border-radius: 0 12px 0 100%;
       pointer-events: none;
       z-index: 0;
@@ -1873,14 +2066,14 @@ const handleUploadFinishedEvent = (event: Event) => {
   transition: background 0.2s ease;
 
   &.type-document {
-    background: rgba(7, 192, 95, 0.08);
+    background: var(--td-brand-color-light);
     color: var(--td-brand-color-active);
     width: auto;
     padding: 0 6px;
     gap: 3px;
 
     &:hover {
-      background: rgba(7, 192, 95, 0.12);
+      background: rgba(from var(--td-brand-color) r g b / 0.12);
     }
 
     .badge-count {
@@ -1894,14 +2087,14 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &.type-faq {
-    background: rgba(0, 82, 217, 0.08);
+    background: var(--td-info-color-light);
     color: var(--td-brand-color);
     width: auto;
     padding: 0 6px;
     gap: 3px;
 
     &:hover {
-      background: rgba(0, 82, 217, 0.12);
+      background: rgba(from var(--td-info-color) r g b / 0.12);
     }
 
     .badge-count {
@@ -1924,11 +2117,11 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &.multimodal {
-    background: rgba(255, 152, 0, 0.08);
+    background: var(--td-warning-color-light);
     color: var(--td-warning-color);
 
     &:hover {
-      background: rgba(255, 152, 0, 0.12);
+      background: rgba(from var(--td-warning-color-5) r g b / 0.12);
     }
   }
 
@@ -1990,17 +2183,17 @@ const handleUploadFinishedEvent = (event: Event) => {
 @keyframes highlightFlash {
   0% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 0 rgba(7, 192, 95, 0.4);
+    box-shadow: 0 0 0 0 rgba(from var(--td-brand-color) r g b / 0.4);
     transform: scale(1);
   }
   50% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 8px rgba(7, 192, 95, 0);
+    box-shadow: 0 0 0 8px rgba(from var(--td-brand-color) r g b / 0);
     transform: scale(1.02);
   }
   100% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 0 rgba(7, 192, 95, 0);
+    box-shadow: 0 0 0 0 rgba(from var(--td-brand-color) r g b / 0);
     transform: scale(1);
   }
 }
@@ -2008,7 +2201,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 .kb-card.highlight-flash {
   animation: highlightFlash 0.6s ease-in-out 3;
   border-color: var(--td-brand-color) !important;
-  box-shadow: 0 0 12px rgba(7, 192, 95, 0.3) !important;
+  box-shadow: 0 0 12px rgba(from var(--td-brand-color) r g b / 0.3) !important;
 }
 
 .card-time {
@@ -2183,8 +2376,8 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &:hover {
-    background: rgba(7, 192, 95, 0.08);
-    color: var(--td-brand-color);
+    background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.08);
+    color: var(--td-brand-color, #059655);
   }
 }
 
@@ -2206,7 +2399,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   max-width: 90vw;
   height: 100%;
   background: var(--td-bg-color-container);
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
+  box-shadow: -4px 0 24px rgba(from var(--td-text-color-primary, #000) r g b / 0.12);
   display: flex;
   flex-direction: column;
   font-family: "PingFang SC", sans-serif;
@@ -2350,5 +2543,83 @@ const handleUploadFinishedEvent = (event: Event) => {
       border-color: var(--td-brand-color-active);
     }
   }
+}
+
+/* 成员管理对话框样式 */
+.members-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px 0;
+}
+
+.members-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--td-text-color-placeholder);
+  text-align: center;
+}
+
+.members-empty .t-icon {
+  margin-bottom: 16px;
+  color: var(--td-text-color-disabled);
+}
+
+.members-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--td-component-border);
+}
+
+.member-item:last-child {
+  border-bottom: none;
+}
+
+.member-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.member-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.member-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--td-text-color-primary);
+}
+
+.member-email {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.member-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.members-pagination {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--td-component-border);
+  display: flex;
+  justify-content: center;
 }
 </style>

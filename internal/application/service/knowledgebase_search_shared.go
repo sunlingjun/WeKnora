@@ -61,12 +61,7 @@ func (s *knowledgeBaseService) fetchKnowledgeDataWithShared(ctx context.Context,
 			logger.Debugf(ctx, "[fetchKnowledgeDataWithShared] Knowledge %s not found or has no KB", id)
 			continue
 		}
-		hasPermission, err := s.kbShareService.HasKBPermission(ctx, k.KnowledgeBaseID, userID, types.OrgRoleViewer)
-		if err != nil {
-			logger.Debugf(ctx, "[fetchKnowledgeDataWithShared] Permission check error for KB %s: %v", k.KnowledgeBaseID, err)
-			continue
-		}
-		if !hasPermission {
+		if !s.userCanAccessSharedKB(ctx, k.KnowledgeBaseID, userID) {
 			logger.Debugf(ctx, "[fetchKnowledgeDataWithShared] No permission for KB %s", k.KnowledgeBaseID)
 			continue
 		}
@@ -121,12 +116,7 @@ func (s *knowledgeBaseService) listChunksByIDWithShared(ctx context.Context,
 		if c == nil || c.KnowledgeBaseID == "" {
 			continue
 		}
-		hasPermission, err := s.kbShareService.HasKBPermission(ctx, c.KnowledgeBaseID, userID, types.OrgRoleViewer)
-		if err != nil {
-			logger.Debugf(ctx, "[listChunksByIDWithShared] Permission check error for KB %s: %v", c.KnowledgeBaseID, err)
-			continue
-		}
-		if !hasPermission {
+		if !s.userCanAccessSharedKB(ctx, c.KnowledgeBaseID, userID) {
 			logger.Debugf(ctx, "[listChunksByIDWithShared] No permission for KB %s", c.KnowledgeBaseID)
 			continue
 		}
@@ -135,6 +125,24 @@ func (s *knowledgeBaseService) listChunksByIDWithShared(ctx context.Context,
 
 	logger.Infof(ctx, "[listChunksByIDWithShared] After shared lookup, total chunks: %d", len(chunks))
 	return chunks, nil
+}
+
+// userCanAccessSharedKB: org-shared KB or square/member-based shared KB.
+func (s *knowledgeBaseService) userCanAccessSharedKB(ctx context.Context, kbID, userID string) bool {
+	if kbID == "" || userID == "" {
+		return false
+	}
+	if s.kbShareService != nil {
+		if ok, _ := s.kbShareService.HasKBPermission(ctx, kbID, userID, types.OrgRoleViewer); ok {
+			return true
+		}
+	}
+	if s.sharedKBService != nil {
+		if role, _ := s.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID); role != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // findMissingIDs returns IDs from the input slice that are not found by the exists predicate.

@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -25,26 +26,56 @@ type AsynqTaskParams struct {
 	ImageMultimodal      interfaces.TaskHandler `name:"imageMultimodal"`
 }
 
-func getAsynqRedisClientOpt() *asynq.RedisClientOpt {
+// getAsynqRedisConnOpt 返回通用的 Redis 连接配置，支持单机和集群模式。
+// 单机：REDIS_MODE 为空或 single，使用 REDIS_ADDR / REDIS_DB 等；
+// 集群：REDIS_MODE=cluster，使用 REDIS_CLUSTER_ADDRS（逗号分隔的 host:port 列表）。
+func getAsynqRedisConnOpt() asynq.RedisConnOpt {
+	mode := strings.ToLower(os.Getenv("REDIS_MODE"))
+
+	username := os.Getenv("REDIS_USERNAME")
+	password := os.Getenv("REDIS_PASSWORD")
+
+	if mode == "cluster" {
+		// 集群模式：REDIS_CLUSTER_ADDRS=host1:6379,host2:6379,...
+		raw := os.Getenv("REDIS_CLUSTER_ADDRS")
+		parts := strings.Split(raw, ",")
+		addrs := make([]string, 0, len(parts))
+		for _, s := range parts {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				addrs = append(addrs, s)
+			}
+		}
+
+		return &asynq.RedisClusterClientOpt{
+			Addrs:        addrs,
+			Username:     username,
+			Password:     password,
+			ReadTimeout:  100 * time.Millisecond,
+			WriteTimeout: 200 * time.Millisecond,
+		}
+	}
+
+	// 默认单机模式，保持原有行为
 	db := 0
 	if dbStr := os.Getenv("REDIS_DB"); dbStr != "" {
 		if parsed, err := strconv.Atoi(dbStr); err == nil {
 			db = parsed
 		}
 	}
-	opt := &asynq.RedisClientOpt{
+
+	return &asynq.RedisClientOpt{
 		Addr:         os.Getenv("REDIS_ADDR"),
-		Username:     os.Getenv("REDIS_USERNAME"),
-		Password:     os.Getenv("REDIS_PASSWORD"),
+		Username:     username,
+		Password:     password,
 		ReadTimeout:  100 * time.Millisecond,
 		WriteTimeout: 200 * time.Millisecond,
 		DB:           db,
 	}
-	return opt
 }
 
 func NewAsyncqClient() (*asynq.Client, error) {
-	opt := getAsynqRedisClientOpt()
+	opt := getAsynqRedisConnOpt()
 	client := asynq.NewClient(opt)
 	err := client.Ping()
 	if err != nil {
@@ -54,7 +85,7 @@ func NewAsyncqClient() (*asynq.Client, error) {
 }
 
 func NewAsynqServer() *asynq.Server {
-	opt := getAsynqRedisClientOpt()
+	opt := getAsynqRedisConnOpt()
 	srv := asynq.NewServer(
 		opt,
 		asynq.Config{

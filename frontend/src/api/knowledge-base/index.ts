@@ -12,6 +12,7 @@ export function createKnowledgeBase(data: {
   name: string; 
   description?: string; 
   type?: 'document' | 'faq';
+  visibility?: 'private' | 'shared'; // 新增：知识库可见性
   chunking_config?: any;
   embedding_model_id?: string;
   summary_model_id?: string;
@@ -30,6 +31,70 @@ export function createKnowledgeBase(data: {
   faq_config?: { index_mode: string; question_index_mode?: string };
 }) {
   return post(`/api/v1/knowledge-bases`, data);
+}
+
+// 创建共享知识库（直接共享）
+export function createSharedKnowledgeBase(data: {
+  name: string;
+  description?: string;
+  type?: 'document' | 'faq';
+  chunking_config?: any;
+  embedding_model_id?: string;
+  summary_model_id?: string;
+  vlm_config?: {
+    enabled: boolean;
+    model_id?: string;
+  };
+  cos_config?: any;
+  extract_config?: any;
+  faq_config?: { index_mode: string; question_index_mode?: string };
+}) {
+  return post(`/api/v1/knowledge-bases/shared`, data);
+}
+
+// 列出共享知识库广场
+export function listSharedKnowledgeBases(params?: {
+  keyword?: string;
+  page?: number;
+  page_size?: number;
+}) {
+  const query = buildQuery(params);
+  return get(`/api/v1/knowledge-bases/shared${query}`);
+}
+
+// 列出用户的知识库（个人 + 加入的共享知识库）
+export function listUserKnowledgeBases(includeShared: boolean = true) {
+  return get(`/api/v1/knowledge-bases/user?include_shared=${includeShared}`);
+}
+
+// 加入共享知识库
+export function joinSharedKnowledgeBase(kbId: string) {
+  return post(`/api/v1/knowledge-bases/${kbId}/join`);
+}
+
+// 离开共享知识库
+export function leaveSharedKnowledgeBase(kbId: string) {
+  return post(`/api/v1/knowledge-bases/${kbId}/leave`);
+}
+
+// 列出知识库成员
+export function listKnowledgeBaseMembers(kbId: string, params?: {
+  keyword?: string;
+  page?: number;
+  page_size?: number;
+}) {
+  const query = buildQuery(params);
+  return get(`/api/v1/knowledge-bases/${kbId}/members${query}`);
+}
+
+// 更新成员权限
+export function updateMemberRole(kbId: string, userId: string, role: 'viewer' | 'editor') {
+  return put(`/api/v1/knowledge-bases/${kbId}/members/${userId}`, { role });
+}
+
+// 移除成员
+export function removeMember(kbId: string, userId: string) {
+  return del(`/api/v1/knowledge-bases/${kbId}/members/${userId}`);
 }
 
 export function getKnowledgeBaseById(id: string, options?: { agent_id?: string }) {
@@ -87,7 +152,10 @@ export function uploadKnowledgeFile(kbId: string, data: { file: File; tag_id?: s
 
 // 从URL创建知识
 // data.tag_id: 可选，指定知识所属的分类ID
-export function createKnowledgeFromURL(kbId: string, data: { url: string; enable_multimodel?: boolean; tag_id?: string }) {
+export function createKnowledgeFromURL(
+  kbId: string,
+  data: { url: string; title: string; enable_multimodel?: boolean; tag_id?: string; channel?: string },
+) {
   return post(`/api/v1/knowledge-bases/${kbId}/knowledge/url`, data);
 }
 

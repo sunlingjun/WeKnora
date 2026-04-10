@@ -460,10 +460,10 @@ type wecomMessage struct {
 	CreateTime   int64    `xml:"CreateTime"`
 	MsgType      string   `xml:"MsgType"`
 	Content      string   `xml:"Content"`      // text
-	PicUrl       string   `xml:"PicUrl"`        // image: download URL
-	MediaId      string   `xml:"MediaId"`       // image/voice/video: media ID for download
-	Format       string   `xml:"Format"`        // voice: audio format (amr/speex)
-	ThumbMediaId string   `xml:"ThumbMediaId"`  // video: thumbnail media ID
+	PicUrl       string   `xml:"PicUrl"`       // image: download URL
+	MediaId      string   `xml:"MediaId"`      // image/voice/video: media ID for download
+	Format       string   `xml:"Format"`       // voice: audio format (amr/speex)
+	ThumbMediaId string   `xml:"ThumbMediaId"` // video: thumbnail media ID
 	MsgID        string   `xml:"MsgId"`
 	AgentID      string   `xml:"AgentID"`
 	ChatID       string   `xml:"ChatId"`
@@ -621,20 +621,20 @@ func contentTypeToExt(ct string) string {
 	ct = strings.ToLower(ct)
 
 	mapping := map[string]string{
-		"application/pdf":                                                 "pdf",
-		"application/msword":                                              "doc",
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   "docx",
-		"application/vnd.ms-excel":                                        "xls",
+		"application/pdf":    "pdf",
+		"application/msword": "doc",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+		"application/vnd.ms-excel": "xls",
 		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         "xlsx",
-		"application/vnd.ms-powerpoint":                                   "ppt",
+		"application/vnd.ms-powerpoint":                                             "ppt",
 		"application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-		"text/plain":       "txt",
-		"text/markdown":    "md",
-		"text/csv":         "csv",
-		"image/png":        "png",
-		"image/jpeg":       "jpg",
-		"image/gif":        "gif",
-		"image/webp":       "webp",
+		"text/plain":    "txt",
+		"text/markdown": "md",
+		"text/csv":      "csv",
+		"image/png":     "png",
+		"image/jpeg":    "jpg",
+		"image/gif":     "gif",
+		"image/webp":    "webp",
 	}
 
 	return mapping[ct]

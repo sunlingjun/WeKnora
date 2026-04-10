@@ -143,7 +143,7 @@ type Service struct {
 	// redis is the optional Redis client for distributed state (dedup, rate
 	// limiting, leader election, cross-instance /stop). When nil the service
 	// falls back to local in-memory state (single-instance / Lite mode).
-	redis *redis.Client
+	redis redis.UniversalClient
 
 	// instanceID uniquely identifies this service instance for leader election.
 	instanceID string
@@ -277,7 +277,7 @@ func NewService(
 	kbService interfaces.KnowledgeBaseService,
 	modelService interfaces.ModelService,
 	streamManager interfaces.StreamManager,
-	redisClient *redis.Client,
+	redisClient redis.UniversalClient,
 	appCfg *config.Config,
 ) *Service {
 	// Resolve IM configuration with defaults.

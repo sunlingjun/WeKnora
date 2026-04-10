@@ -185,7 +185,7 @@ start_services() {
         if [[ "$ENABLED_SERVICES" == *"dex"* ]]; then
             echo "  - Dex:           localhost:5556"
         fi
-        
+
         echo ""
         log_info "接下来的步骤:"
         printf "%b\n" "${YELLOW}1. 在新终端运行后端:${NC} make dev-app"
@@ -262,6 +262,8 @@ start_app() {
     
     # 设置本地开发环境变量（覆盖 Docker 容器地址）
     export DB_HOST=localhost
+    # 如果 DB_PORT 未设置，使用默认值 5432
+    export DB_PORT=${DB_PORT:-5432}
     export DOCREADER_ADDR=localhost:50051
     export DOCREADER_TRANSPORT=grpc
     export MINIO_ENDPOINT=localhost:9000

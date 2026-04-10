@@ -415,8 +415,16 @@ func (s *sessionService) buildSearchTargets(
 				kbTenantMap[kbID] = tenantID
 			} else if kb.TenantID == tenantID {
 				kbTenantMap[kbID] = tenantID
-			} else if s.kbShareService != nil && userID != "" {
-				hasAccess, _ := s.kbShareService.HasKBPermission(ctx, kbID, userID, types.OrgRoleViewer)
+			} else if userID != "" {
+				// Cross-tenant KB: org share OR square/member-based shared KB (joined via /join).
+				hasAccess := false
+				if s.kbShareService != nil {
+					hasAccess, _ = s.kbShareService.HasKBPermission(ctx, kbID, userID, types.OrgRoleViewer)
+				}
+				if !hasAccess && s.sharedKBService != nil {
+					role, _ := s.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID)
+					hasAccess = role != ""
+				}
 				if hasAccess {
 					kbTenantMap[kbID] = kb.TenantID
 				} else {

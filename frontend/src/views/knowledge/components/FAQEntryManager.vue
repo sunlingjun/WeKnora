@@ -1650,7 +1650,6 @@ const handleTagRowClick = (tagSeqId: number) => {
     cancelCreateTag()
   }
   if (selectedTagId.value === tagSeqId) {
-    handleTagFilterChange(0)
     return
   }
   handleTagFilterChange(tagSeqId)
@@ -4000,7 +3999,7 @@ watch(() => entries.value.map(e => ({
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   padding: 16px 20px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--td-shadow-1);
 
   .import-result-content {
     display: flex;
@@ -4183,7 +4182,7 @@ watch(() => entries.value.map(e => ({
   border-radius: 10px;
   background: var(--td-bg-color-container);
   padding: 10px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--td-shadow-1);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -4197,13 +4196,13 @@ watch(() => entries.value.map(e => ({
 
   &:hover {
     border-color: var(--td-brand-color);
-    box-shadow: 0 2px 8px rgba(7, 192, 95, 0.1);
+    box-shadow: var(--td-shadow-2);
   }
 
   &.selected {
     border-color: var(--td-brand-color);
     background: var(--td-success-color-light);
-    box-shadow: 0 2px 8px rgba(7, 192, 95, 0.15);
+    box-shadow: var(--td-shadow-2);
   }
 }
 
@@ -4268,8 +4267,9 @@ watch(() => entries.value.map(e => ({
   gap: 6px;
   padding: 8px 12px;
   margin: 0 -10px -10px;
-  background: rgba(48, 50, 54, 0.02);
-  border-top: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-secondarycontainer);
+  opacity: 0.8;
+  border-top: 1px solid var(--td-component-border);
   flex-wrap: nowrap;
 }
 
@@ -4654,7 +4654,7 @@ watch(() => entries.value.map(e => ({
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(from var(--td-text-color-primary) r g b / 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4668,8 +4668,8 @@ watch(() => entries.value.map(e => ({
   max-width: 600px;
   max-height: 90vh;
   background: var(--td-bg-color-container);
-  border-radius: 12px;
-  box-shadow: 0 6px 28px rgba(15, 23, 42, 0.08);
+  border-radius: var(--td-radius-large);
+  box-shadow: var(--td-shadow-2);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -4784,7 +4784,7 @@ watch(() => entries.value.map(e => ({
   font-size: 13px;
   font-weight: 500;
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: var(--td-radius-medium);
   border: 1px solid var(--td-component-stroke);
   background: var(--td-bg-color-container);
   color: var(--td-text-color-primary);
@@ -4881,7 +4881,7 @@ watch(() => entries.value.map(e => ({
   width: 100%;
   min-height: 120px;
   border: 2px dashed var(--td-component-stroke);
-  border-radius: 8px;
+  border-radius: var(--td-radius-large);
   background: var(--td-bg-color-secondarycontainer);
   cursor: pointer;
   transition: all 0.3s ease;
@@ -5158,7 +5158,7 @@ watch(() => entries.value.map(e => ({
       background: var(--td-brand-color) !important;
       border-color: var(--td-brand-color-active) !important;
       transform: scale(1.05);
-      box-shadow: 0 2px 8px rgba(7, 192, 95, 0.3);
+      box-shadow: var(--td-shadow-2);
     }
 
     &:active:not(:disabled) {
@@ -5216,7 +5216,7 @@ watch(() => entries.value.map(e => ({
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   transition: all 0.2s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--td-shadow-1);
   position: relative;
 
   &.answer-row {
@@ -5264,7 +5264,7 @@ watch(() => entries.value.map(e => ({
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
+    border-radius: var(--td-radius-medium);
     transition: all 0.2s ease;
     background: transparent;
     border: none;
@@ -5531,7 +5531,7 @@ watch(() => entries.value.map(e => ({
 
   &:focus-within {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 3px rgba(7, 192, 95, 0.1);
+    box-shadow: 0 0 0 3px rgba(from var(--td-brand-color) r g b / 0.1);
   }
 
   .t-input__inner {
@@ -5566,7 +5566,7 @@ watch(() => entries.value.map(e => ({
   font-family: "PingFang SC";
   font-size: 14px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
+  border-radius: var(--td-radius-large);
   background: var(--td-bg-color-container);
   transition: all 0.2s ease;
 
@@ -5576,7 +5576,7 @@ watch(() => entries.value.map(e => ({
 
   &:focus-within {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 3px rgba(7, 192, 95, 0.1);
+    box-shadow: 0 0 0 3px rgba(from var(--td-brand-color) r g b / 0.1);
   }
 
   .t-textarea__inner {
@@ -5794,7 +5794,7 @@ watch(() => entries.value.map(e => ({
 
     &:hover {
       border-color: var(--td-brand-color-active);
-      box-shadow: 0 2px 8px rgba(7, 192, 95, 0.2);
+      box-shadow: 0 2px 8px rgba(from var(--td-brand-color) r g b / 0.2);
     }
   }
 }
@@ -5822,7 +5822,7 @@ watch(() => entries.value.map(e => ({
 
   &:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(7, 192, 95, 0.3);
+    box-shadow: 0 4px 12px rgba(from var(--td-brand-color) r g b / 0.3);
   }
 
   &:active:not(:disabled) {
@@ -5885,7 +5885,7 @@ watch(() => entries.value.map(e => ({
   background: var(--td-bg-color-container);
   padding: 14px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--td-shadow-1);
   width: 100%;
   box-sizing: border-box;
   min-width: 0;
@@ -5894,7 +5894,7 @@ watch(() => entries.value.map(e => ({
 
   &:hover {
     border-color: var(--td-brand-color);
-    box-shadow: 0 2px 8px rgba(7, 192, 95, 0.12);
+    box-shadow: 0 2px 8px rgba(from var(--td-brand-color) r g b / 0.12);
   }
 }
 
@@ -5908,7 +5908,7 @@ watch(() => entries.value.map(e => ({
   user-select: none;
   padding: 4px;
   margin: -4px;
-  border-radius: 6px;
+  border-radius: var(--td-radius-medium);
   position: relative;
 
   &:hover {
@@ -5975,7 +5975,7 @@ watch(() => entries.value.map(e => ({
 
   .matched-text {
     color: var(--td-warning-color-active);
-    background: linear-gradient(90deg, rgba(251, 191, 36, 0.15) 0%, rgba(251, 191, 36, 0.05) 100%);
+    background: linear-gradient(90deg, rgba(from var(--td-warning-color-5) r g b / 0.15) 0%, rgba(from var(--td-warning-color-5) r g b / 0.05) 100%);
     padding: 1px 6px;
     border-radius: 4px;
     word-break: break-word;
@@ -6067,7 +6067,7 @@ watch(() => entries.value.map(e => ({
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(from var(--td-text-color-primary) r g b / 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6080,8 +6080,8 @@ watch(() => entries.value.map(e => ({
   width: 100%;
   max-width: 480px;
   background: var(--td-bg-color-container);
-  border-radius: 12px;
-  box-shadow: 0 6px 28px rgba(15, 23, 42, 0.08);
+  border-radius: var(--td-radius-large);
+  box-shadow: var(--td-shadow-2);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -6094,7 +6094,7 @@ watch(() => entries.value.map(e => ({
     height: 32px;
     border: none;
     background: var(--td-bg-color-secondarycontainer);
-    border-radius: 6px;
+    border-radius: var(--td-radius-medium);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -6142,7 +6142,7 @@ watch(() => entries.value.map(e => ({
   margin-bottom: 20px;
   background: var(--td-brand-color-light);
   border: 1px solid var(--td-brand-color-focus);
-  border-radius: 8px;
+  border-radius: var(--td-radius-large);
   font-size: 14px;
   color: var(--td-brand-color);
   line-height: 1.5;
