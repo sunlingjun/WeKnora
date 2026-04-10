@@ -12,6 +12,7 @@ import (
 	filesvc "github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/dig"
@@ -63,6 +64,8 @@ type RouterParams struct {
 	IMHandler                *handler.IMHandler
 	DataSourceHandler        *handler.DataSourceHandler
 	CASAuthHandler           *handler.CASAuthHandler
+	CASAuthService           interfaces.CASAuthService
+	RedisClient              redis.UniversalClient
 }
 
 // defaultTrustedPrivateProxies 当 behind_proxy 开启但未配置 trusted_proxies 时的保守默认值（私网 + 本机）。
@@ -175,7 +178,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 	}
 
 	// 认证中间件
-	r.Use(middleware.Auth(params.TenantService, params.UserService, params.Config))
+	r.Use(middleware.Auth(params.TenantService, params.UserService, params.CASAuthService, params.RedisClient, params.Config))
 
 	// 文件服务：统一代理本地/MinIO/COS/TOS存储后端（需要认证）
 	serveFiles(r)

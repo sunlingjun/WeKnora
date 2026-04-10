@@ -121,6 +121,14 @@ tenant:
   # Enable cross-tenant access (can be enabled for intranet environments)
   enable_cross_tenant_access: false
 
+auth:
+  nxin_cas_auth:
+    enabled: true
+    cache_ttl_seconds: 600
+    require_https: true
+    allowed_path_globs:
+      - "/api/v1/*"
+
 # CAS 单点登录配置
 cas:
   # 环境类型：production（生产环境）或 test（测试环境）

@@ -112,6 +112,13 @@ docker ps --filter name=WeKnora-postgres-dev
 docker exec -e PGPASSWORD=<DB_PASSWORD> -it WeKnora-postgres-dev psql -U <DB_USER> -d <DB_NAME> -c "SELECT * FROM pg_available_extension_versions WHERE name = 'pg_search';"
 ```
 
+在 实际连接的应用库 上执行（不是只看书面配置）：
+SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';
+-- 若 ParadeDB 提供：
+SELECT * FROM paradedb.version_info();
+若 extversion 明显低于镜像标签中的 pg_search 版本，或文档要求的版本：
+ALTER EXTENSION pg_search UPDATE TO '<目标版本>';  -- 版本号以官方 upgrading 文档为准
+
 记录目标版本字符串（通常与镜像小版本一致，如 **`0.22.2`**，以查询结果为准）。
 
 ### 6.2 执行升级
@@ -210,7 +217,68 @@ docker logs -f WeKnora-postgres-dev
 
 ---
 
-## 11. 相关文件
+## 11. 专项排障：`pdb.score(anyelement) does not exist`
+
+### 11.1 现象
+
+典型报错：
+
+```text
+ERROR: function "pdb.score(anyelement)" does not exist (SQLSTATE 42883)
+```
+
+常见触发语句：
+
+- `DELETE FROM embeddings WHERE ...`
+- `UPDATE embeddings SET is_enabled = ... WHERE ...`
+
+### 11.2 根因（与官方文档对齐）
+
+该报错通常不是业务 SQL 写错，而是 **`pg_search` 扩展版本状态不一致** 导致：
+
+- 已升级/替换了 ParadeDB 镜像；
+- 但未在对应数据库执行 `ALTER EXTENSION pg_search UPDATE TO '...';`；
+- 或者同一数据卷在不同镜像版本间切换，导致扩展 SQL 对象与当前二进制不匹配。
+
+在这种状态下，BM25 索引维护路径（写入/更新/删除时）会调用内部函数（如 `pdb.score`），若函数签名在当前库中不可用，就会抛出 `... does not exist`。
+
+> 说明：官方升级文档重点在升级步骤，不会在功能章节逐条罗列该类异常。  
+> 参考：<https://docs.paradedb.com/deploy/upgrading>
+
+### 11.3 快速诊断
+
+在业务库执行：
+
+```powershell
+docker exec -e PGPASSWORD=<DB_PASSWORD> -it WeKnora-postgres-dev psql -U <DB_USER> -d <DB_NAME> -c "SELECT extname, extversion FROM pg_extension WHERE extname='pg_search'; SELECT * FROM paradedb.version_info();"
+```
+
+重点检查：
+
+- `extversion` 是否与镜像目标版本一致；
+- `paradedb.version_info()` 与 `pg_extension` 结果是否一致；
+- 是否所有安装 `pg_search` 的数据库都已执行过升级。
+
+### 11.4 推荐处理顺序
+
+1. 按 **第 6 节** 在每个安装 `pg_search` 的数据库执行 `ALTER EXTENSION ... UPDATE TO ...`。  
+2. 重启容器并复查版本（见 **第 7 节**）。  
+3. 重新执行触发失败的 `DELETE/UPDATE` 流程验证。  
+4. 若仍失败，再检查是否存在跨环境复用旧卷、连接错库、或多套 compose 版本不一致（`dev`/`default`/`test`）。
+
+### 11.5 应急方案（仅临时兜底）
+
+如果业务必须立即删除数据，可临时采用：
+
+- 删除 BM25 索引 `embeddings_search_idx`；
+- 执行 `DELETE/UPDATE`；
+- 再重建索引。
+
+注意：索引删除到重建期间，关键词/BM25 检索会短暂不可用；该方案用于应急，不应替代扩展升级。
+
+---
+
+## 12. 相关文件
 
 - 开发：`docker-compose.dev.yml`
 - 默认完整栈：`docker-compose.yml`

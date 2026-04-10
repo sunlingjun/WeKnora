@@ -20,6 +20,7 @@ type Config struct {
 	Server          *ServerConfig          `yaml:"server"           json:"server"`
 	KnowledgeBase   *KnowledgeBaseConfig   `yaml:"knowledge_base"   json:"knowledge_base"`
 	Tenant          *TenantConfig          `yaml:"tenant"           json:"tenant"`
+	Auth            *AuthConfig            `yaml:"auth"             json:"auth"`
 	OIDCAuth        *OIDCAuthConfig        `yaml:"oidc_auth"        json:"oidc_auth"`
 	Models          []ModelConfig          `yaml:"models"           json:"models"`
 	VectorDatabase  *VectorDatabaseConfig  `yaml:"vector_database"  json:"vector_database"`
@@ -186,6 +187,19 @@ type TenantConfig struct {
 	DefaultSessionDescription string `yaml:"default_session_description" json:"default_session_description"`
 	// EnableCrossTenantAccess enables cross-tenant access for users with permission
 	EnableCrossTenantAccess bool `yaml:"enable_cross_tenant_access" json:"enable_cross_tenant_access"`
+}
+
+// AuthConfig 认证配置
+type AuthConfig struct {
+	NXINCASAuth *NXINCASAuthConfig `yaml:"nxin_cas_auth" json:"nxin_cas_auth"`
+}
+
+// NXINCASAuthConfig NXIN CAS鉴权配置
+type NXINCASAuthConfig struct {
+	Enabled          bool     `yaml:"enabled" json:"enabled"`
+	CacheTTLSeconds  int      `yaml:"cache_ttl_seconds" json:"cache_ttl_seconds"`
+	RequireHTTPS     bool     `yaml:"require_https" json:"require_https"`
+	AllowedPathGlobs []string `yaml:"allowed_path_globs" json:"allowed_path_globs"`
 }
 
 type OIDCUserInfoMapping struct {
@@ -403,6 +417,7 @@ func LoadConfig() (*Config, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("unable to decode config into struct: %w", err)
 	}
+	applyAuthDefaults(&cfg)
 	fmt.Printf("Using configuration file: %s\n", viper.ConfigFileUsed())
 
 	// 加载提示词模板（从目录或配置文件）
@@ -578,6 +593,21 @@ func applyAgentEnvOverrides(cfg *Config) {
 			// Handle case where user just provides a number like "300"
 			cfg.Agent.LLMCallTimeout = int(sec.Seconds())
 		}
+	}
+}
+
+func applyAuthDefaults(cfg *Config) {
+	if cfg.Auth == nil {
+		cfg.Auth = &AuthConfig{}
+	}
+	if cfg.Auth.NXINCASAuth == nil {
+		cfg.Auth.NXINCASAuth = &NXINCASAuthConfig{}
+	}
+	if cfg.Auth.NXINCASAuth.CacheTTLSeconds <= 0 {
+		cfg.Auth.NXINCASAuth.CacheTTLSeconds = 600
+	}
+	if len(cfg.Auth.NXINCASAuth.AllowedPathGlobs) == 0 {
+		cfg.Auth.NXINCASAuth.AllowedPathGlobs = []string{"/api/v1/*"}
 	}
 }
 
