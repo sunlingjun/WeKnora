@@ -136,13 +136,14 @@ Return your response in the specified JSON format.`, chatManage.Query, knowledge
 	// 5. Store result
 	// Create a new SearchResult for the analysis output
 	analysisResult := &types.SearchResult{
-		ID:                "analysis_" + knowledge.ID,
-		Content:           toolResult.Output,
-		Score:             1.0,
-		MatchType:         types.MatchTypeDataAnalysis,
-		KnowledgeID:       knowledge.ID,
-		KnowledgeTitle:    knowledge.Title,
-		KnowledgeFilename: knowledge.FileName,
+		ID:                   "analysis_" + knowledge.ID,
+		Content:              toolResult.Output,
+		Score:                1.0,
+		MatchType:            types.MatchTypeDataAnalysis,
+		KnowledgeID:          knowledge.ID,
+		KnowledgeTitle:       knowledge.Title,
+		KnowledgeFilename:    knowledge.FileName,
+		KnowledgeDescription: knowledge.Description,
 	}
 
 	chatManage.MergeResult = append(chatManage.MergeResult, analysisResult)

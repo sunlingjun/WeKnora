@@ -77,7 +77,7 @@ type qaQueue struct {
 
 	// redis is the optional Redis client for global per-user counting.
 	// When nil, only local per-user limits are enforced.
-	redis *redis.Client
+	redis redis.UniversalClient
 
 	// globalMaxWorkers is the maximum number of QA requests executing
 	// concurrently across all instances. 0 means no global limit.
@@ -98,7 +98,7 @@ type qaQueue struct {
 // newQAQueue creates a new bounded queue with the given worker count.
 // globalMaxWorkers controls cross-instance concurrency (0 = no limit).
 // redisClient may be nil for single-instance mode.
-func newQAQueue(workers, maxSize, maxPerUser, globalMaxWorkers int, handler func(req *qaRequest), redisClient *redis.Client) *qaQueue {
+func newQAQueue(workers, maxSize, maxPerUser, globalMaxWorkers int, handler func(req *qaRequest), redisClient redis.UniversalClient) *qaQueue {
 	q := &qaQueue{
 		queue:            make([]*qaRequest, 0, maxSize),
 		maxSize:          maxSize,

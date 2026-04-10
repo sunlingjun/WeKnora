@@ -233,7 +233,7 @@
               <span>{{ $t('organization.join.shareCount', { count: previewInfo.share_count }) }}</span>
             </div>
             <div class="stat-item stat-item-agent">
-              <img src="@/assets/img/agent.svg" class="stat-agent-icon" alt="" aria-hidden="true" />
+              <SvgIcon name="agent" variant="default" :size="14" class="stat-agent-icon" />
               <span>{{ $t('organization.join.agentShareCount', { count: previewInfo.agent_share_count ?? 0 }) }}</span>
             </div>
           </div>
@@ -254,6 +254,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { useI18n } from 'vue-i18n'
 import type { OrganizationPreview } from '@/api/organization'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import { SvgIcon } from '@/components/icons'
 
 const { t } = useI18n()
 const orgStore = useOrganizationStore()
@@ -419,7 +420,7 @@ watch(() => props.mode, () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(from var(--td-text-color-primary, #000) r g b / 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -435,7 +436,7 @@ watch(() => props.mode, () => {
   max-height: 650px;
   background: var(--td-bg-color-container);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 8px 32px rgba(from var(--td-text-color-primary, #000) r g b / 0.12);
   display: flex;
   flex-direction: column;
   overflow: hidden;

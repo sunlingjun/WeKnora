@@ -158,7 +158,7 @@
           </div>
           <!-- 右下角：内置 / 自定义 / 空间图标+名称 -->
           <div v-if="!agent.isMine" class="card-bottom-source">
-            <img src="@/assets/img/organization-green.svg" class="org-icon" alt="" aria-hidden="true" />
+            <SvgIcon name="organization" variant="green" :size="14" class="org-icon" />
             <span class="org-source-text">{{ agent.org_name }}</span>
           </div>
           <div v-else-if="agent.is_builtin" class="builtin-badge">
@@ -381,7 +381,7 @@
           </div>
           <!-- 右下角：空间图标+名称 -->
           <div class="card-bottom-source">
-            <img src="@/assets/img/organization-green.svg" class="org-icon" alt="" aria-hidden="true" />
+            <SvgIcon name="organization" variant="green" :size="14" class="org-icon" />
             <span class="org-source-text">{{ shared.org_name }}</span>
           </div>
         </div>
@@ -474,7 +474,7 @@
             <div class="shared-detail-row">
               <span class="shared-detail-label">{{ $t('knowledgeList.detail.sourceOrg') }}</span>
               <span class="shared-detail-value shared-detail-org">
-                <img src="@/assets/img/organization-green.svg" class="shared-detail-org-icon" alt="" aria-hidden="true" />
+                <SvgIcon name="organization" variant="green" :size="14" class="shared-detail-org-icon" />
                 <span>{{ currentSharedAgent.org_name }}</span>
               </span>
             </div>
@@ -544,6 +544,7 @@ import type { SharedAgentInfo, OrganizationSharedAgentItem } from '@/api/organiz
 import AgentEditorModal from './AgentEditorModal.vue'
 import AgentAvatar from '@/components/AgentAvatar.vue'
 import ListSpaceSidebar from '@/components/ListSpaceSidebar.vue'
+import { SvgIcon } from '@/components/icons'
 
 const { t } = useI18n()
 const route = useRoute()

@@ -2,6 +2,113 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.6] - 2026-04-03
+
+### 🚀 New Features
+- **NEW**: ASR (Automatic Speech Recognition) — integrated ASR model support with audio file upload, in-document audio preview, and transcription capabilities; added ASR model connectivity check endpoint
+- **NEW**: Data Source Auto-Sync (Feishu) — complete data source management with CRUD operations, Feishu Wiki/Drive auto-sync (incremental and full), sync logs with polling, tenant isolation, and data source type icons
+- **NEW**: OIDC Authentication — OpenID Connect (OIDC) login support with auto-discovery, custom endpoint configuration, and user info field mapping
+- **NEW**: IM Quote/Reply Context — extract quoted messages in IM channels (WeCom) and inject QuotedContext into LLM prompts for contextual replies; anti-hallucination handling for non-text quotes and unprocessable media
+- **NEW**: Thread-Based IM Sessions — per-thread session mode for IM channels (Slack, Mattermost, Feishu, Telegram), enabling multi-user collaboration within message threads
+- **NEW**: Document Summarization — AI-generated document summaries with configurable max_input_chars, dedicated summary section in document detail view with loading states
+- **NEW**: Tavily Web Search Provider — added Tavily as a web search provider option; refactored web search provider architecture for extensibility
+- **NEW**: MCP Auto-Reconnection — automatic reconnection logic for MCP tool calls and tool listing when server connection is lost
+- **NEW**: Parallel Tool Calling — concurrent execution of multiple tool calls in agent mode via errgroup when ParallelToolCalls is enabled; sequential execution remains default
+- **NEW**: Agent @Mention Scope Restriction — restrict user @mentions to agent's allowed knowledge base scope, preventing unauthorized access to knowledge bases and knowledge entries
+
+### ⚡ Improvements
+- Refined parent-child chunk replacement logic to only apply to text chunks whose parent is a parent_text chunk
+- Optimized login page rendering performance: removed all backdrop-filter blur, reduced animated elements, added GPU compositing hints and prefers-reduced-motion support
+- Unified NVIDIA API for both chat and VLM model types
+- Prompt language fallback now uses WEKNORA_LANGUAGE environment variable instead of hardcoded zh-CN, with language propagated through document and image processing pipelines
+- Fixed enable_thinking for Aliyun Qwen models in streaming mode
+- Enhanced document processing with metadata extraction and handling
+- Added header tracking for Markdown tables during chunking to preserve table context
+- Elasticsearch ID field handling with dynamic .keyword suffix detection based on index mapping
+- Added DOCREADER_DOCX_MAX_PAGES environment variable to limit DOCX parsing for large documents
+- Knowledge tag batch update now includes authorization checks with agent-scoped KB access validation
+- System proxy support for remote API calls
+- DatabaseQueryTool enhanced with search scope filtering
+
+### 🐛 Bug Fixes
+- Fixed WeCom group chat @mention not being stripped from message text, causing all slash commands to fail
+- Fixed SSEReader returning errors.New("EOF") instead of io.EOF, causing silent stream termination without done response
+- Fixed extracted images not being deleted from storage when knowledge is removed, preventing orphan file accumulation
+- Fixed S3 provider scheme not recognized in frontend/backend allowlists; added auto path-style addressing for non-AWS S3-compatible endpoints
+- Fixed remote images in markdown files not being resolved during file upload (only base64/inline were handled)
+- Fixed SSRF validation lacking IPv6 support; added IPv6 address and CIDR handling in whitelist mechanism
+- Fixed web_fetch using removed IsSSRFSafeURL function; replaced with ValidateURLForSSRF
+- Fixed mermaid diagrams not rendering on page refresh
+- Fixed doc-content.vue renderer incompatible with marked v5+ token API
+- Fixed null reference error when rendering empty markdown code blocks
+- Fixed frontend using legacy storage_config instead of storage_provider_config, causing incorrect storage provider display
+- Fixed knowledge document category not deselectable by clicking again
+- Fixed duplicate click binding in frontend components
+- Fixed migration numbering errors and removed broken update_updated_at_column trigger
+- Fixed monkey patch for docx parse error handling
+
+### 📚 Documentation
+- Enhanced agent and knowledge base API documentation
+- Added data source import documentation with architecture overview and quick start guide
+- Updated README files with streamlined sections and feature overview across all languages
+- Updated architecture diagram
+
+### 🔧 Refactoring
+- Improved question generation prompt template with better guidelines and context handling
+- Simplified temperature option handling in chat request builders
+
+## [0.3.5] - 2026-03-27
+
+### 🚀 New Features
+- **NEW**: Telegram IM Integration — Telegram bot adapter with webhook and long-polling modes, streaming replies via editMessageText, file download via getFile API, and timing-safe secret token verification
+- **NEW**: DingTalk IM Integration — DingTalk bot supporting webhook (HmacSHA256 signature verification) and Stream mode (via dingtalk-stream-sdk-go), with AI Card streaming via OpenAPI and AccessToken caching
+- **NEW**: Mattermost IM Channel — Mattermost IM channel adapter support
+- **NEW**: IM Slash Command System — pluggable command framework with five built-in commands: /help, /info, /search, /stop, /clear; wired into all IM channel message dispatch
+- **NEW**: IM Distributed Coordination — Redis-based multi-instance coordination: per-user queue limits, global concurrency gate, message dedup, WebSocket leader election, /stop cancellation for queued and in-flight requests
+- **NEW**: Suggested Questions — agent-specific suggested questions API based on knowledge bases, with frontend display in chat and create-chat views; image knowledge auto-enqueues question generation tasks
+- **NEW**: VLM Auto-Describe MCP Tool Images — when MCP tools return image content, the agent automatically generates text descriptions via the configured VLM model, making image data accessible to text-only LLMs
+- **NEW**: Novita AI Provider — new LLM provider with OpenAI-compatible API supporting chat, embedding, and VLLM model types
+- **NEW**: Channel Tracking — channel field added to knowledge entries and messages to track source (web/api/im/browser_extension) with frontend labels and DB migrations
+- **NEW**: Expose Built-in Parser Engine in Settings — built-in parser engine now visible and selectable in the settings UI
+
+### ⚡ Improvements
+- MCP tool names now derived from service.Name (stable across server reconnections) instead of UUID; added collision detection and unique (tenant_id, name) DB index
+- Frontend formats MCP tool names from snake_case (e.g. mcp_my_server_search_docs) to human-readable form (My Server Search Docs)
+- Enhanced intent classification and context templates: runtime metadata (current time, weekday) injected into context, critical instructions added to rewrite template for entity/keyword preservation
+- Knowledge search: added SQL LIKE wildcard escaping, title-based filtering, URL and HTML file type support; FindByMetadataKey method added
+- Chunk search returns total chunk counts per knowledge ID for improved agent context awareness
+- MiniMax models upgraded from M2.1/M2.1-lightning to M2.7/M2.7-highspeed; Novita AI MiniMax reference updated to M2.7
+- DingTalk AI Card streaming: create/deliver/update via OpenAPI; shared think-block rendering via im.TransformThinkBlocks applied to all IM reply paths (DingTalk, Telegram, Feishu)
+- IM stream orphan reaper and edit throttling added for DingTalk and Telegram; Feishu stream reaper fixes memory leak
+- WeCom group chat replies fixed via appchat API with user fallback; empty-stream fallback when no visible content is produced
+- Improved LLM call log summarization: limits output to last few messages to reduce verbosity
+- ParallelToolCalls option added to ChatOptions
+
+### 🐛 Bug Fixes
+- Fixed agent producing empty response when no knowledge base is configured: retry (max 2), nudge message, and fallback response added
+- Fixed UTF-8 byte-based truncation in summary fallback causing PostgreSQL invalid byte sequence errors for Chinese/emoji content; changed to rune-based truncation
+- Fixed marked.js usage errors; upgraded marked dependency to v17.0.5 for correct code block rendering
+- Fixed vLLM streaming: reasoning content now parsed and propagated through streaming pipeline alongside standard response
+- Fixed frontend page counter not resetting to 1 after knowledge file operations (tag, upload, move, edit, delete), causing pagination skips
+- Fixed image markdown being stripped during message sanitization
+- Fixed MCP tool naming to use service.Name instead of UUID, preventing tool call failures after server reconnection
+- Fixed global default storage engine not respected when creating a new knowledge base (was hardcoded to "local")
+- Fixed API key encryption loss when updating tenant settings via PUT /tenants/kv/{key}: AfterFind-decrypted plaintext no longer written back to DB
+- Fixed empty passage filtering in rerank to prevent Aliyun and Baidu Qianfan 400 errors
+- Fixed markdown table rows being passed raw to rerank; now converted to plain text (col1, col2) before reranking
+- Fixed OpenRouter embedding provider missing support
+- Fixed Milvus vector metric type now configurable via MILVUS_METRIC_TYPE environment variable
+- Fixed temperature validation to accept zero as a valid value (was previously defaulting)
+- Fixed pg_search update guarded with skip_embedding to prevent unnecessary re-embedding
+- Fixed thinking block content being indexed into chat history knowledge base, degrading RAG retrieval quality
+
+### 📚 Documentation
+- Added Telegram and DingTalk IM platform setup guides (WebSocket/Webhook modes, streaming, architecture diagrams)
+- Updated IM integration docs with Slack, slash commands, QA queue, rate limiting, and streaming output sections
+
+### 🔒 Security Enhancements
+- Enhanced SSRF protection in RemoteAPIChat: replaced default DialContext with SSRFSafeDialContext; added SSRF URL validation for BaseURL and endpoint in NewRemoteAPIChat and chat methods
+
 ## [0.3.4] - 2026-03-19
 
 ### 🚀 New Features
@@ -740,6 +847,8 @@ All notable changes to this project will be documented in this file.
 - Docker Compose for quick startup and service orchestration.
 - MCP server support for integrating with MCP-compatible clients.
 
+[0.3.6]: https://github.com/Tencent/WeKnora/tree/v0.3.6
+[0.3.5]: https://github.com/Tencent/WeKnora/tree/v0.3.5
 [0.3.4]: https://github.com/Tencent/WeKnora/tree/v0.3.4
 [0.3.3]: https://github.com/Tencent/WeKnora/tree/v0.3.3
 [0.3.2]: https://github.com/Tencent/WeKnora/tree/v0.3.2

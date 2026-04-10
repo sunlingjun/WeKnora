@@ -830,7 +830,7 @@ onBeforeUnmount(() => {
   background: var(--td-bg-color-container);
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--td-shadow-1);
   overflow-x: auto;
 }
 
@@ -870,7 +870,7 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-btn:hover {
-  background: rgba(7, 192, 95, 0.08);
+  background: var(--td-brand-color-light);
   color: var(--td-brand-color);
   
   .t-icon {
@@ -879,7 +879,8 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-btn.active {
-  background: rgba(7, 192, 95, 0.12);
+  background: var(--td-brand-color-light);
+  opacity: 1;
   color: var(--td-brand-color);
   
   .t-icon {
@@ -889,11 +890,13 @@ onBeforeUnmount(() => {
 
 .toolbar-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(7, 192, 95, 0.25);
+  box-shadow: 0 0 0 2px var(--td-brand-color-3);
+  opacity: 0.8;
 }
 
 .toolbar-btn:active {
-  background: rgba(7, 192, 95, 0.15);
+  background: var(--td-brand-color-light);
+  opacity: 0.9;
   transform: translateY(0.5px);
 }
 
@@ -945,9 +948,9 @@ onBeforeUnmount(() => {
 
 :deep(.toggle-view-btn.active),
 :deep(.toggle-view-btn:hover) {
-  background: rgba(7, 192, 95, 0.12) !important;
+  background: var(--td-brand-color-light) !important;
   color: var(--td-brand-color-active) !important;
-  border-color: rgba(7, 192, 95, 0.4) !important;
+  border-color: var(--td-brand-color-3) !important;
   
   .t-icon {
     color: var(--td-brand-color-active);
@@ -1012,7 +1015,7 @@ onBeforeUnmount(() => {
     padding-left: 12px;
     color: var(--td-text-color-secondary);
     margin: 16px 0;
-    background: rgba(7, 192, 95, 0.08);
+    background: var(--td-brand-color-light);
   }
 
   :deep(a) {

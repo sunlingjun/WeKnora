@@ -199,7 +199,7 @@ const getRelevanceLabel = (level: RelevanceLevel): string => {
     overflow-x: hidden;
     padding: 0;
     border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    box-shadow: var(--td-shadow-2);
     word-wrap: break-word;
     word-break: break-word;
   }
@@ -241,7 +241,7 @@ code {
   font-size: 10px;
   background: var(--td-bg-color-secondarycontainer);
   padding: 1px 4px;
-  border-radius: 2px;
+  border-radius: var(--td-radius-small);
 }
 </style>
 

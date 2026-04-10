@@ -13,14 +13,14 @@ import (
 
 // webSearchStateService implements the WebSearchStateService interface
 type webSearchStateService struct {
-	redisClient          *redis.Client
+	redisClient          redis.UniversalClient
 	knowledgeService     interfaces.KnowledgeService
 	knowledgeBaseService interfaces.KnowledgeBaseService
 }
 
 // NewWebSearchStateService creates a new web search state service instance
 func NewWebSearchStateService(
-	redisClient *redis.Client,
+	redisClient redis.UniversalClient,
 	knowledgeService interfaces.KnowledgeService,
 	knowledgeBaseService interfaces.KnowledgeBaseService,
 ) interfaces.WebSearchStateService {

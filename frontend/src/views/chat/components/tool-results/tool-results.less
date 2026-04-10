@@ -37,22 +37,23 @@
   line-height: 1.4;
 
   &.high {
-    background-color: rgba(0, 168, 112, 0.12);
-    color: @relevance-high;
+    background-color: var(--td-success-color-light);
+    color: var(--td-success-color);
   }
 
   &.medium {
-    background-color: rgba(255, 152, 0, 0.12);
+    background-color: var(--td-warning-color-light);
     color: var(--td-warning-color);
   }
 
   &.low {
-    background-color: rgba(117, 117, 117, 0.12);
+    background-color: var(--td-gray-color-2);
+    opacity: 0.8;
     color: @relevance-low;
   }
 
   &.weak {
-    background-color: rgba(189, 189, 189, 0.12);
+    background-color: var(--td-gray-color-2);
     color: var(--td-text-color-secondary);
   }
 }
@@ -74,7 +75,7 @@
 .result-card {
   background: @card-bg;
   border: 1px solid @card-border;
-  border-radius: @card-radius;
+  border-radius: var(--td-radius-medium);
   margin-bottom: 0;
   overflow: hidden;
   transition: border-color @transition-time ease, box-shadow @transition-time ease;
@@ -99,7 +100,7 @@
   transition: background-color 0.15s ease;
 
   &:hover {
-    background: rgba(7, 192, 95, 0.04);
+    background: var(--td-brand-color-light);
   }
   
   * {
@@ -193,9 +194,9 @@
 
 // Statistics card (for KB counts, etc.)
 .stats-card {
-  background: rgba(7, 192, 95, 0.04);
-  border: 1px solid rgba(7, 192, 95, 0.15);
-  border-radius: @card-radius;
+  background: var(--td-brand-color-light);
+  border: 1px solid var(--td-brand-color-3);
+  border-radius: var(--td-radius-medium);
   padding: 10px 12px;
   margin-bottom: 10px;
 }
@@ -305,7 +306,7 @@
   font-size: 11px;
   background: var(--td-bg-color-secondarycontainer);
   padding: 8px;
-  border-radius: 4px;
+  border-radius: var(--td-radius-default);
   border: 1px solid @card-border;
   overflow-x: auto;
   line-height: 1.5;

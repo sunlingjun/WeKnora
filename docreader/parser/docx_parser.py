@@ -11,6 +11,28 @@ from io import BytesIO
 from multiprocessing import Manager
 from typing import Any, Dict, List, Optional, Tuple
 
+
+# patch from https://github.com/python-openxml/python-docx/issues/1105#issuecomment-1298075246
+from docx.opc.pkgreader import _SerializedRelationships, _SerializedRelationship
+from docx.opc.oxml import parse_xml
+
+def load_from_xml_v2(baseURI, rels_item_xml):
+    """
+    Return |_SerializedRelationships| instance loaded with the
+    relationships contained in *rels_item_xml*. Returns an empty
+    collection if *rels_item_xml* is |None|.
+    """
+    srels = _SerializedRelationships()
+    if rels_item_xml is not None:
+        rels_elm = parse_xml(rels_item_xml)
+        for rel_elm in rels_elm.Relationship_lst:
+            if rel_elm.target_ref in ('../NULL', 'NULL'):
+                continue
+            srels._srels.append(_SerializedRelationship(baseURI, rel_elm))
+    return srels
+
+_SerializedRelationships.load_from_xml = load_from_xml_v2
+
 from docx import Document
 from docx.image.exceptions import (
     InvalidImageStreamError,
@@ -19,6 +41,7 @@ from docx.image.exceptions import (
 )
 from PIL import Image
 
+from docreader.config import CONFIG
 from docreader.models.document import Document as DocumentModel
 from docreader.parser.base_parser import BaseParser
 from docreader.utils import endecode
@@ -54,7 +77,7 @@ class DocxParser(BaseParser):
 
     def __init__(
         self,
-        max_pages: int = 100,  # Maximum number of pages to process
+        max_pages: Optional[int] = None,  # Maximum number of pages to process
         **kwargs,
     ):
         """Initialize DOCX document parser
@@ -73,8 +96,8 @@ class DocxParser(BaseParser):
             max_pages: Maximum number of pages to process
         """
         super().__init__(**kwargs)
-        self.max_pages = max_pages
-        logger.info(f"DocxParser initialized with max_pages={max_pages}")
+        self.max_pages = CONFIG.docx_max_pages if max_pages is None else max_pages
+        logger.info(f"DocxParser initialized with max_pages={self.max_pages}")
 
     def parse_into_text(self, content: bytes) -> DocumentModel:
         """Parse DOCX document, extract text content and image Markdown links"""

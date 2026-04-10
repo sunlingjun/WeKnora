@@ -235,7 +235,13 @@
         >
           <div class="action-header" @click="handleActionHeaderClick(event)" :class="{ 'no-results': !hasResults(event) }">
             <div class="action-title">
-              <img v-if="event.tool_name && !isBookIcon(event.tool_name)" class="action-title-icon" :src="getToolIcon(event.tool_name)" alt="" />
+              <SvgIcon
+                v-if="event.tool_name && !isBookIcon(event.tool_name)"
+                class="action-title-icon"
+                :name="getToolIcon(event.tool_name)"
+                theme='brand'
+                :size="14"
+              />
               <t-icon v-if="event.tool_name && isBookIcon(event.tool_name)" class="action-title-icon" name="book" />
               <t-tooltip v-if="event.tool_name === 'todo_write' && event.tool_data?.steps" :content="t('agent.updatePlan')" placement="top">
                 <span class="action-name">
@@ -344,12 +350,12 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import ToolResultRenderer from './ToolResultRenderer.vue';
 import picturePreview from '@/components/picture-preview.vue';
+import { SvgIcon, type IconName } from '@/components/icons';
 import { getChunkByIdOnly } from '@/api/knowledge-base';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUIStore } from '@/stores/ui';
 import { useI18n } from 'vue-i18n';
 import i18n from '@/i18n';
-import { openMermaidFullscreen } from '@/utils/mermaidViewer';
 import { hydrateProtectedFileImages } from '@/utils/security';
 import {
   buildManualMarkdown,
@@ -358,7 +364,6 @@ import {
   replaceIncompleteImageWithPlaceholder,
 } from '@/utils/chatMessageShared';
 import {
-  bindMermaidFullscreenEvents,
   createMermaidCodeRenderer,
   ensureMermaidInitialized,
   renderMermaidInContainer,
@@ -567,14 +572,6 @@ const openFloatForEl = (el: HTMLElement, widthAdjust = 120) => {
   cancelFloatClose();
 };
 
-// Import icons
-import agentIcon from '@/assets/img/agent.svg';
-import thinkingIcon from '@/assets/img/Frame3718.svg';
-import knowledgeIcon from '@/assets/img/zhishiku-thin.svg';
-import documentIcon from '@/assets/img/ziliao.svg';
-import fileAddIcon from '@/assets/img/file-add-green.svg';
-import webSearchGlobeGreenIcon from '@/assets/img/websearch-globe-green.svg';
-
 interface SessionData {
   isAgentMode?: boolean;
   agentEventStream?: any[];
@@ -587,10 +584,7 @@ const props = defineProps<{
 }>();
 
 // Configure marked for security
-marked.use({
-  mangle: false,
-  headerIds: false
-});
+marked.use({});
 
 // Event stream
 const eventStream = computed(() => props.session?.agentEventStream || []);
@@ -1415,7 +1409,7 @@ const getTokens = (content: any) => {
 
   // Restore preserved images
   sanitized = sanitized.replace(/\x00IMG(\d+)\x00/g, (_, idx) => imagePlaceholders[Number(idx)]);
-  
+
   // Restore preserved tags
   sanitized = sanitized.replace(/\x00TAG(\d+)\x00/g, (_, idx) => tagPlaceholders[Number(idx)]);
 
@@ -1469,28 +1463,9 @@ const protectProviderImageSrcInHTML = (html: string): string => {
   );
 };
 
-// 已渲染的 mermaid 元素 ID 集合
-const renderedMermaidIds = new Set<string>();
-
 // 渲染 Mermaid 图表的函数
 const renderMermaidDiagrams = async () => {
-  try {
-    const renderedCount = await renderMermaidInContainer(rootElement.value, renderedMermaidIds);
-    if (renderedCount > 0) {
-      nextTick(() => {
-        bindMermaidClickEvents();
-      });
-    }
-  } catch (error) {
-    console.error('Mermaid rendering error:', error);
-  }
-};
-
-// 为 Mermaid 容器绑定点击全屏事件（绑定在 div 上，不是 SVG 上）
-const bindMermaidClickEvents = () => {
-  bindMermaidFullscreenEvents(rootElement.value, (svgOuterHTML: string) => {
-    openMermaidFullscreen(svgOuterHTML);
-  });
+  await renderMermaidInContainer(rootElement.value);
 };
 
 // Tool summary - extract key info to display externally
@@ -1604,25 +1579,25 @@ const isBookIcon = (toolName: string): boolean => {
 };
 
 // Get icon for tool type
-const getToolIcon = (toolName: string): string => {
+const getToolIcon = (toolName: string): IconName => {
   if (toolName === 'thinking') {
-    return thinkingIcon;
+    return 'thinking';
   } else if (toolName === 'search_knowledge' || toolName === 'knowledge_search') {
-    return knowledgeIcon;
+    return 'zhishikuThin';
   } else if (toolName === 'grep_chunks') {
-    return knowledgeIcon; // Use same icon as knowledge_search for consistency
+    return 'zhishikuThin';
   } else if (toolName === 'web_search') {
-    return webSearchGlobeGreenIcon;
+    return 'websearch';
   } else if (toolName === 'get_document_info' || toolName === 'list_knowledge_chunks') {
-    return documentIcon;
+    return 'ziliao';
   } else if (toolName === 'todo_write') {
-    return fileAddIcon;
+    return 'fileAdd';
   } else if (toolName === 'image_analysis') {
-    return thinkingIcon;
+    return 'thinking';
   } else if (toolName.startsWith('mcp_')) {
-    return documentIcon; // MCP external tool icon
+    return 'ziliao';// MCP external tool icon
   } else {
-    return documentIcon; // default icon
+    return 'ziliao';
   }
 };
 
@@ -2352,7 +2327,7 @@ const handleAddToKnowledge = (answerEvent: any) => {
   transition: background-color 0.15s ease;
 
   &:hover {
-    background-color: rgba(7, 192, 95, 0.03);
+    background-color: var(--td-brand-color-light);
   }
 
   &.no-results {
@@ -2921,7 +2896,7 @@ const handleAddToKnowledge = (answerEvent: any) => {
   padding-left: 0;
   position: relative;
   animation: fadeInUp 0.3s ease-out;
-  
+
   // 方案1: 三个跳动的圆点
   .loading-dots {
     display: flex;

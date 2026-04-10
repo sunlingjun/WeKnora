@@ -140,7 +140,7 @@ onUnmounted(() => {
 }
 
 .upload-mask {
-    background-color: rgba(255, 255, 255, 0.8);
+    background-color: rgba(from var(--td-bg-color-container, #fff) r g b / 0.8);
     position: fixed;
     width: 100%;
     height: 100%;

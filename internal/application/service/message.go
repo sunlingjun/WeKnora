@@ -22,12 +22,12 @@ var regThinkIndex = regexp.MustCompile(`(?s)<think>.*?</think>`)
 // It reads the chat history knowledge base configuration from the tenant's ChatHistoryConfig,
 // which is managed via the settings UI.
 type messageService struct {
-	messageRepo   interfaces.MessageRepository      // Repository for message storage operations
-	sessionRepo   interfaces.SessionRepository      // Repository for session validation
-	tenantService interfaces.TenantService          // Service for tenant operations (read ChatHistoryConfig)
-	kbService     interfaces.KnowledgeBaseService   // Service for knowledge base operations (search chat history KB)
-	knowService   interfaces.KnowledgeService       // Service for knowledge operations (index/delete passages)
-	modelService  interfaces.ModelService            // Service for model operations (rerank model)
+	messageRepo   interfaces.MessageRepository    // Repository for message storage operations
+	sessionRepo   interfaces.SessionRepository    // Repository for session validation
+	tenantService interfaces.TenantService        // Service for tenant operations (read ChatHistoryConfig)
+	kbService     interfaces.KnowledgeBaseService // Service for knowledge base operations (search chat history KB)
+	knowService   interfaces.KnowledgeService     // Service for knowledge operations (index/delete passages)
+	modelService  interfaces.ModelService         // Service for model operations (rerank model)
 }
 
 // NewMessageService creates a new message service instance with the required repositories
@@ -244,6 +244,11 @@ func (s *messageService) UpdateMessage(ctx context.Context, message *types.Messa
 // UpdateMessageImages updates only the images JSONB column for a message.
 func (s *messageService) UpdateMessageImages(ctx context.Context, sessionID, messageID string, images types.MessageImages) error {
 	return s.messageRepo.UpdateMessageImages(ctx, sessionID, messageID, images)
+}
+
+// UpdateMessageRenderedContent updates the rendered_content column for a user message.
+func (s *messageService) UpdateMessageRenderedContent(ctx context.Context, sessionID, messageID string, renderedContent string) error {
+	return s.messageRepo.UpdateMessageRenderedContent(ctx, sessionID, messageID, renderedContent)
 }
 
 // DeleteMessage removes a message from a session, also cleaning up its Knowledge entry in the chat history KB.

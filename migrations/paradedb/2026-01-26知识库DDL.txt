@@ -1,0 +1,478 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- public.chunks definition
+
+-- Drop table
+
+-- DROP TABLE public.chunks;
+
+CREATE TABLE public.chunks (
+	id varchar(36) DEFAULT uuid_generate_v4() NOT NULL,
+	tenant_id int4 NOT NULL,
+	knowledge_base_id varchar(36) NOT NULL,
+	knowledge_id varchar(36) NOT NULL,
+	"content" text NOT NULL,
+	chunk_index int4 NOT NULL,
+	is_enabled bool DEFAULT true NOT NULL,
+	start_at int4 NOT NULL,
+	end_at int4 NOT NULL,
+	pre_chunk_id varchar(36) NULL,
+	next_chunk_id varchar(36) NULL,
+	chunk_type varchar(20) DEFAULT 'text'::character varying NOT NULL,
+	parent_chunk_id varchar(36) NULL,
+	image_info text NULL,
+	relation_chunks jsonb NULL,
+	indirect_relation_chunks jsonb NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	metadata jsonb NULL,
+	tag_id varchar(36) NULL,
+	status int4 DEFAULT 0 NOT NULL,
+	content_hash varchar(64) NULL,
+	flags int4 DEFAULT 1 NOT NULL,
+	seq_id bigserial NOT NULL,
+	CONSTRAINT chunks_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_chunks_chunk_type ON public.chunks USING btree (chunk_type);
+CREATE INDEX idx_chunks_content_hash ON public.chunks USING btree (content_hash);
+CREATE INDEX idx_chunks_parent_id ON public.chunks USING btree (parent_chunk_id);
+CREATE UNIQUE INDEX idx_chunks_seq_id ON public.chunks USING btree (seq_id);
+CREATE INDEX idx_chunks_tag ON public.chunks USING btree (tag_id);
+CREATE INDEX idx_chunks_tenant_kg ON public.chunks USING btree (tenant_id, knowledge_id);
+
+
+-- public.custom_agents definition
+
+-- Drop table
+
+-- DROP TABLE public.custom_agents;
+
+CREATE TABLE public.custom_agents (
+	id varchar(36) DEFAULT uuid_generate_v4() NOT NULL,
+	"name" varchar(255) NOT NULL,
+	description text NULL,
+	avatar varchar(64) NULL,
+	is_builtin bool DEFAULT false NOT NULL,
+	tenant_id int4 NOT NULL,
+	created_by varchar(36) NULL,
+	config jsonb DEFAULT '{}'::jsonb NOT NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	CONSTRAINT custom_agents_pkey PRIMARY KEY (id, tenant_id)
+);
+CREATE INDEX idx_custom_agents_deleted_at ON public.custom_agents USING btree (deleted_at);
+CREATE INDEX idx_custom_agents_is_builtin ON public.custom_agents USING btree (is_builtin);
+CREATE INDEX idx_custom_agents_tenant_id ON public.custom_agents USING btree (tenant_id);
+
+
+-- public.embeddings definition
+
+-- Drop table
+
+-- DROP TABLE public.embeddings;
+
+CREATE TABLE public.embeddings (
+	id serial4 NOT NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	source_id varchar(64) NOT NULL,
+	source_type int4 NOT NULL,
+	chunk_id varchar(64) NULL,
+	knowledge_id varchar(64) NULL,
+	knowledge_base_id varchar(64) NULL,
+	"content" text NULL,
+	dimension int4 NOT NULL,
+	embedding public.halfvec NULL,
+	is_enabled bool DEFAULT true NULL,
+	tag_id varchar(36) NULL,
+	CONSTRAINT embeddings_pkey PRIMARY KEY (id)
+);
+CREATE INDEX embeddings_embedding_idx_3584 ON public.embeddings USING hnsw (((embedding)::halfvec(3584)) halfvec_cosine_ops) WITH (m='16', ef_construction='64') WHERE (dimension = 3584);
+CREATE INDEX embeddings_embedding_idx_798 ON public.embeddings USING hnsw (((embedding)::halfvec(798)) halfvec_cosine_ops) WITH (m='16', ef_construction='64') WHERE (dimension = 798);
+CREATE INDEX embeddings_search_idx ON public.embeddings USING bm25 (id, knowledge_base_id, content, knowledge_id, chunk_id) WITH (key_field=id, text_fields='{
+                "content": {
+                  "tokenizer": {"type": "chinese_lindera"}
+                }
+            }');
+CREATE UNIQUE INDEX embeddings_unique_source ON public.embeddings USING btree (source_id, source_type);
+CREATE INDEX idx_embeddings_is_enabled ON public.embeddings USING btree (is_enabled);
+CREATE INDEX idx_embeddings_knowledge_base_id ON public.embeddings USING btree (knowledge_base_id);
+CREATE INDEX idx_embeddings_tag_id ON public.embeddings USING btree (tag_id);
+
+
+-- public.knowledge_bases definition
+
+-- Drop table
+
+-- DROP TABLE public.knowledge_bases;
+
+CREATE TABLE public.knowledge_bases (
+	id varchar(36) DEFAULT uuid_generate_v4() NOT NULL,
+	"name" varchar(255) NOT NULL,
+	description text NULL,
+	tenant_id int4 NOT NULL,
+	chunking_config jsonb DEFAULT '{"chunk_size": 512, "chunk_overlap": 50, "split_markers": ["\n\n", "\n", "��"], "keep_separator": true}'::jsonb NOT NULL,
+	image_processing_config jsonb DEFAULT '{"model_id": "", "enable_multimodal": false}'::jsonb NOT NULL,
+	embedding_model_id varchar(64) NOT NULL,
+	summary_model_id varchar(64) NOT NULL,
+	cos_config jsonb DEFAULT '{}'::jsonb NOT NULL,
+	vlm_config jsonb DEFAULT '{}'::jsonb NOT NULL,
+	extract_config jsonb NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	is_temporary bool DEFAULT false NOT NULL,
+	"type" varchar(32) DEFAULT 'document'::character varying NOT NULL,
+	faq_config jsonb NULL,
+	question_generation_config jsonb NULL,
+	visibility varchar(32) DEFAULT 'private'::character varying NULL,
+	owner_id varchar(36) NULL,
+	shared_at timestamptz NULL,
+	member_count int4 DEFAULT 0 NULL,
+	CONSTRAINT knowledge_bases_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_knowledge_bases_owner_id ON public.knowledge_bases USING btree (owner_id);
+CREATE INDEX idx_knowledge_bases_shared_at ON public.knowledge_bases USING btree (shared_at);
+CREATE INDEX idx_knowledge_bases_tenant_id ON public.knowledge_bases USING btree (tenant_id);
+CREATE INDEX idx_knowledge_bases_visibility ON public.knowledge_bases USING btree (visibility);
+
+
+-- public.knowledge_tags definition
+
+-- Drop table
+
+-- DROP TABLE public.knowledge_tags;
+
+CREATE TABLE public.knowledge_tags (
+	id varchar(36) NOT NULL,
+	tenant_id int4 NOT NULL,
+	knowledge_base_id varchar(36) NOT NULL,
+	"name" varchar(128) NOT NULL,
+	color varchar(32) NULL,
+	sort_order int4 DEFAULT 0 NOT NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	seq_id bigserial NOT NULL,
+	CONSTRAINT knowledge_tags_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_knowledge_tags_kb ON public.knowledge_tags USING btree (tenant_id, knowledge_base_id);
+CREATE UNIQUE INDEX idx_knowledge_tags_kb_name ON public.knowledge_tags USING btree (tenant_id, knowledge_base_id, name);
+CREATE UNIQUE INDEX idx_knowledge_tags_seq_id ON public.knowledge_tags USING btree (seq_id);
+
+
+-- public.knowledges definition
+
+-- Drop table
+
+-- DROP TABLE public.knowledges;
+
+CREATE TABLE public.knowledges (
+	id varchar(36) DEFAULT uuid_generate_v4() NOT NULL,
+	tenant_id int4 NOT NULL,
+	knowledge_base_id varchar(36) NOT NULL,
+	"type" varchar(50) NOT NULL,
+	title varchar(255) NOT NULL,
+	description text NULL,
+	"source" varchar(128) NOT NULL,
+	parse_status varchar(50) DEFAULT 'unprocessed'::character varying NOT NULL,
+	enable_status varchar(50) DEFAULT 'enabled'::character varying NOT NULL,
+	embedding_model_id varchar(64) NULL,
+	file_name varchar(255) NULL,
+	file_type varchar(50) NULL,
+	file_size int8 NULL,
+	file_path text NULL,
+	file_hash varchar(64) NULL,
+	storage_size int8 DEFAULT 0 NOT NULL,
+	metadata jsonb NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	processed_at timestamptz NULL,
+	error_message text NULL,
+	deleted_at timestamptz NULL,
+	tag_id varchar(36) NULL,
+	summary_status varchar(32) DEFAULT 'none'::character varying NULL,
+	last_faq_import_result json NULL,
+	CONSTRAINT knowledges_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_knowledges_base_id ON public.knowledges USING btree (knowledge_base_id);
+CREATE INDEX idx_knowledges_enable_status ON public.knowledges USING btree (enable_status);
+CREATE INDEX idx_knowledges_parse_status ON public.knowledges USING btree (parse_status);
+CREATE INDEX idx_knowledges_summary_status ON public.knowledges USING btree (summary_status);
+CREATE INDEX idx_knowledges_tag ON public.knowledges USING btree (tag_id);
+CREATE INDEX idx_knowledges_tenant_id ON public.knowledges USING btree (tenant_id);
+
+
+-- public.mcp_services definition
+
+-- Drop table
+
+-- DROP TABLE public.mcp_services;
+
+CREATE TABLE public.mcp_services (
+	id varchar(36) NOT NULL,
+	tenant_id int4 NOT NULL,
+	"name" varchar(255) NOT NULL,
+	description text NULL,
+	enabled bool DEFAULT true NULL,
+	transport_type varchar(50) NOT NULL,
+	url varchar(512) NULL,
+	headers jsonb NULL,
+	auth_config jsonb NULL,
+	advanced_config jsonb NULL,
+	stdio_config jsonb NULL,
+	env_vars jsonb NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamp NULL,
+	CONSTRAINT mcp_services_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_mcp_services_deleted_at ON public.mcp_services USING btree (deleted_at);
+CREATE INDEX idx_mcp_services_enabled ON public.mcp_services USING btree (enabled);
+CREATE INDEX idx_mcp_services_tenant_id ON public.mcp_services USING btree (tenant_id);
+
+-- Table Triggers
+
+create trigger trigger_mcp_services_updated_at before
+update
+    on
+    public.mcp_services for each row execute function update_mcp_services_updated_at();
+
+
+-- public.messages definition
+
+-- Drop table
+
+-- DROP TABLE public.messages;
+
+CREATE TABLE public.messages (
+	id varchar(36) DEFAULT uuid_generate_v4() NOT NULL,
+	request_id varchar(36) NOT NULL,
+	session_id varchar(36) NOT NULL,
+	"role" varchar(50) NOT NULL,
+	"content" text NOT NULL,
+	knowledge_references jsonb DEFAULT '[]'::jsonb NOT NULL,
+	agent_steps jsonb NULL,
+	is_completed bool DEFAULT false NOT NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	mentioned_items jsonb DEFAULT '[]'::jsonb NULL,
+	CONSTRAINT messages_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_messages_agent_steps ON public.messages USING gin (agent_steps);
+CREATE INDEX idx_messages_session_id ON public.messages USING btree (session_id);
+
+
+-- public.models definition
+
+-- Drop table
+
+-- DROP TABLE public.models;
+
+CREATE TABLE public.models (
+	id varchar(64) DEFAULT uuid_generate_v4() NOT NULL,
+	tenant_id int4 NOT NULL,
+	"name" varchar(255) NOT NULL,
+	"type" varchar(50) NOT NULL,
+	"source" varchar(50) NOT NULL,
+	description text NULL,
+	parameters jsonb NOT NULL,
+	is_default bool DEFAULT false NOT NULL,
+	status varchar(50) DEFAULT 'active'::character varying NOT NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	is_builtin bool DEFAULT false NOT NULL,
+	CONSTRAINT models_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_models_is_builtin ON public.models USING btree (is_builtin);
+CREATE INDEX idx_models_source ON public.models USING btree (source);
+CREATE INDEX idx_models_type ON public.models USING btree (type);
+
+
+-- public.schema_migrations definition
+
+-- Drop table
+
+-- DROP TABLE public.schema_migrations;
+
+CREATE TABLE public.schema_migrations (
+	"version" int8 NOT NULL,
+	dirty bool NOT NULL,
+	CONSTRAINT schema_migrations_pkey PRIMARY KEY (version)
+);
+
+
+-- public.sessions definition
+
+-- Drop table
+
+-- DROP TABLE public.sessions;
+
+CREATE TABLE public.sessions (
+	id varchar(36) DEFAULT uuid_generate_v4() NOT NULL,
+	tenant_id int4 NOT NULL,
+	title varchar(255) NULL,
+	description text NULL,
+	knowledge_base_id varchar(36) NULL,
+	max_rounds int4 DEFAULT 5 NOT NULL,
+	enable_rewrite bool DEFAULT true NOT NULL,
+	fallback_strategy varchar(255) DEFAULT 'fixed'::character varying NOT NULL,
+	fallback_response text DEFAULT '�ܱ�Ǹ������ʱ�޷��ش�������⡣'::text NOT NULL,
+	keyword_threshold float8 DEFAULT 0.5 NOT NULL,
+	vector_threshold float8 DEFAULT 0.5 NOT NULL,
+	rerank_model_id varchar(64) NULL,
+	embedding_top_k int4 DEFAULT 10 NOT NULL,
+	rerank_top_k int4 DEFAULT 10 NOT NULL,
+	rerank_threshold float8 DEFAULT 0.65 NOT NULL,
+	summary_model_id varchar(64) NULL,
+	summary_parameters jsonb DEFAULT '{}'::jsonb NOT NULL,
+	agent_config jsonb NULL,
+	context_config jsonb NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	agent_id varchar(36) NULL,
+	CONSTRAINT sessions_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_sessions_agent_config ON public.sessions USING gin (agent_config);
+CREATE INDEX idx_sessions_agent_id ON public.sessions USING btree (agent_id);
+CREATE INDEX idx_sessions_context_config ON public.sessions USING gin (context_config);
+CREATE INDEX idx_sessions_tenant_id ON public.sessions USING btree (tenant_id);
+
+
+-- public.spatial_ref_sys definition
+
+-- Drop table
+
+-- DROP TABLE public.spatial_ref_sys;
+
+CREATE TABLE public.spatial_ref_sys (
+	srid int4 NOT NULL,
+	auth_name varchar(256) NULL,
+	auth_srid int4 NULL,
+	srtext varchar(2048) NULL,
+	proj4text varchar(2048) NULL,
+	CONSTRAINT spatial_ref_sys_pkey PRIMARY KEY (srid),
+	CONSTRAINT spatial_ref_sys_srid_check CHECK (((srid > 0) AND (srid <= 998999)))
+);
+
+
+-- public.tenants definition
+
+-- Drop table
+
+-- DROP TABLE public.tenants;
+
+CREATE TABLE public.tenants (
+	id serial4 NOT NULL,
+	"name" varchar(255) NOT NULL,
+	description text NULL,
+	api_key varchar(64) NOT NULL,
+	retriever_engines jsonb DEFAULT '[]'::jsonb NOT NULL,
+	status varchar(50) DEFAULT 'active'::character varying NULL,
+	business varchar(255) NOT NULL,
+	storage_quota int8 DEFAULT '1073741824'::bigint NOT NULL,
+	storage_used int8 DEFAULT 0 NOT NULL,
+	agent_config jsonb NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	context_config jsonb NULL,
+	conversation_config jsonb NULL,
+	web_search_config jsonb NULL,
+	CONSTRAINT tenants_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_tenants_agent_config ON public.tenants USING gin (agent_config);
+CREATE INDEX idx_tenants_api_key ON public.tenants USING btree (api_key);
+CREATE INDEX idx_tenants_status ON public.tenants USING btree (status);
+
+
+-- public.users definition
+
+-- Drop table
+
+-- DROP TABLE public.users;
+
+CREATE TABLE public.users (
+	id varchar(36) DEFAULT uuid_generate_v4() NOT NULL,
+	username varchar(100) NOT NULL,
+	email varchar(255) NOT NULL,
+	password_hash varchar(255) NOT NULL,
+	avatar varchar(500) NULL,
+	tenant_id int4 NULL,
+	is_active bool DEFAULT true NOT NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	can_access_all_tenants bool DEFAULT false NOT NULL,
+	cas_user_id varchar(64) NULL,
+	cas_login_name varchar(100) NULL,
+	cas_real_name varchar(100) NULL,
+	cas_mobile_phone varchar(20) NULL,
+	CONSTRAINT users_email_key UNIQUE (email),
+	CONSTRAINT users_pkey PRIMARY KEY (id),
+	CONSTRAINT users_username_key UNIQUE (username),
+	CONSTRAINT fk_users_tenant FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_users_cas_login_name ON public.users USING btree (cas_login_name);
+CREATE INDEX idx_users_cas_user_id ON public.users USING btree (cas_user_id);
+CREATE INDEX idx_users_deleted_at ON public.users USING btree (deleted_at);
+CREATE INDEX idx_users_email ON public.users USING btree (email);
+CREATE INDEX idx_users_tenant_id ON public.users USING btree (tenant_id);
+CREATE INDEX idx_users_username ON public.users USING btree (username);
+
+
+-- public.auth_tokens definition
+
+-- Drop table
+
+-- DROP TABLE public.auth_tokens;
+
+CREATE TABLE public.auth_tokens (
+	id varchar(36) DEFAULT uuid_generate_v4() NOT NULL,
+	user_id varchar(36) NOT NULL,
+	"token" text NOT NULL,
+	token_type varchar(50) NOT NULL,
+	expires_at timestamptz NOT NULL,
+	is_revoked bool DEFAULT false NOT NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT auth_tokens_pkey PRIMARY KEY (id),
+	CONSTRAINT fk_auth_tokens_user FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_auth_tokens_expires_at ON public.auth_tokens USING btree (expires_at);
+CREATE INDEX idx_auth_tokens_token ON public.auth_tokens USING btree (token);
+CREATE INDEX idx_auth_tokens_token_type ON public.auth_tokens USING btree (token_type);
+CREATE INDEX idx_auth_tokens_user_id ON public.auth_tokens USING btree (user_id);
+
+
+-- public.knowledge_base_members definition
+
+-- Drop table
+
+-- DROP TABLE public.knowledge_base_members;
+
+CREATE TABLE public.knowledge_base_members (
+	id varchar(36) DEFAULT uuid_generate_v4() NOT NULL,
+	knowledge_base_id varchar(36) NOT NULL,
+	user_id varchar(36) NOT NULL,
+	tenant_id int4 NOT NULL,
+	"role" varchar(32) DEFAULT 'viewer'::character varying NOT NULL,
+	joined_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	deleted_at timestamptz NULL,
+	CONSTRAINT knowledge_base_members_pkey PRIMARY KEY (id),
+	CONSTRAINT uk_kb_members_kb_user UNIQUE (knowledge_base_id, user_id, deleted_at),
+	CONSTRAINT fk_kb_members_kb FOREIGN KEY (knowledge_base_id) REFERENCES public.knowledge_bases(id) ON DELETE CASCADE,
+	CONSTRAINT fk_kb_members_tenant FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE,
+	CONSTRAINT fk_kb_members_user FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_kb_members_deleted_at ON public.knowledge_base_members USING btree (deleted_at);
+CREATE INDEX idx_kb_members_kb_id ON public.knowledge_base_members USING btree (knowledge_base_id);
+CREATE INDEX idx_kb_members_role ON public.knowledge_base_members USING btree (role);
+CREATE INDEX idx_kb_members_tenant_id ON public.knowledge_base_members USING btree (tenant_id);
+CREATE INDEX idx_kb_members_user_id ON public.knowledge_base_members USING btree (user_id);

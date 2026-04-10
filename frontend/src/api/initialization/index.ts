@@ -81,6 +81,11 @@ export interface KBModelConfigRequest {
         enabled: boolean
         model_id?: string
     }
+    asr_config?: {
+        enabled: boolean
+        model_id?: string
+        language?: string
+    }
     documentSplitting: {
         chunkSize: number
         chunkOverlap: number
@@ -303,6 +308,27 @@ export function checkRerankModel(modelConfig: {
             })
             .catch((error: any) => {
                 console.error('Failed to check Rerank model:', error);
+                reject(error);
+            });
+    });
+}
+
+// 检查 ASR 模型连接（通过 /v1/audio/transcriptions 端点测试）
+export function checkASRModel(modelConfig: {
+    modelName: string;
+    baseUrl: string;
+    apiKey?: string;
+}): Promise<{
+    available: boolean;
+    message?: string;
+}> {
+    return new Promise((resolve, reject) => {
+        post('/api/v1/initialization/asr/check', modelConfig)
+            .then((response: any) => {
+                resolve(response.data || {});
+            })
+            .catch((error: any) => {
+                console.error('Failed to check ASR model:', error);
                 reject(error);
             });
     });

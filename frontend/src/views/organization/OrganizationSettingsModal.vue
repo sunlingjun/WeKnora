@@ -23,7 +23,14 @@
                   :class="['nav-item', { 'active': currentSection === item.key }]"
                   @click="currentSection = item.key"
                 >
-                  <img v-if="item.key === 'sharedAgents'" :src="currentSection === 'sharedAgents' ? agentIconActiveSrc : agentIconSrc" class="nav-icon nav-icon-img" alt="" aria-hidden="true" />
+                  <SvgIcon
+                    v-if="item.key === 'sharedAgents'"
+                    name="agent"
+                    :variant="currentSection === 'sharedAgents' ? 'active' : 'default'"
+                    :theme="currentSection === 'sharedAgents' ? 'brand' : 'default'"
+                    :size="18"
+                    class="nav-icon nav-icon-img"
+                  />
                   <t-icon v-else :name="item.icon" class="nav-icon" />
                   <span class="nav-label">{{ item.label }}</span>
                   <span
@@ -486,7 +493,7 @@
                     <t-loading :loading="sharesLoading">
                       <div v-if="sharedKnowledgeBases.length === 0 && !sharesLoading" class="empty-shared">
                         <div class="empty-icon">
-                          <img src="@/assets/img/zhishiku.svg" class="empty-icon-kb" alt="" aria-hidden="true" />
+                          <SvgIcon name="zhishiku" variant="default" theme="secondary" :size="48" class="empty-icon-kb" />
                         </div>
                         <p class="empty-text">{{ $t('organization.settings.noSharedKB') }}</p>
                         <p class="empty-subtext">{{ $t('organization.settings.noSharedKBTip') }}</p>
@@ -499,7 +506,7 @@
                           @click="handleShareClick(share)"
                         >
                           <div class="shared-icon shared-icon-kb">
-                            <img src="@/assets/img/zhishiku.svg" class="shared-icon-kb-img" alt="" aria-hidden="true" />
+                            <SvgIcon name="zhishiku" variant="default" theme="brand" :size="20" class="shared-icon-kb-img" />
                           </div>
                           <div class="shared-info">
                             <span class="shared-name">{{ share.knowledge_base_name }}</span>
@@ -568,7 +575,7 @@
                   <div class="settings-group">
                     <div v-if="sharedAgents.length === 0" class="empty-shared">
                       <div class="empty-icon">
-                        <img src="@/assets/img/agent.svg" class="empty-icon-agent" alt="" aria-hidden="true" />
+                        <SvgIcon name="agent" variant="default" theme="secondary" :size="48" class="empty-icon-agent" />
                       </div>
                       <p class="empty-text">{{ $t('organization.settings.noSharedAgents') }}</p>
                       <p class="empty-subtext">{{ $t('organization.settings.noSharedAgentsTip') }}</p>
@@ -763,8 +770,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { useAuthStore } from '@/stores/auth'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import AgentAvatar from '@/components/AgentAvatar.vue'
-import agentIconSrc from '@/assets/img/agent.svg'
-import agentIconActiveSrc from '@/assets/img/agent-green.svg'
+import { SvgIcon } from '@/components/icons'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -1581,7 +1587,7 @@ watch(currentSection, (section) => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(from var(--td-text-color-primary, #000) r g b / 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1598,10 +1604,10 @@ watch(currentSection, (section) => {
   background: var(--td-bg-color-container);
   border-radius: 16px;
   box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.04),
-    0 4px 6px -1px rgba(15, 23, 42, 0.06),
-    0 12px 24px -4px rgba(15, 23, 42, 0.1),
-    0 24px 48px -8px rgba(15, 23, 42, 0.12);
+    0 0 0 1px rgba(from var(--td-text-color-primary, #000) r g b / 0.04),
+    0 4px 6px -1px rgba(from var(--td-text-color-primary, #000) r g b / 0.06),
+    0 12px 24px -4px rgba(from var(--td-text-color-primary, #000) r g b / 0.1),
+    0 24px 48px -8px rgba(from var(--td-text-color-primary, #000) r g b / 0.12);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1625,7 +1631,7 @@ watch(currentSection, (section) => {
   z-index: 10;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.08);
+    background: rgba(from var(--td-text-color-primary, #000) r g b / 0.08);
     color: var(--td-text-color-primary);
     transform: scale(1.02);
   }
@@ -1915,20 +1921,20 @@ watch(currentSection, (section) => {
   transition: border-color 0.2s ease, background 0.2s ease;
 }
 .avatar-popover-content .avatar-emoji-btn:hover {
-  border-color: var(--td-brand-color);
-  background: rgba(7, 192, 95, 0.06);
+  border-color: var(--td-brand-color, #07c05f);
+  background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.06);
 }
 .avatar-popover-content .avatar-emoji-btn.is-selected {
-  border-color: var(--td-brand-color);
-  background: rgba(7, 192, 95, 0.12);
+  border-color: var(--td-brand-color, #07c05f);
+  background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.12);
 }
 .avatar-popover-content .avatar-clear-btn {
   margin-top: 10px;
-  color: var(--td-text-color-secondary);
+  color: var(--td-text-color-secondary, #64748b);
   font-size: 12px;
 }
 .avatar-popover-content .avatar-clear-btn:hover {
-  color: var(--td-brand-color-active);
+  color: var(--td-brand-color-active, #059669);
 }
 
 // 邀请卡片样式
@@ -2624,7 +2630,7 @@ watch(currentSection, (section) => {
 
 .settings-footer {
   padding: 20px 32px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid rgba(from var(--td-text-color-primary, #000) r g b / 0.06);
   display: flex;
   justify-content: flex-end;
   gap: 12px;

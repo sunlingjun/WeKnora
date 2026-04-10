@@ -65,13 +65,16 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
-import { listKnowledgeBases } from '@/api/knowledge-base'
+import { listUserKnowledgeBases } from '@/api/knowledge-base'
 import { useI18n } from 'vue-i18n'
 
 interface KnowledgeBase {
   id: string
   name: string
   type?: 'document' | 'faq'
+  visibility?: 'private' | 'shared' // 知识库可见性
+  isOwner?: boolean // 是否为创建者（个人知识库）
+  memberRole?: 'owner' | 'editor' | 'viewer' // 成员角色（共享知识库）
   knowledge_count?: number
   chunk_count?: number
   embedding_model_id?: string
@@ -163,7 +166,8 @@ const close = () => {
 
 const loadKnowledgeBases = async () => {
   try {
-    const res: any = await listKnowledgeBases()
+    // 使用 listUserKnowledgeBases 获取用户的知识库（个人 + 加入的共享知识库）
+    const res: any = await listUserKnowledgeBases(true)
     if (res?.data && Array.isArray(res.data)) knowledgeBases.value = res.data
   } catch (e) {
     console.error(t('knowledgeBase.loadingFailed'), e)

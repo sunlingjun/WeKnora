@@ -25,6 +25,7 @@
                 >
                   <t-icon :name="item.icon" class="nav-icon" />
                   <span class="nav-label">{{ item.label }}</span>
+                  <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
                 </div>
               </div>
             </div>
@@ -67,6 +68,22 @@
                           :maxlength="200"
                           :autosize="{ minRows: 3, maxRows: 6 }"
                         />
+                      </div>
+                      <!-- 可见性选择（仅创建模式） -->
+                      <div v-if="mode === 'create'" class="form-item">
+                        <label class="form-label">{{ $t('knowledgeEditor.basic.visibilityLabel') }}</label>
+                        <t-radio-group v-model="formData.visibility">
+                          <t-radio-button value="private">{{ $t('knowledgeEditor.basic.visibilityPrivate') }}</t-radio-button>
+                          <t-radio-button value="shared">{{ $t('knowledgeEditor.basic.visibilityShared') }}</t-radio-button>
+                        </t-radio-group>
+                        <p class="form-tip">{{ $t('knowledgeEditor.basic.visibilityDescription') }}</p>
+                      </div>
+                      <div v-else class="form-item">
+                        <label class="form-label">{{ $t('knowledgeEditor.basic.visibilityLabel') }}</label>
+                        <t-tag :theme="formData.visibility === 'shared' ? 'success' : 'default'" variant="light" size="medium">
+                          {{ formData.visibility === 'shared' ? $t('knowledgeEditor.basic.visibilityShared') : $t('knowledgeEditor.basic.visibilityPrivate') }}
+                        </t-tag>
+                        <p class="form-tip">{{ $t('knowledgeEditor.basic.visibilityDescription') }}</p>
                       </div>
                     </div>
                   </div>
@@ -201,6 +218,62 @@
                   </div>
                 </div>
 
+                <!-- 音频处理（ASR）设置 -->
+                <div v-if="!isFAQ" v-show="currentSection === 'asr'" class="section">
+                  <div v-if="formData" class="kb-multimodal-settings">
+                    <div class="section-header">
+                      <h2>{{ $t('knowledgeEditor.asr.title') }}</h2>
+                      <p class="section-description">{{ $t('knowledgeEditor.asr.description') }}</p>
+                    </div>
+
+                    <div class="settings-group">
+                      <!-- ASR 开关 -->
+                      <div class="setting-row">
+                        <div class="setting-info">
+                          <label>{{ $t('knowledgeEditor.asr.label') }}</label>
+                          <p class="desc">{{ $t('knowledgeEditor.asr.desc') }}</p>
+                        </div>
+                        <div class="setting-control">
+                          <t-switch
+                            v-model="formData.asrConfig.enabled"
+                            size="medium"
+                          />
+                        </div>
+                      </div>
+
+                      <!-- ASR 模型选择 -->
+                      <div v-if="formData.asrConfig.enabled" class="setting-row">
+                        <div class="setting-info">
+                          <label>{{ $t('knowledgeEditor.asr.modelLabel') }} <span class="required">*</span></label>
+                          <p class="desc">{{ $t('knowledgeEditor.asr.modelDescription') }}</p>
+                        </div>
+                        <div class="setting-control">
+                          <ModelSelector
+                            model-type="ASR"
+                            :selected-model-id="formData.asrConfig.modelId"
+                            :all-models="allModels"
+                            @update:selected-model-id="(val: string) => { if (formData) formData.asrConfig.modelId = val }"
+                            @add-model="handleAddASRModel"
+                            :placeholder="$t('knowledgeEditor.asr.modelPlaceholder')"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 成员管理（仅共享知识库的创建者可见） -->
+                <div
+                  v-if="mode === 'edit' && (kbInfo?.visibility === 'shared' && kbInfo?.is_owner)"
+                  v-show="currentSection === 'members'"
+                  class="section"
+                >
+                  <KnowledgeBaseMembers
+                    :kb-id="props.kbId || ''"
+                    :embedded="true"
+                  />
+                </div>
+
                 <!-- 高级设置 -->
                 <div v-if="!isFAQ" v-show="currentSection === 'advanced'" class="section">
                   <KBAdvancedSettings
@@ -210,6 +283,11 @@
                     :all-models="allModels"
                     @update:question-generation="handleQuestionGenerationUpdate"
                   />
+                </div>
+
+                <!-- 数据源管理（仅编辑模式） -->
+                <div v-if="mode === 'edit' && kbId" v-show="currentSection === 'datasource'" class="section">
+                  <DataSourceSettings :kb-id="kbId" @count="dsCount = $event" />
                 </div>
 
                 <!-- 共享设置（仅编辑模式） -->
@@ -238,21 +316,25 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import { createKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase } from '@/api/knowledge-base'
+import { createKnowledgeBase, createSharedKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase } from '@/api/knowledge-base'
 import { updateKBConfig, type KBModelConfigRequest } from '@/api/initialization'
 import { listModels } from '@/api/model'
 import { useUIStore } from '@/stores/ui'
+import { useAuthStore } from '@/stores/auth'
 import KBModelConfig from './settings/KBModelConfig.vue'
 import KBParserSettings from './settings/KBParserSettings.vue'
 import KBStorageSettings from './settings/KBStorageSettings.vue'
 import KBChunkingSettings from './settings/KBChunkingSettings.vue'
+import KnowledgeBaseMembers from './settings/KnowledgeBaseMembers.vue'
 import KBAdvancedSettings from './settings/KBAdvancedSettings.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import GraphSettings from './settings/GraphSettings.vue'
 import KBShareSettings from './settings/KBShareSettings.vue'
+import DataSourceSettings from './settings/DataSourceSettings.vue'
 import { useI18n } from 'vue-i18n'
 
 const uiStore = useUIStore()
+const authStore = useAuthStore()
 const { t } = useI18n()
 
 // Props
@@ -275,6 +357,8 @@ const loading = ref(false)
 const allModels = ref<any[]>([])
 const hasFiles = ref(false)
 const initialStorageProvider = ref<string>('')
+const kbInfo = ref<any>(null) // 存储知识库信息（用于权限判断）
+const dsCount = ref(0)
 
 const navItems = computed(() => {
   const items = [
@@ -286,12 +370,21 @@ const navItems = computed(() => {
   } else {
     items.push(
       { key: 'parser', icon: 'file-search', label: t('settings.parserEngine') },
+      { key: 'multimodal', icon: 'image', label: t('knowledgeEditor.sidebar.multimodal') },
+      { key: 'asr', icon: 'sound', label: t('knowledgeEditor.sidebar.asr') },
       { key: 'storage', icon: 'cloud', label: t('knowledgeEditor.sidebar.storage') },
       { key: 'chunking', icon: 'file-copy', label: t('knowledgeEditor.sidebar.chunking') },
       { key: 'graph', icon: 'chart-bubble', label: t('knowledgeEditor.sidebar.graph') },
       { key: 'multimodal', icon: 'image', label: t('knowledgeEditor.sidebar.multimodal') },
       { key: 'advanced', icon: 'setting', label: t('knowledgeEditor.sidebar.advanced') }
     )
+    if (props.mode === 'edit' && props.kbId) {
+      items.push({ key: 'datasource', icon: 'cloud-download', label: t('knowledgeEditor.sidebar.datasource'), badge: dsCount.value || undefined })
+    }
+  }
+  // 如果是共享知识库且是创建者，添加成员管理菜单（直接共享）
+  if (props.mode === 'edit' && kbInfo.value?.visibility === 'shared' && kbInfo.value?.is_owner) {
+    items.push({ key: 'members', icon: 'usergroup', label: t('knowledgeEditor.sidebar.members') })
   }
   // 只在编辑模式下显示共享标签页
   if (props.mode === 'edit' && props.kbId) {
@@ -331,6 +424,7 @@ const initFormData = (type: 'document' | 'faq' = 'document') => {
     type,
     name: '',
     description: '',
+    visibility: 'private' as 'private' | 'shared', // 默认个人知识库
     faqConfig: {
       indexMode: 'question_only',
       questionIndexMode: 'separate'
@@ -352,6 +446,11 @@ const initFormData = (type: 'document' | 'faq' = 'document') => {
     multimodalConfig: {
       enabled: false,
       vllmModelId: ''
+    },
+    asrConfig: {
+      enabled: false,
+      modelId: '',
+      language: ''
     },
     nodeExtractConfig: {
       enabled: false,
@@ -392,25 +491,37 @@ const loadKBData = async () => {
   
   loading.value = true
   try {
-    const [kbInfo, models, filesResult] = await Promise.all([
+    const [kbRes, models, filesResult] = await Promise.all([
       getKnowledgeBaseById(props.kbId),
       loadAllModels(),
       listKnowledgeFiles(props.kbId, { page: 1, page_size: 1 })
     ])
     
-    if (!kbInfo || !kbInfo.data) {
+    if (!kbRes || !kbRes.data) {
       throw new Error(t('knowledgeEditor.messages.notFound'))
     }
 
-    const kb = kbInfo.data
+    const kb = kbRes.data
+    const resolvedOwner =
+      kb.is_owner === true ||
+      (kb.owner_id && kb.owner_id === authStore.currentUserId)
     hasFiles.value = (filesResult as any)?.total > 0
     
+    // 保存知识库信息（用于权限判断）
+    kbInfo.value = {
+      ...kb,
+      is_owner: resolvedOwner,
+      isOwner: resolvedOwner,
+    }
+    console.log(kbInfo.value)
+
     // 设置表单数据
     const kbType = (kb.type as 'document' | 'faq') || 'document'
     formData.value = {
       type: kbType,
       name: kb.name || '',
       description: kb.description || '',
+      visibility: kb.visibility || 'private', // 加载可见性
       faqConfig: {
         indexMode: kb.faq_config?.index_mode || 'question_only',
         questionIndexMode: kb.faq_config?.question_index_mode || 'separate'
@@ -428,10 +539,15 @@ const loadKBData = async () => {
         parentChunkSize: kb.chunking_config?.parent_chunk_size || 4096,
         childChunkSize: kb.chunking_config?.child_chunk_size || 384
       },
-      storageProvider: (kb.storage_config?.provider || 'local') as string,
+      storageProvider: (kb.storage_provider_config?.provider || kb.storage_config?.provider || 'local') as string,
       multimodalConfig: {
         enabled: !!kb.vlm_config?.enabled,
         vllmModelId: kb.vlm_config?.model_id || ''
+      },
+      asrConfig: {
+        enabled: !!kb.asr_config?.enabled,
+        modelId: kb.asr_config?.model_id || '',
+        language: kb.asr_config?.language || ''
       },
       nodeExtractConfig: {
         enabled: kb.extract_config?.enabled || false,
@@ -559,6 +675,7 @@ const buildSubmitData = () => {
     name: formData.value.name,
     description: formData.value.description,
     type: formData.value.type,
+    visibility: formData.value.visibility || 'private', // 添加可见性
     chunking_config: {
       chunk_size: formData.value.chunkingConfig.chunkSize,
       chunk_overlap: formData.value.chunkingConfig.chunkOverlap,
@@ -583,7 +700,20 @@ const buildSubmitData = () => {
       : ''
   }
 
+  // 添加ASR语音识别配置
+  data.asr_config = {
+    enabled: formData.value.asrConfig?.enabled || false,
+    model_id: formData.value.asrConfig?.enabled
+      ? (formData.value.asrConfig?.modelId || '')
+      : '',
+    language: formData.value.asrConfig?.language || ''
+  }
+
   // 存储引擎：仅传 provider，参数从全局设置读取
+  // Write to storage_provider_config (authoritative) + storage_config (legacy dual-write)
+  data.storage_provider_config = {
+    provider: formData.value.storageProvider || 'local'
+  }
   data.storage_config = {
     provider: formData.value.storageProvider || 'local'
   }
@@ -691,6 +821,7 @@ const doSubmit = async () => {
         llmModelId: data.summary_model_id,
         embeddingModelId: data.embedding_model_id,
         vlm_config: data.vlm_config,
+        asr_config: data.asr_config,
         documentSplitting: {
           chunkSize: data.chunking_config.chunk_size,
           chunkOverlap: data.chunking_config.chunk_overlap,
@@ -703,7 +834,7 @@ const doSubmit = async () => {
         multimodal: {
           enabled: !!data.vlm_config?.enabled
         },
-        storageProvider: data.storage_config?.provider || 'local',
+        storageProvider: data.storage_provider_config?.provider || data.storage_config?.provider || 'local',
         nodeExtract: {
           enabled: data.extract_config?.enabled || false,
           text: data.extract_config?.text || '',
@@ -735,6 +866,7 @@ const doSubmit = async () => {
 const resetState = () => {
   currentSection.value = 'basic'
   formData.value = null
+  kbInfo.value = null // 重置知识库信息
   hasFiles.value = false
   initialStorageProvider.value = ''
   saving.value = false
@@ -799,7 +931,7 @@ watch(
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(from var(--td-text-color-primary) r g b / 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -810,12 +942,12 @@ watch(
 .settings-modal {
   position: relative;
   width: 90vw;
-  max-width: 1100px;
+  max-width: 1000px;
   height: 85vh;
   max-height: 750px;
   background: var(--td-bg-color-container);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 8px 32px rgba(from var(--td-text-color-primary) r g b / 0.12);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -915,6 +1047,27 @@ watch(
   flex: 1;
 }
 
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--td-bg-color-component);
+  color: var(--td-text-color-secondary);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.nav-item.active .nav-badge {
+  background: var(--td-brand-color);
+  color: #fff;
+}
+
 .settings-content {
   flex: 1;
   display: flex;
@@ -944,7 +1097,7 @@ watch(
   .section-title {
     margin: 0 0 8px 0;
     font-family: "PingFang SC";
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 600;
     color: var(--td-text-color-primary);
   }
@@ -974,7 +1127,7 @@ watch(
   display: block;
   margin-bottom: 8px;
   font-family: "PingFang SC";
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--td-text-color-primary);
 

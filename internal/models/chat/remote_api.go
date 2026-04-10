@@ -22,6 +22,7 @@ import (
 // Uses SSRFSafeDialContext to prevent DNS rebinding attacks at the connection layer.
 var rawHTTPClient = &http.Client{
 	Transport: &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
 		DialContext:         secutils.SSRFSafeDialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
 		IdleConnTimeout:     90 * time.Second,
@@ -176,9 +177,7 @@ func (c *RemoteAPIChat) BuildChatCompletionRequest(messages []Message, opts *Cha
 	}
 
 	if opts != nil {
-		if opts.Temperature > 0 {
-			req.Temperature = float32(opts.Temperature)
-		}
+		req.Temperature = float32(opts.Temperature)
 		if opts.TopP > 0 {
 			req.TopP = float32(opts.TopP)
 		}
@@ -287,7 +286,13 @@ func (c *RemoteAPIChat) Chat(ctx context.Context, messages []Message, opts *Chat
 		}
 	}
 
-	return c.parseCompletionResponse(&resp)
+	result, err := c.parseCompletionResponse(&resp)
+	if err != nil {
+		return nil, err
+	}
+	logger.Infof(ctx, "[LLM Usage] model=%s, prompt_tokens=%d, completion_tokens=%d, total_tokens=%d",
+		c.modelName, result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
+	return result, nil
 }
 
 // chatWithRawHTTP 使用原始 HTTP 请求进行聊天（供自定义请求使用）
@@ -297,7 +302,7 @@ func (c *RemoteAPIChat) chatWithRawHTTP(ctx context.Context, endpoint string, cu
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	logger.Infof(ctx, "[LLM Request] model=%s, raw HTTP request:\n%s", c.modelName, string(jsonData))
+	logger.Infof(ctx, "[LLM Request] model=%s, raw HTTP request:\n%s", c.modelName, secutils.CompactImageDataURLForLog(string(jsonData)))
 	if endpoint == "" {
 		endpoint = c.baseURL + "/chat/completions"
 	}
@@ -328,7 +333,13 @@ func (c *RemoteAPIChat) chatWithRawHTTP(ctx context.Context, endpoint string, cu
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
-	return c.parseCompletionResponse(&chatResp)
+	result, err := c.parseCompletionResponse(&chatResp)
+	if err != nil {
+		return nil, err
+	}
+	logger.Infof(ctx, "[LLM Usage] model=%s, prompt_tokens=%d, completion_tokens=%d, total_tokens=%d",
+		c.modelName, result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
+	return result, nil
 }
 
 // parseCompletionResponse 解析非流式响应
@@ -488,12 +499,17 @@ func (c *RemoteAPIChat) processStream(ctx context.Context, stream *openai.ChatCo
 		response, err := stream.Recv()
 		if err != nil {
 			if err == io.EOF {
+				if state.usage != nil {
+					logger.Infof(ctx, "[LLM Usage] model=%s, prompt_tokens=%d, completion_tokens=%d, total_tokens=%d",
+						c.modelName, state.usage.PromptTokens, state.usage.CompletionTokens, state.usage.TotalTokens)
+				}
 				streamChan <- types.StreamResponse{
 					ResponseType: types.ResponseTypeAnswer,
 					Content:      "",
 					Done:         true,
 					ToolCalls:    state.buildOrderedToolCalls(),
 					Usage:        state.usage,
+					FinishReason: state.lastFinishReason,
 				}
 			} else {
 				streamChan <- types.StreamResponse{
@@ -530,7 +546,20 @@ func (c *RemoteAPIChat) processRawHTTPStream(ctx context.Context, resp *http.Res
 	for {
 		event, err := reader.ReadEvent()
 		if err != nil {
-			if err != io.EOF {
+			if err == io.EOF {
+				// 部分模型不发送 [DONE] 标记，直接关闭连接，视为正常结束
+				if state.usage != nil {
+					logger.Infof(ctx, "[LLM Usage] model=%s, prompt_tokens=%d, completion_tokens=%d, total_tokens=%d",
+						c.modelName, state.usage.PromptTokens, state.usage.CompletionTokens, state.usage.TotalTokens)
+				}
+				streamChan <- types.StreamResponse{
+					ResponseType: types.ResponseTypeAnswer,
+					Content:      "",
+					Done:         true,
+					ToolCalls:    state.buildOrderedToolCalls(),
+					Usage:        state.usage,
+				}
+			} else {
 				logger.Errorf(ctx, "Stream read error: %v", err)
 				streamChan <- types.StreamResponse{
 					ResponseType: types.ResponseTypeError,
@@ -546,6 +575,10 @@ func (c *RemoteAPIChat) processRawHTTPStream(ctx context.Context, resp *http.Res
 		}
 
 		if event.Done {
+			if state.usage != nil {
+				logger.Infof(ctx, "[LLM Usage] model=%s, prompt_tokens=%d, completion_tokens=%d, total_tokens=%d",
+					c.modelName, state.usage.PromptTokens, state.usage.CompletionTokens, state.usage.TotalTokens)
+			}
 			streamChan <- types.StreamResponse{
 				ResponseType: types.ResponseTypeAnswer,
 				Content:      "",
@@ -613,6 +646,7 @@ type streamState struct {
 	hasThinking      bool
 	fieldExtractors  map[int]*jsonFieldExtractor // per tool-call-index extractors for streaming field extraction
 	usage            *types.TokenUsage           // captured from the final stream chunk when include_usage is enabled
+	lastFinishReason string                      // last observed finish_reason for EOF handler fallback
 }
 
 func newStreamState() *streamState {
@@ -646,6 +680,11 @@ func (c *RemoteAPIChat) processStreamDelta(ctx context.Context, choice *openai.C
 	delta := choice.Delta
 	isDone := string(choice.FinishReason) != ""
 
+	// Track finish_reason for EOF handler fallback
+	if isDone {
+		state.lastFinishReason = string(choice.FinishReason)
+	}
+
 	// 处理 tool calls
 	if len(delta.ToolCalls) > 0 {
 		c.processToolCallsDelta(ctx, delta.ToolCalls, state, streamChan)
@@ -678,6 +717,7 @@ func (c *RemoteAPIChat) processStreamDelta(ctx context.Context, choice *openai.C
 			Content:      delta.Content,
 			Done:         isDone,
 			ToolCalls:    state.buildOrderedToolCalls(),
+			FinishReason: string(choice.FinishReason),
 		}
 	}
 
@@ -687,6 +727,7 @@ func (c *RemoteAPIChat) processStreamDelta(ctx context.Context, choice *openai.C
 			Content:      "",
 			Done:         true,
 			ToolCalls:    state.buildOrderedToolCalls(),
+			FinishReason: string(choice.FinishReason),
 		}
 	}
 
@@ -699,6 +740,17 @@ func (c *RemoteAPIChat) processStreamDelta(ctx context.Context, choice *openai.C
 			Done:         true,
 		}
 		state.hasThinking = false
+	}
+
+	// Catch-all: isDone but none of the above branches sent a response with
+	// FinishReason (empty content, no tool calls, no thinking). This prevents
+	// the finish_reason from being lost in the streaming pipeline.
+	if isDone && delta.Content == "" && len(state.toolCallMap) == 0 && !state.hasThinking {
+		streamChan <- types.StreamResponse{
+			ResponseType: types.ResponseTypeAnswer,
+			Done:         true,
+			FinishReason: string(choice.FinishReason),
+		}
 	}
 }
 
@@ -728,7 +780,11 @@ func (c *RemoteAPIChat) processToolCallsDelta(ctx context.Context, toolCalls []o
 			toolCallEntry.Type = string(tc.Type)
 		}
 		if tc.Function.Name != "" {
-			toolCallEntry.Function.Name += tc.Function.Name
+			// 防御性校验：解决部分供应商（如vLLM Ascend等）在每个流 Chunk 中重复发送完整工具名的问题。
+			// 如果当前已存名字与新收到名字一致，则视为冗余重复，不进行叠加。
+			if toolCallEntry.Function.Name != tc.Function.Name {
+				toolCallEntry.Function.Name += tc.Function.Name
+			}
 		}
 
 		argsUpdated := false

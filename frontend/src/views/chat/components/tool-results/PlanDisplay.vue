@@ -3,12 +3,12 @@
     <div v-if="data.steps && data.steps.length > 0" class="plan-steps">
       <div v-for="(step, index) in data.steps" :key="step.id || index" class="step-item" :class="`status-${step.status}`">
         <div class="step-checkbox" :class="{ 'checked': step.status === 'completed', 'in-progress': step.status === 'in_progress' }">
-          <svg v-if="step.status === 'completed'" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="2" y="2" width="12" height="12" rx="2" fill="#07C05F"/>
-            <path d="M5 8L7 10L11 6" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg v-if="step.status === 'completed'" width="16" height="16" viewBox="0 0 16 16" fill="none" class="completed-checkbox">
+            <rect x="2" y="2" width="12" height="12" rx="2" fill="var(--td-brand-color)"/>
+            <path d="M5 8L7 10L11 6" stroke="var(--td-text-color-anti)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="2" y="2" width="12" height="12" rx="2" stroke="#d1d5db" stroke-width="1.5" fill="none"/>
+          <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="none" class="pending-checkbox">
+            <rect x="2" y="2" width="12" height="12" rx="2" stroke="var(--td-text-color-disabled)" stroke-width="1.5" fill="none"/>
           </svg>
         </div>
         <span class="step-description" :class="{ 'completed': step.status === 'completed' }">

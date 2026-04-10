@@ -25,6 +25,7 @@ type AgentConfig struct {
 	UseCustomSystemPrompt   bool          `json:"use_custom_system_prompt"`             // Whether to use custom system prompt instead of default
 	WebSearchEnabled        bool          `json:"web_search_enabled"`                   // Whether web search tool is enabled
 	WebSearchMaxResults     int           `json:"web_search_max_results"`               // Maximum number of web search results (default: 5)
+	WebSearchProviderID     string        `json:"web_search_provider_id,omitempty"`     // WebSearchProviderEntity ID (resolved from agent config)
 	MultiTurnEnabled        bool          `json:"multi_turn_enabled"`                   // Whether multi-turn conversation is enabled
 	HistoryTurns            int           `json:"history_turns"`                        // Number of history turns to keep in context
 	SearchTargets           SearchTargets `json:"-"`                                    // Pre-computed unified search targets (runtime only)
@@ -54,6 +55,10 @@ type AgentConfig struct {
 	// The agent compresses older messages to stay within this limit,
 	// preserving tool_call/tool_result pairs.
 	MaxContextTokens int `json:"max_context_tokens,omitempty"`
+
+	// Whether to execute independent tool calls in parallel (default: false).
+	// When enabled and the LLM returns multiple tool calls, they run concurrently via errgroup.
+	ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"`
 }
 
 // SessionAgentConfig represents session-level agent configuration

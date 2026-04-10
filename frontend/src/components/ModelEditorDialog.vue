@@ -124,10 +124,11 @@
           <!-- 厂商选择器 -->
           <div class="form-item">
             <label class="form-label">{{ $t('model.editor.providerLabel') }}</label>
-            <t-select 
-              v-model="formData.provider" 
+            <t-select
+              v-model="formData.provider"
               :placeholder="$t('model.editor.providerPlaceholder')"
               @change="handleProviderChange"
+              :popup-props="{ overlayClassName: 'provider-select-popup' }"
             >
               <t-option 
                 v-for="opt in providerOptions" 
@@ -260,7 +261,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted, nextTick } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
-import { checkOllamaModels, checkRemoteModel, testEmbeddingModel, checkRerankModel, listOllamaModels, downloadOllamaModel, getDownloadProgress, checkOllamaStatus, listModelProviders, type OllamaModelInfo, type ModelProviderOption } from '@/api/initialization'
+import { checkOllamaModels, checkRemoteModel, testEmbeddingModel, checkRerankModel, checkASRModel, listOllamaModels, downloadOllamaModel, getDownloadProgress, checkOllamaStatus, listModelProviders, type OllamaModelInfo, type ModelProviderOption } from '@/api/initialization'
 import { useI18n } from 'vue-i18n'
 import { useUIStore } from '@/stores/ui'
 
@@ -280,7 +281,7 @@ interface ModelFormData {
 
 interface Props {
   visible: boolean
-  modelType: 'chat' | 'embedding' | 'rerank' | 'vllm'
+  modelType: 'chat' | 'embedding' | 'rerank' | 'vllm' | 'asr'
   modelData?: ModelFormData | null
 }
 
@@ -303,21 +304,22 @@ const loadingProviders = ref(false)
 
 // 硬编码的后备 Provider 配置 (当 API 不可用时使用)
 const fallbackProviderOptions = computed(() => [
-  { 
-    value: 'openai', 
-    label: t('model.editor.providers.openai.label'), 
+  {
+    value: 'openai',
+    label: t('model.editor.providers.openai.label'),
     defaultUrls: {
       chat: 'https://api.openai.com/v1',
       embedding: 'https://api.openai.com/v1',
       rerank: 'https://api.openai.com/v1',
-      vllm: 'https://api.openai.com/v1'
+      vllm: 'https://api.openai.com/v1',
+      asr: 'https://api.openai.com/v1'
     },
     description: t('model.editor.providers.openai.description'),
-    modelTypes: ['chat', 'embedding', 'vllm']
+    modelTypes: ['chat', 'embedding', 'vllm', 'asr']
   },
-  { 
-    value: 'aliyun', 
-    label: t('model.editor.providers.aliyun.label'), 
+  {
+    value: 'aliyun',
+    label: t('model.editor.providers.aliyun.label'),
     defaultUrls: {
       chat: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       embedding: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -373,7 +375,7 @@ const fallbackProviderOptions = computed(() => [
     value: 'nvidia',
     label: t('model.editor.providers.nvidia.label'),
     defaultUrls: {
-      chat: 'https://integrate.api.nvidia.com/v1/chat/completions',
+      chat: 'https://integrate.api.nvidia.com/v1',
       embedding: 'https://integrate.api.nvidia.com/v1',
       rerank: 'https://ai.api.nvidia.com/v1/retrieval/nvidia/reranking',
       vllm: 'https://integrate.api.nvidia.com/v1',
@@ -394,10 +396,10 @@ const fallbackProviderOptions = computed(() => [
   },
   { 
     value: 'generic', 
-    label: t('model.editor.providers.generic.label'), 
+    label: t('model.editor.providers.generic.label'),
     defaultUrls: {},
     description: t('model.editor.providers.generic.description'),
-    modelTypes: ['chat', 'embedding', 'rerank', 'vllm']
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'asr']
   },
 ])
 
@@ -536,15 +538,22 @@ const getModelNamePlaceholder = () => {
       ? t('model.editor.modelNamePlaceholder.localVllm')
       : t('model.editor.modelNamePlaceholder.remoteVllm')
   }
+  if (props.modelType === 'asr') {
+    return t('model.editor.modelNamePlaceholder.remoteAsr')
+  }
   return formData.value.source === 'local'
     ? t('model.editor.modelNamePlaceholder.local')
     : t('model.editor.modelNamePlaceholder.remote')
 }
 
 const getBaseUrlPlaceholder = () => {
-  return props.modelType === 'vllm'
-    ? t('model.editor.baseUrlPlaceholderVllm')
-    : t('model.editor.baseUrlPlaceholder')
+  if (props.modelType === 'vllm') {
+    return t('model.editor.baseUrlPlaceholderVllm')
+  }
+  if (props.modelType === 'asr') {
+    return t('model.editor.baseUrlPlaceholderAsr')
+  }
+  return t('model.editor.baseUrlPlaceholder')
 }
 
 // 检查Ollama服务状态
@@ -840,7 +849,16 @@ const checkRemoteAPI = async () => {
           apiKey: formData.value.apiKey || ''
         })
         break
-        
+
+      case 'asr':
+        // ASR 模型（语音识别）— 使用专用的 ASR 测试接口（/v1/audio/transcriptions）
+        result = await checkASRModel({
+          modelName: formData.value.modelName,
+          baseUrl: formData.value.baseUrl,
+          apiKey: formData.value.apiKey || ''
+        })
+        break
+
       default:
         MessagePlugin.error(t('model.editor.unsupportedModelType'))
         return
@@ -1233,24 +1251,8 @@ const handleOverlayMouseUp = () => {
   }
 }
 
-// 厂商选择器样式
-.provider-option {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 0;
-
-  .provider-name {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--td-text-color-primary);
-  }
-
-  .provider-desc {
-    font-size: 12px;
-    color: var(--td-text-color-placeholder);
-  }
-}
+// 厂商选择器样式 — 移至非 scoped 块，因为 t-select popup 渲染到 body 下
+// .provider-option 样式见文件末尾
 
 // 单选按钮组
 :deep(.t-radio-group) {
@@ -1618,6 +1620,40 @@ const handleOverlayMouseUp = () => {
       line-height: 1 !important;
       display: inline-flex !important;
       align-items: center !important;
+    }
+  }
+}
+</style>
+
+<!-- 非 scoped 样式：t-select popup 渲染到 body 下，scoped 样式无法覆盖 -->
+<style lang="less">
+.provider-select-popup {
+  // 覆盖 TDesign option 默认固定高度，让两行内容正常展示
+  .t-select-option {
+    height: auto !important;
+    padding: 0 8px;
+  }
+
+  .provider-option {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 0;
+
+    .provider-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--td-text-color-primary);
+      line-height: 22px;
+    }
+
+    .provider-desc {
+      font-size: 12px;
+      color: var(--td-text-color-placeholder);
+      line-height: 18px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   }
 }

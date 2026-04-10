@@ -24,6 +24,8 @@ services:
     networks:
       - WeKnora-network
     restart: unless-stopped
+    profiles:
+      - frontend
 
   app:
     image: wechatopenai/weknora-app:${WEKNORA_VERSION:-latest}
@@ -95,13 +97,15 @@ services:
       - STORAGE_TYPE=${STORAGE_TYPE:-}
       - LOCAL_STORAGE_BASE_DIR=${LOCAL_STORAGE_BASE_DIR:-}
       - AUTO_RECOVER_DIRTY=${AUTO_RECOVER_DIRTY:-true}
-      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
       - MINIO_ACCESS_KEY_ID=${MINIO_ACCESS_KEY_ID:-minioadmin}
       - MINIO_SECRET_ACCESS_KEY=${MINIO_SECRET_ACCESS_KEY:-minioadmin}
-      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-nxinweknora}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - STREAM_MANAGER_TYPE=${STREAM_MANAGER_TYPE:-}
-      - REDIS_ADDR=redis:6379
+      - REDIS_MODE=${REDIS_MODE:-}
+      - REDIS_ADDR=${REDIS_ADDR:-redis:6379}
+      - REDIS_CLUSTER_ADDRS=${REDIS_CLUSTER_ADDRS:-}
       - REDIS_USERNAME=${REDIS_USERNAME:-}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - REDIS_DB=${REDIS_DB:-}
@@ -122,19 +126,24 @@ services:
       - WEKNORA_SANDBOX_MODE=${WEKNORA_SANDBOX_MODE:-docker}
       - WEKNORA_SANDBOX_TIMEOUT=${WEKNORA_SANDBOX_TIMEOUT:-60}
       - WEKNORA_SANDBOX_DOCKER_IMAGE=${WEKNORA_SANDBOX_DOCKER_IMAGE:-wechatopenai/weknora-sandbox:${WEKNORA_VERSION:-latest}}
+      # Agent LLM call timeout
+      - WEKNORA_AGENT_LLM_TIMEOUT=${WEKNORA_AGENT_LLM_TIMEOUT:-}
       - APK_MIRROR_ARG=${APK_MIRROR_ARG:-}
-    depends_on:
-      redis:
-        condition: service_started
-      postgres:
-        condition: service_healthy
-      docreader:
-        condition: service_healthy
+#    depends_on:
+#      redis:
+#        condition: service_started
+#      postgres:
+#        condition: service_healthy
+#      docreader:
+#        condition: service_healthy
     networks:
       - WeKnora-network
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    profiles:
+      - app
+      - full
 
   # Sandbox 镜像：仅用于 build/pull，非常驻服务；app 执行 Skills 时按需 docker run 该镜像，用毕即释
   sandbox:
@@ -172,13 +181,21 @@ services:
     networks:
       - WeKnora-network
     restart: unless-stopped
+    depends_on:
+      minio:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    profiles:
+      - docreader
+      - full
 
   # 修改的PostgreSQL配置
   postgres:
     image: paradedb/paradedb:v0.22.2-pg17
     container_name: WeKnora-postgres
+    ports:
+      - "${DB_PORT:-5432}:5432"
     environment:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
@@ -200,10 +217,15 @@ services:
   redis:
     image: redis:7.0-alpine
     container_name: WeKnora-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     restart: always
     networks:
       - WeKnora-network
+    profiles:
+      - redis
+      - full
 
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
@@ -339,6 +361,18 @@ services:
     restart: unless-stopped
     profiles:
       - weaviate
+
+  dex:
+    image: dexidp/dex:latest
+    container_name: dex
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./misc/dex-config.yaml:/etc/dex/config.yaml
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    profiles:
+      - dex
+      - full
 
 networks:
   WeKnora-network:

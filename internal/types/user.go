@@ -24,6 +24,14 @@ type User struct {
 	IsActive bool `json:"is_active"  gorm:"default:true"`
 	// Whether the user can access all tenants (cross-tenant access)
 	CanAccessAllTenants bool `json:"can_access_all_tenants" gorm:"default:false"`
+	// CAS user ID (from CAS system)
+	CASUserID string `json:"cas_user_id" gorm:"type:varchar(64);index"`
+	// CAS login name (from CAS system)
+	CASLoginName string `json:"cas_login_name" gorm:"type:varchar(100);index"`
+	// CAS real name (from CAS system)
+	CASRealName string `json:"cas_real_name" gorm:"type:varchar(100)"`
+	// CAS mobile phone (from CAS system)
+	CASMobilePhone string `json:"cas_mobile_phone" gorm:"type:varchar(20)"`
 	// Creation time of the user
 	CreatedAt time.Time `json:"created_at"`
 	// Last updated time of the user
@@ -62,6 +70,36 @@ type AuthToken struct {
 type LoginRequest struct {
 	Email    string `json:"email"    binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
+}
+
+type OIDCAuthURLResponse struct {
+	Success             bool   `json:"success"`
+	ProviderDisplayName string `json:"provider_display_name,omitempty"`
+	AuthorizationURL    string `json:"authorization_url,omitempty"`
+	State               string `json:"state,omitempty"`
+}
+
+type OIDCConfigResponse struct {
+	Success             bool   `json:"success"`
+	Enabled             bool   `json:"enabled"`
+	ProviderDisplayName string `json:"provider_display_name,omitempty"`
+}
+
+type OIDCCallbackResponse struct {
+	Success      bool    `json:"success"`
+	Message      string  `json:"message,omitempty"`
+	User         *User   `json:"user,omitempty"`
+	Tenant       *Tenant `json:"tenant,omitempty"`
+	Token        string  `json:"token,omitempty"`
+	RefreshToken string  `json:"refresh_token,omitempty"`
+	IsNewUser    bool    `json:"is_new_user,omitempty"`
+}
+
+type OIDCUserInfo struct {
+	Subject  string                 `json:"subject,omitempty"`
+	Username string                 `json:"username,omitempty"`
+	Email    string                 `json:"email,omitempty"`
+	Claims   map[string]interface{} `json:"claims,omitempty"`
 }
 
 // RegisterRequest represents a registration request

@@ -47,7 +47,7 @@
                       {{ org.member_count ?? 0 }}
                     </span>
                     <span class="org-meta-tag">
-                      <img src="@/assets/img/zhishiku.svg" class="org-meta-icon org-meta-icon-kb" alt="" aria-hidden="true" />
+                      <SvgIcon name="zhishiku" variant="default" theme="secondary" :size="16" class="org-meta-icon org-meta-icon-kb" />
                       {{ org.share_count ?? 0 }}
                     </span>
                     <span class="org-meta-tag">
@@ -140,6 +140,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { shareKnowledgeBase, listKBShares, removeShare } from '@/api/organization'
 import type { KnowledgeBaseShare } from '@/api/organization'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import { SvgIcon } from '@/components/icons'
 
 const { t } = useI18n()
 const router = useRouter()

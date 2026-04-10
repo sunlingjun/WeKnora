@@ -179,10 +179,10 @@ const closePreImg = () => {
     align-items: center;
     gap: 4px;
     flex: 1 0 0;
-    border-radius: 4px;
-    background: #8CE97F;
+    border-radius: var(--td-radius-default);
+    background: var(--td-brand-color-2);
     margin-left: auto;
-    color: #000000e6;
+    color: var(--td-text-color-primary);
     font-size: 15px;
     text-align: justify;
     word-break: break-all;

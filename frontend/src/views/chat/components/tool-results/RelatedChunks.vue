@@ -148,7 +148,7 @@ code {
   font-size: 11px;
   background: var(--td-bg-color-secondarycontainer);
   padding: 2px 4px;
-  border-radius: 3px;
+  border-radius: var(--td-radius-default);
 }
 </style>
 

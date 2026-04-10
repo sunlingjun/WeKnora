@@ -43,11 +43,11 @@
                         {{ org.member_count ?? 0 }}
                       </span>
                       <span class="org-meta-tag">
-                        <img src="@/assets/img/zhishiku.svg" class="org-meta-icon org-meta-icon-kb" alt="" aria-hidden="true" />
+                        <SvgIcon name="zhishiku" variant="default" theme="secondary" :size="16" class="org-meta-icon org-meta-icon-kb" />
                         {{ org.share_count ?? 0 }}
                       </span>
                       <span class="org-meta-tag">
-                        <img src="@/assets/img/agent.svg" class="org-meta-icon org-meta-icon-agent" alt="" aria-hidden="true" />
+                        <SvgIcon name="agent" variant="default" theme="default" :size="16" class="org-meta-icon org-meta-icon-agent" />
                         {{ org.agent_share_count ?? 0 }}
                       </span>
                     </div>
@@ -118,11 +118,11 @@
                   {{ getOrgForShare(share.organization_id)?.member_count ?? 0 }}
                 </span>
                 <span class="org-meta-tag">
-                  <img src="@/assets/img/zhishiku.svg" class="org-meta-icon org-meta-icon-kb" alt="" aria-hidden="true" />
+                  <SvgIcon name="zhishiku" variant="default" theme="secondary" :size="16" class="org-meta-icon org-meta-icon-kb" />
                   {{ getOrgForShare(share.organization_id)?.share_count ?? 0 }}
                 </span>
                 <span class="org-meta-tag">
-                  <img src="@/assets/img/agent.svg" class="org-meta-icon org-meta-icon-agent" alt="" aria-hidden="true" />
+                  <SvgIcon name="agent" variant="default" theme="default" :size="16" class="org-meta-icon org-meta-icon-agent" />
                   {{ getOrgForShare(share.organization_id)?.agent_share_count ?? 0 }}
                 </span>
               </div>
@@ -168,6 +168,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useOrganizationStore } from '@/stores/organization'
 import { shareKnowledgeBase, listKBShares, removeShare, updateSharePermission } from '@/api/organization'
+import { SvgIcon } from '@/components/icons'
 import type { KnowledgeBaseShare } from '@/api/organization'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
 
@@ -315,7 +316,7 @@ onMounted(async () => {
   .section-title {
     margin: 0 0 8px 0;
     font-family: "PingFang SC";
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 600;
     color: var(--td-text-color-primary);
   }
@@ -340,7 +341,7 @@ onMounted(async () => {
     display: block;
     margin-bottom: 8px;
     font-family: "PingFang SC";
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     color: var(--td-text-color-primary);
   }
@@ -382,7 +383,7 @@ onMounted(async () => {
 
   .shares-title {
     font-family: "PingFang SC";
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     color: var(--td-text-color-primary);
   }

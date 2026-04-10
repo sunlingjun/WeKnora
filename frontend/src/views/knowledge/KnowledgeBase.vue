@@ -107,20 +107,35 @@ const goToParserSettings = () => {
 
 // Permission control: check if current user owns this KB or has edit/manage permission
 const isOwner = computed(() => {
-  if (!kbInfo.value) return false;
-  // Check if the current user's tenant ID matches the KB's tenant ID
-  const userTenantId = authStore.effectiveTenantId;
-  return kbInfo.value.tenant_id === userTenantId;
-});
+  if (!kbInfo.value) return false
+  return kbInfo.value.is_owner === true || kbInfo.value.owner_id === authStore.currentUserId || kbInfo.value.tenant_id === authStore.effectiveTenantId
+})
 
-// Can edit: owner, admin, or editor
+const memberRole = computed(() => {
+  if (!kbInfo.value) return null
+  return kbInfo.value.member_role || (isOwner.value ? 'owner' : null)
+})
+
+// Can edit: owner, editor, or org-admin
 const canEdit = computed(() => {
-  return orgStore.canEditKB(kbId.value, isOwner.value);
-});
+  return isOwner.value || memberRole.value === 'editor' || orgStore.canEditKB(kbId.value, isOwner.value)
+})
+
+const canUpload = computed(() => {
+  return isOwner.value || memberRole.value === 'editor' || orgStore.canEditKB(kbId.value, isOwner.value)
+})
+
+const canDelete = computed(() => {
+  return isOwner.value || memberRole.value === 'editor' || orgStore.canEditKB(kbId.value, isOwner.value)
+})
+
+const canManageSettings = computed(() => {
+  return isOwner.value || orgStore.canManageKB(kbId.value, isOwner.value)
+})
 
 // Can manage (delete, settings, etc.): owner or admin
 const canManage = computed(() => {
-  return orgStore.canManageKB(kbId.value, isOwner.value);
+  return isOwner.value || orgStore.canManageKB(kbId.value, isOwner.value)
 });
 
 // Current KB's shared record (when accessed via organization share)
@@ -396,13 +411,21 @@ const handleTagRowClick = (tagId: string) => {
     editingTagId.value = null;
     editingTagName.value = '';
   }
-  if (selectedTagId.value === tagId) return;
+  if (selectedTagId.value === tagId) {
+    handleTagFilterChange('');
+    return;
+  }
   handleTagFilterChange(tagId);
 };
 
 const startCreateTag = () => {
   if (!kbId.value) {
     MessagePlugin.warning(t('knowledgeEditor.messages.missingId'));
+    return;
+  }
+  // 权限检查：只有创建者或编辑者可以创建分类
+  if (!canEdit.value) {
+    MessagePlugin.warning(t('knowledgeBase.tag.noPermission') || '只有创建者或编辑者可以创建分类');
     return;
   }
   if (creatingTag.value) {
@@ -427,6 +450,12 @@ const submitCreateTag = async () => {
     MessagePlugin.warning(t('knowledgeEditor.messages.missingId'));
     return;
   }
+  // 权限检查：只有创建者或编辑者可以创建分类
+  if (!canEdit.value) {
+    MessagePlugin.warning(t('knowledgeBase.tag.noPermission') || '只有创建者或编辑者可以创建分类');
+    cancelCreateTag();
+    return;
+  }
   const name = newTagName.value.trim();
   if (!name) {
     MessagePlugin.warning(t('knowledgeBase.tagNameRequired'));
@@ -446,6 +475,11 @@ const submitCreateTag = async () => {
 };
 
 const startEditTag = (tag: any) => {
+  // 权限检查：只有创建者或编辑者可以编辑分类
+  if (!canEdit.value) {
+    MessagePlugin.warning(t('knowledgeBase.tag.noPermission') || '只有创建者或编辑者可以编辑分类');
+    return;
+  }
   creatingTag.value = false;
   newTagName.value = '';
   editingTagId.value = tag.id;
@@ -464,6 +498,12 @@ const cancelEditTag = () => {
 
 const submitEditTag = async () => {
   if (!kbId.value || !editingTagId.value) {
+    return;
+  }
+  // 权限检查：只有创建者或编辑者可以编辑分类
+  if (!canEdit.value) {
+    MessagePlugin.warning(t('knowledgeBase.tag.noPermission') || '只有创建者或编辑者可以编辑分类');
+    cancelEditTag();
     return;
   }
   const name = editingTagName.value.trim();
@@ -491,6 +531,11 @@ const submitEditTag = async () => {
 const confirmDeleteTag = (tag: any) => {
   if (!kbId.value) {
     MessagePlugin.warning(t('knowledgeEditor.messages.missingId'));
+    return;
+  }
+  // 权限检查：只有创建者或编辑者可以删除分类
+  if (!canEdit.value) {
+    MessagePlugin.warning(t('knowledgeBase.tag.noPermission') || '只有创建者或编辑者可以删除分类');
     return;
   }
   if (creatingTag.value) {
@@ -525,6 +570,11 @@ const confirmDeleteTag = (tag: any) => {
 };
 
 const handleKnowledgeTagChange = async (knowledgeId: string, tagValue: string) => {
+  // 权限检查：只有创建者或编辑者可以修改文档分类
+  if (!canEdit.value) {
+    MessagePlugin.warning(t('knowledgeBase.tag.noPermission') || '只有创建者或编辑者可以修改文档分类');
+    return;
+  }
   try {
     // Pass the tag value directly (empty string means no tag)
     const tagIdToUpdate = tagValue || null;
@@ -665,6 +715,11 @@ const handleOpenURLImportDialog = (event: CustomEvent) => {
   const eventKbId = event.detail.kbId;
   console.log('接收到URL导入对话框打开事件，知识库ID:', eventKbId, '当前知识库ID:', kbId.value);
   if (eventKbId && eventKbId === kbId.value && !isFAQ.value) {
+    // 权限检查：只有创建者或编辑者可以导入URL
+    if (!canUpload.value) {
+      MessagePlugin.warning(t('knowledgeBase.upload.noPermission') || '只有创建者或编辑者可以导入URL');
+      return;
+    }
     urlDialogVisible.value = true;
   }
 };
@@ -987,6 +1042,11 @@ const ensureDocumentKbReady = () => {
 
 const handleDocumentUploadClick = () => {
   if (!ensureDocumentKbReady()) return;
+  // 权限检查：只有创建者或编辑者可以上传
+  if (!canUpload.value) {
+    MessagePlugin.warning(t('knowledgeBase.upload.noPermission') || '只有创建者或编辑者可以上传文档');
+    return;
+  }
   uploadInputRef.value?.click();
 };
 
@@ -1006,6 +1066,13 @@ const handleDocumentUpload = async (event: Event) => {
   const files = input?.files;
   if (!files || files.length === 0) return;
   
+  // 权限检查：只有创建者或编辑者可以上传
+  if (!canUpload.value) {
+    MessagePlugin.warning(t('knowledgeBase.upload.noPermission') || '只有创建者或编辑者可以上传文档');
+    resetUploadInput();
+    return;
+  }
+
   if (!kbId.value) {
     MessagePlugin.error(t('error.missingKbId'));
     resetUploadInput();
@@ -1121,14 +1188,14 @@ const handleFolderUpload = async (event: Event) => {
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const relativePath = (file as any).webkitRelativePath || file.name;
-    
+
     const pathParts = relativePath.split('/');
     const hasHiddenComponent = pathParts.some((part: string) => part.startsWith('.'));
     if (hasHiddenComponent) {
       hiddenFileCount++;
       continue;
     }
-    
+
     if (!vlmEnabled) {
       const fileExt = file.name.substring(file.name.lastIndexOf('.') + 1).toLowerCase();
       const imageTypes = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
@@ -1137,7 +1204,7 @@ const handleFolderUpload = async (event: Event) => {
         continue;
       }
     }
-    
+
     if (!kbFileTypeVerification(file, true, dynamicTypes)) {
       validFiles.push(file);
     }
@@ -1194,6 +1261,11 @@ const handleFolderUpload = async (event: Event) => {
 
 const handleManualCreate = () => {
   if (!ensureDocumentKbReady()) return;
+  // 权限检查：只有创建者或编辑者可以创建文档
+  if (!canUpload.value) {
+    MessagePlugin.warning(t('knowledgeBase.upload.noPermission') || '只有创建者或编辑者可以创建文档');
+    return;
+  }
   uiStore.openManualEditor({
     mode: 'create',
     kbId: kbId.value,
@@ -1205,23 +1277,83 @@ const handleManualCreate = () => {
 // URL 导入相关
 const urlDialogVisible = ref(false);
 const urlInputValue = ref('');
+const urlImportTitle = ref('');
+/** 最近一次由 URL 自动生成的标题，用于在用户未手工改名时随 URL 更新 */
+const urlAutoTitle = ref('');
 const urlImporting = ref(false);
+
+/** 与后端 defaultTitleFromWebURL 一致的预填规则（合法 URL 时返回标题，无效片段返回 null，空串返回 ''） */
+function suggestTitleFromURL(raw: string): string | null {
+  const u = raw.trim();
+  if (!u) return '';
+  try {
+    const parsed = new URL(u);
+    const host = parsed.hostname || '';
+    if (!host) return u;
+    const p = (parsed.pathname || '').replace(/^\/+|\/+$/g, '');
+    if (!p) return host;
+    const seg = p.split('/').pop() || '';
+    if (!seg || seg === '.') return host;
+    const runes = Array.from(seg);
+    const cut = runes.length > 80 ? `${runes.slice(0, 77).join('')}...` : seg;
+    return `${host} / ${cut}`;
+  } catch {
+    return null;
+  }
+}
+
+watch(urlInputValue, (val) => {
+  const suggested = suggestTitleFromURL(val);
+  if (suggested === '') {
+    urlImportTitle.value = '';
+    urlAutoTitle.value = '';
+    return;
+  }
+  if (suggested === null) return;
+  const cur = urlImportTitle.value;
+  if (cur === '' || cur === urlAutoTitle.value) {
+    urlImportTitle.value = suggested;
+    urlAutoTitle.value = suggested;
+  }
+});
 
 const handleURLImportClick = () => {
   if (!ensureDocumentKbReady()) return;
+  // 权限检查：只有创建者或编辑者可以导入URL
+  if (!canUpload.value) {
+    MessagePlugin.warning(t('knowledgeBase.upload.noPermission') || '只有创建者或编辑者可以导入URL');
+    return;
+  }
   urlInputValue.value = '';
+  urlImportTitle.value = '';
+  urlAutoTitle.value = '';
   urlDialogVisible.value = true;
 };
 
 const handleURLImportCancel = () => {
   urlDialogVisible.value = false;
   urlInputValue.value = '';
+  urlImportTitle.value = '';
+  urlAutoTitle.value = '';
 };
 
 const handleURLImportConfirm = async () => {
+  // 权限检查：只有创建者或编辑者可以导入URL
+  if (!canUpload.value) {
+    MessagePlugin.warning(t('knowledgeBase.upload.noPermission') || '只有创建者或编辑者可以导入URL');
+    urlDialogVisible.value = false;
+    return;
+  }
+
   const url = urlInputValue.value.trim();
   if (!url) {
     MessagePlugin.warning(t('knowledgeBase.urlRequired'));
+    return;
+  }
+
+  const title = urlImportTitle.value.trim();
+  if (!title) {
+    MessagePlugin.warning(t('knowledgeBase.urlTitleRequired'));
     return;
   }
   
@@ -1242,7 +1374,12 @@ const handleURLImportConfirm = async () => {
   try {
     // 获取当前选中的分类ID
     const tagIdToUpload = selectedTagId.value !== '__untagged__' ? selectedTagId.value : undefined;
-    const responseData: any = await createKnowledgeFromURL(kbId.value, { url, tag_id: tagIdToUpload });
+    const responseData: any = await createKnowledgeFromURL(kbId.value, {
+      url,
+      title,
+      tag_id: tagIdToUpload,
+      channel: 'web',
+    });
     window.dispatchEvent(new CustomEvent('knowledgeFileUploaded', {
       detail: { kbId: kbId.value }
     }));
@@ -1277,6 +1414,11 @@ const handleURLImportConfirm = async () => {
 const handleOpenKBSettings = () => {
   if (!kbId.value) {
     MessagePlugin.warning(t('knowledgeEditor.messages.missingId'));
+    return;
+  }
+  // 权限检查：只有创建者可以打开设置
+  if (!canManageSettings.value) {
+    MessagePlugin.warning(t('knowledgeBase.settings.noPermission') || '只有创建者可以管理知识库设置');
     return;
   }
   uiStore.openKBSettings(kbId.value);
@@ -1484,6 +1626,7 @@ async function createNewSession(value: string): Promise<void> {
             </div>
             <t-tooltip v-if="canManage" :content="$t('knowledgeBase.settings')" placement="top">
               <button
+                v-if="canManageSettings"
                 type="button"
                 class="kb-settings-button"
                 :disabled="!kbId"
@@ -1511,7 +1654,7 @@ async function createNewSession(value: string): Promise<void> {
         ref="uploadInputRef"
         type="file"
         class="document-upload-input"
-        :accept="acceptFileTypes || '.pdf,.docx,.doc,.txt,.md,.json,.jpg,.jpeg,.png,.csv,.xlsx,.xls,.pptx,.ppt'"
+        :accept="acceptFileTypes || '.pdf,.docx,.doc,.txt,.md,.json,.jpg,.jpeg,.png,.csv,.xlsx,.xls,.pptx,.ppt,.mp3,.wav,.m4a,.flac,.ogg'"
         multiple
         @change="handleDocumentUpload"
       />
@@ -1745,7 +1888,7 @@ async function createNewSession(value: string): Promise<void> {
                       <div class="card-content-nav">
                         <span class="card-content-title" :title="item.file_name">{{ item.file_name }}</span>
                         <t-popup
-                          v-if="canEdit"
+                          v-if="canEdit || canDelete"
                           v-model="item.isMore"
                           overlayClassName="card-more"
                           :on-visible-change="onVisibleChange"
@@ -1765,7 +1908,7 @@ async function createNewSession(value: string): Promise<void> {
                             <!-- Normal menu -->
                             <div v-if="moveMenuMode === 'normal'" class="card-menu">
                               <div
-                                v-if="item.type === 'manual'"
+                                v-if="item.type === 'manual' && canEdit"
                                 class="card-menu-item"
                                 @click.stop="handleManualEdit(index, item)"
                               >
@@ -1780,7 +1923,7 @@ async function createNewSession(value: string): Promise<void> {
                                 <t-icon class="icon" name="swap" />
                                 <span>{{ t('knowledgeBase.moveDocument') }}</span>
                               </div>
-                              <div class="card-menu-item danger" @click.stop="delCard(index, item)">
+                              <div class="card-menu-item danger" v-if="canDelete" @click.stop="delCard(index, item)">
                                 <t-icon class="icon" name="delete" />
                                 <span>{{ t('knowledgeBase.deleteDocument') }}</span>
                               </div>
@@ -2026,6 +2169,14 @@ async function createNewSession(value: string): Promise<void> {
                 :placeholder="$t('knowledgeBase.urlPlaceholder')"
                 clearable
                 autofocus
+                @keydown.enter="handleURLImportConfirm"
+              />
+              <div class="url-input-label url-title-label">{{ $t('knowledgeBase.urlTitleLabel') }}</div>
+              <t-input
+                v-model="urlImportTitle"
+                :placeholder="$t('knowledgeBase.urlTitlePlaceholder')"
+                :maxlength="512"
+                clearable
                 @keydown.enter="handleURLImportConfirm"
               />
               <div class="url-input-tip">{{ $t('knowledgeBase.urlTip') }}</div>
@@ -3439,6 +3590,10 @@ async function createNewSession(value: string): Promise<void> {
     font-size: 14px;
     font-weight: 500;
     margin-bottom: 8px;
+  }
+
+  .url-title-label {
+    margin-top: 16px;
   }
 
   .url-input-tip {

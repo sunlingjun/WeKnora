@@ -125,6 +125,10 @@ type Message struct {
 	IsFallback bool `json:"is_fallback,omitempty"`
 	// Agent total execution duration in milliseconds (from query start to answer start)
 	AgentDurationMs int64 `json:"agent_duration_ms,omitempty" gorm:"column:agent_duration_ms;default:0"`
+	// RenderedContent stores the full RAG-augmented user message (with retrieved context)
+	// sent to the LLM. Used to preserve retrieval context across conversation turns.
+	// Empty for non-retrieval intents or assistant messages.
+	RenderedContent string `json:"-" gorm:"type:text;column:rendered_content;default:''"`
 	// Channel indicates the source channel of this message (e.g., "web", "api", "im")
 	Channel string `json:"channel,omitempty" gorm:"type:varchar(50);default:''"`
 	// KnowledgeID links this message to a Knowledge entry in the chat history knowledge base

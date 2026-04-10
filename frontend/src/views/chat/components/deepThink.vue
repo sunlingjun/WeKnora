@@ -10,7 +10,7 @@
                     <span class="thinking-text">{{ $t('chat.thinking') }}</span>
                 </span>
                 <span v-else class="done-status">
-                    <img class="done-icon" src="@/assets/img/Frame3718.svg" :alt="$t('chat.deepThoughtAlt')">
+                    <SvgIcon name="thinking" theme="brand" :size="16" class="done-icon" />
                     <span class="done-text">{{ $t('chat.deepThoughtCompleted') }}</span>
                 </span>
             </div>
@@ -26,6 +26,7 @@
 <script setup>
 import { watch, ref, defineProps, onMounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { SvgIcon } from '@/components/icons';
 
 const isFold = ref(false)
 const contentInnerRef = ref(null)
@@ -88,7 +89,7 @@ const toggleFold = () => {
     border-radius: 8px;
     background-color: var(--td-bg-color-container);
     border: .5px solid var(--td-component-stroke);
-    box-shadow: 0 2px 4px rgba(7, 192, 95, 0.08);
+  box-shadow: 0 2px 4px rgba(from var(--td-brand-color) r g b / 0.08);
     overflow: hidden;
     box-sizing: border-box;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -105,7 +106,7 @@ const toggleFold = () => {
         user-select: none;
 
         &:hover {
-            background-color: rgba(7, 192, 95, 0.04);
+          background-color: var(--td-brand-color-light);
         }
 
         .think-title {
@@ -197,7 +198,7 @@ const toggleFold = () => {
             }
 
             &::-webkit-scrollbar-thumb {
-                background: rgba(0, 0, 0, 0.1);
+                background: rgba(from var(--td-text-color-primary) r g b / 0.1);
                 border-radius: 2px;
             }
         }

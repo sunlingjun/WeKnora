@@ -20,13 +20,10 @@ import (
 	_ "github.com/duckdb/duckdb-go/v2"
 	esv7 "github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/milvus-io/milvus/client/v2/milvusclient"
 	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 	"github.com/panjf2000/ants/v2"
-	"github.com/qdrant/go-client/qdrant"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/dig"
-	"google.golang.org/grpc"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -35,10 +32,8 @@ import (
 	memoryRepo "github.com/Tencent/WeKnora/internal/application/repository/memory/neo4j"
 	elasticsearchRepoV7 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v7"
 	elasticsearchRepoV8 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v8"
-	milvusRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/milvus"
 	neo4jRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/neo4j"
 	postgresRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/postgres"
-	qdrantRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/qdrant"
 	sqliteRetrieverRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/sqlite"
 	weaviateRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/weaviate"
 	"github.com/Tencent/WeKnora/internal/application/service"
@@ -47,19 +42,23 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service/llmcontext"
 	memoryService "github.com/Tencent/WeKnora/internal/application/service/memory"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
-	"github.com/Tencent/WeKnora/internal/application/service/web_search"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/database"
+	"github.com/Tencent/WeKnora/internal/datasource"
+	feishuConnector "github.com/Tencent/WeKnora/internal/datasource/connector/feishu"
+	notionConnector "github.com/Tencent/WeKnora/internal/datasource/connector/notion"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/handler"
 	"github.com/Tencent/WeKnora/internal/handler/session"
 	imPkg "github.com/Tencent/WeKnora/internal/im"
 	"github.com/Tencent/WeKnora/internal/im/dingtalk"
 	"github.com/Tencent/WeKnora/internal/im/feishu"
+	"github.com/Tencent/WeKnora/internal/im/mattermost"
 	"github.com/Tencent/WeKnora/internal/im/slack"
 	"github.com/Tencent/WeKnora/internal/im/telegram"
 	"github.com/Tencent/WeKnora/internal/im/wecom"
 	"github.com/Tencent/WeKnora/internal/infrastructure/docparser"
+	infra_web_search "github.com/Tencent/WeKnora/internal/infrastructure/web_search"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/mcp"
 	"github.com/Tencent/WeKnora/internal/models/embedding"
@@ -117,6 +116,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(initOllamaService))
 	must(container.Provide(initNeo4jClient))
 	must(container.Provide(stream.NewStreamManager))
+	must(container.Provide(service.NewCASClient))
 	logger.Debugf(ctx, "[Container] Initializing DuckDB...")
 	must(container.Provide(NewDuckDB))
 	logger.Debugf(ctx, "[Container] DuckDB registered")
@@ -125,6 +125,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	logger.Debugf(ctx, "[Container] Registering repositories...")
 	must(container.Provide(repository.NewTenantRepository))
 	must(container.Provide(repository.NewKnowledgeBaseRepository))
+	must(container.Provide(repository.NewKnowledgeBaseMemberRepository))
 	must(container.Provide(repository.NewKnowledgeRepository))
 	must(container.Provide(repository.NewChunkRepository))
 	must(container.Provide(repository.NewKnowledgeTagRepository))
@@ -142,6 +143,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewAgentShareRepository))
 	must(container.Provide(repository.NewTenantDisabledSharedAgentRepository))
 	must(container.Provide(service.NewWebSearchStateService))
+	must(container.Provide(repository.NewDataSourceRepository))
+	must(container.Provide(repository.NewSyncLogRepository))
 
 	// MCP manager for managing MCP client connections
 	logger.Debugf(ctx, "[Container] Registering MCP manager...")
@@ -152,7 +155,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewTenantService))
 	must(container.Provide(service.NewKnowledgeBaseService))
 	must(container.Provide(service.NewOrganizationService))
-	must(container.Provide(service.NewKBShareService)) // KBShareService must be registered before KnowledgeService and KnowledgeTagService
+	must(container.Provide(service.NewKBShareService))             // KBShareService must be registered before KnowledgeService and KnowledgeTagService
+	must(container.Provide(service.NewSharedKnowledgeBaseService)) // KnowledgeService 依赖 SharedKnowledgeBaseService，须先注册
 	must(container.Provide(service.NewAgentShareService))
 	must(container.Provide(service.NewKnowledgeService))
 	must(container.Provide(service.NewChunkService))
@@ -162,6 +166,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewDatasetService))
 	must(container.Provide(service.NewEvaluationService))
 	must(container.Provide(service.NewUserService))
+	must(container.Provide(service.NewCASAuthService))
 
 	// Extract services - register individual extracters with names
 	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
@@ -175,9 +180,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 
 	// Web search service (needed by AgentService)
 	logger.Debugf(ctx, "[Container] Registering web search registry and providers...")
-	must(container.Provide(web_search.NewRegistry))
+	must(container.Provide(infra_web_search.NewRegistry))
 	must(container.Invoke(registerWebSearchProviders))
+	must(container.Provide(repository.NewWebSearchProviderRepository))
 	must(container.Provide(service.NewWebSearchService))
+	must(container.Provide(service.NewWebSearchProviderService))
 
 	// Agent service layer (requires event bus, web search service)
 	// SessionService is passed as parameter to CreateAgentEngine method when creating AgentService
@@ -203,9 +210,18 @@ func BuildContainer(container *dig.Container) *dig.Container {
 
 	// Chat pipeline components for processing chat requests
 	logger.Debugf(ctx, "[Container] Registering chat pipeline plugins...")
+
+	// Data source sync framework
+	logger.Debugf(ctx, "[Container] Registering data source sync framework...")
+	must(container.Provide(initConnectorRegistry))
+	must(container.Provide(datasource.NewScheduler))
+	must(container.Provide(service.NewDataSourceService))
+	must(container.Invoke(startDataSourceScheduler))
+	logger.Debugf(ctx, "[Container] Data source sync framework registered")
 	must(container.Provide(chatpipeline.NewEventManager))
 	must(container.Invoke(chatpipeline.NewPluginSearch))
 	must(container.Invoke(chatpipeline.NewPluginRerank))
+	must(container.Invoke(chatpipeline.NewPluginWebFetch))
 	must(container.Invoke(chatpipeline.NewPluginMerge))
 	must(container.Invoke(chatpipeline.NewPluginDataAnalysis))
 	must(container.Invoke(chatpipeline.NewPluginIntoChatMessage))
@@ -223,6 +239,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// HTTP handlers layer
 	logger.Debugf(ctx, "[Container] Registering HTTP handlers...")
 	must(container.Provide(handler.NewTenantHandler))
+	// 共享知识库相关（MemberRepository / SharedKnowledgeBaseService 已在上方与 repos/services 一起注册）
+	logger.Debugf(ctx, "[Container] Registering shared knowledge base handlers...")
 	must(container.Provide(handler.NewKnowledgeBaseHandler))
 	must(container.Provide(handler.NewKnowledgeHandler))
 	must(container.Provide(handler.NewChunkHandler))
@@ -234,14 +252,18 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewEvaluationHandler))
 	must(container.Provide(handler.NewInitializationHandler))
 	must(container.Provide(handler.NewAuthHandler))
+	must(container.Provide(handler.NewCASAuthHandler))
 	must(container.Provide(handler.NewSystemHandler))
 	must(container.Provide(handler.NewMCPServiceHandler))
 	must(container.Provide(handler.NewWebSearchHandler))
+	must(container.Provide(handler.NewWebSearchProviderHandler))
 	must(container.Provide(handler.NewCustomAgentHandler))
 	must(container.Provide(service.NewSkillService))
 	must(container.Provide(handler.NewSkillHandler))
 	must(container.Provide(handler.NewOrganizationHandler))
 
+	// Data source handler
+	must(container.Provide(handler.NewDataSourceHandler))
 	// IM integration
 	logger.Debugf(ctx, "[Container] Registering IM integration...")
 	must(container.Provide(imPkg.NewService))
@@ -284,37 +306,64 @@ func initTracer() (*tracing.Tracer, error) {
 	return tracing.InitTracer()
 }
 
-func initRedisClient() (*redis.Client, error) {
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		logger.Infof(context.Background(), "[Redis] No REDIS_ADDR configured, Redis disabled (Lite mode)")
-		return nil, nil
-	}
-	db, err := strconv.Atoi(os.Getenv("REDIS_DB"))
-	if err != nil {
-		db = 0
+// initRedisClient 根据 REDIS_MODE 初始化：单机用 *redis.Client，集群用 *redis.ClusterClient（多地址）。
+// 返回 redis.UniversalClient 供 dig 统一注入各服务（与 go-redis 接口一致）。
+func initRedisClient() (redis.UniversalClient, error) {
+	mode := strings.ToLower(os.Getenv("REDIS_MODE"))
+	username := os.Getenv("REDIS_USERNAME")
+	password := os.Getenv("REDIS_PASSWORD")
+
+	if mode == "cluster" {
+		raw := os.Getenv("REDIS_CLUSTER_ADDRS")
+		parts := strings.Split(raw, ",")
+		addrs := make([]string, 0, len(parts))
+		for _, s := range parts {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				addrs = append(addrs, s)
+			}
+		}
+		if len(addrs) == 0 {
+			return nil, fmt.Errorf("REDIS_MODE=cluster 时 REDIS_CLUSTER_ADDRS 不能为空")
+		}
+		client := redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs:        addrs,
+			Username:     username,
+			Password:     password,
+			ReadTimeout:  100 * time.Millisecond,
+			WriteTimeout: 200 * time.Millisecond,
+		})
+		_, err := client.Ping(context.Background()).Result()
+		if err != nil {
+			return nil, fmt.Errorf("连接Redis集群失败: %w", err)
+		}
+		return client, nil
 	}
 
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		addr = "redis:6379"
+	}
+	db := 0
+	if dbStr := os.Getenv("REDIS_DB"); dbStr != "" {
+		if parsed, err := strconv.Atoi(dbStr); err == nil {
+			db = parsed
+		}
+	}
 	client := redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Username: os.Getenv("REDIS_USERNAME"),
-		Password: os.Getenv("REDIS_PASSWORD"),
+		Addr:     addr,
+		Username: username,
+		Password: password,
 		DB:       db,
 	})
-
-	_, err = client.Ping(context.Background()).Result()
+	_, err := client.Ping(context.Background()).Result()
 	if err != nil {
 		return nil, fmt.Errorf("连接Redis失败: %w", err)
 	}
-
 	return client, nil
 }
 
-func initContextStorage(redisClient *redis.Client) (llmcontext.ContextStorage, error) {
-	if redisClient == nil {
-		logger.Infof(context.Background(), "[ContextStorage] Redis not available, using in-memory storage")
-		return llmcontext.NewMemoryStorage(), nil
-	}
+func initContextStorage(redisClient redis.UniversalClient) (llmcontext.ContextStorage, error) {
 	storage, err := llmcontext.NewRedisStorage(redisClient, 24*time.Hour, "context:")
 	if err != nil {
 		return nil, err
@@ -338,7 +387,7 @@ func initDatabase(cfg *config.Config) (*gorm.DB, error) {
 	case "postgres":
 		// DSN for GORM (key-value format)
 		gormDSN := fmt.Sprintf(
-			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s TimeZone=UTC",
 			os.Getenv("DB_HOST"),
 			os.Getenv("DB_PORT"),
 			os.Getenv("DB_USER"),
@@ -396,7 +445,11 @@ func initDatabase(cfg *config.Config) (*gorm.DB, error) {
 	default:
 		return nil, fmt.Errorf("unsupported database driver: %s", os.Getenv("DB_DRIVER"))
 	}
-	db, err := gorm.Open(dialector, &gorm.Config{})
+	db, err := gorm.Open(dialector, &gorm.Config{
+		NowFunc: func() time.Time {
+			return time.Now().UTC()
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -658,53 +711,7 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 		}
 	}
 
-	if slices.Contains(retrieveDriver, "qdrant") {
-		qdrantHost := os.Getenv("QDRANT_HOST")
-		if qdrantHost == "" {
-			qdrantHost = "localhost"
-		}
-
-		qdrantPort := 6334 // Default port
-		if portStr := os.Getenv("QDRANT_PORT"); portStr != "" {
-			if port, err := strconv.Atoi(portStr); err == nil {
-				qdrantPort = port
-			}
-		}
-
-		// API key for authentication (optional)
-		qdrantAPIKey := os.Getenv("QDRANT_API_KEY")
-
-		// TLS configuration (optional, defaults to false)
-		// Enable TLS unless explicitly set to "false" or "0" (case insensitive)
-		qdrantUseTLS := false
-		if useTLSStr := os.Getenv("QDRANT_USE_TLS"); useTLSStr != "" {
-			useTLSLower := strings.ToLower(strings.TrimSpace(useTLSStr))
-			qdrantUseTLS = useTLSLower != "false" && useTLSLower != "0"
-		}
-
-		log.Infof("Connecting to Qdrant at %s:%d (TLS: %v)", qdrantHost, qdrantPort, qdrantUseTLS)
-
-		client, err := qdrant.NewClient(&qdrant.Config{
-			Host:   qdrantHost,
-			Port:   qdrantPort,
-			APIKey: qdrantAPIKey,
-			UseTLS: qdrantUseTLS,
-		})
-		if err != nil {
-			log.Errorf("Create qdrant client failed: %v", err)
-		} else {
-			qdrantRepository := qdrantRepo.NewQdrantRetrieveEngineRepository(client)
-			if err := registry.Register(
-				retriever.NewKVHybridRetrieveEngine(
-					qdrantRepository, types.QdrantRetrieverEngineType,
-				),
-			); err != nil {
-				log.Errorf("Register qdrant retrieve engine failed: %v", err)
-			} else {
-				log.Infof("Register qdrant retrieve engine success")
-			}
-		}
-	}
+	registerQdrantRetrieverEngine(retrieveDriver, registry, log)
 	if slices.Contains(retrieveDriver, "weaviate") {
 		weaviateHost := os.Getenv("WEAVIATE_HOST")
 		if weaviateHost == "" {
@@ -748,43 +755,7 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 			}
 		}
 	}
-	if slices.Contains(retrieveDriver, "milvus") {
-		milvusCfg := milvusclient.ClientConfig{
-			DialOptions: []grpc.DialOption{grpc.WithTimeout(5 * time.Second)},
-		}
-		milvusAddress := os.Getenv("MILVUS_ADDRESS")
-		if milvusAddress == "" {
-			milvusAddress = "localhost:19530"
-		}
-		milvusCfg.Address = milvusAddress
-		milvusUsername := os.Getenv("MILVUS_USERNAME")
-		if milvusUsername != "" {
-			milvusCfg.Username = milvusUsername
-		}
-		milvusPassword := os.Getenv("MILVUS_PASSWORD")
-		if milvusPassword != "" {
-			milvusCfg.Password = milvusPassword
-		}
-		milvusDBName := os.Getenv("MILVUS_DB_NAME")
-		if milvusDBName != "" {
-			milvusCfg.DBName = milvusDBName
-		}
-		milvusCli, err := milvusclient.New(context.Background(), &milvusCfg)
-		if err != nil {
-			log.Errorf("Create milvus client failed: %v", err)
-		} else {
-			milvusRepository := milvusRepo.NewMilvusRetrieveEngineRepository(milvusCli)
-			if err := registry.Register(
-				retriever.NewKVHybridRetrieveEngine(
-					milvusRepository, types.MilvusRetrieverEngineType,
-				),
-			); err != nil {
-				log.Errorf("Register milvus retrieve engine failed: %v", err)
-			} else {
-				log.Infof("Register milvus retrieve engine success")
-			}
-		}
-	}
+	registerMilvusRetrieverEngine(retrieveDriver, registry, log)
 	return registry, nil
 }
 
@@ -917,37 +888,27 @@ func NewDuckDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open duckdb: %w", err)
 	}
 
-	// Try to install and load spatial extension
-	installSQL := "INSTALL spatial;"
-	if _, err := sqlDB.ExecContext(context.Background(), installSQL); err != nil {
-		logger.Warnf(context.Background(), "[DuckDB] Failed to install spatial extension: %v", err)
-	}
-
-	// Try to load spatial extension
-	loadSQL := "LOAD spatial;"
-	if _, err := sqlDB.ExecContext(context.Background(), loadSQL); err != nil {
-		logger.Warnf(context.Background(), "[DuckDB] Failed to load spatial extension: %v", err)
+	// 预加载扩展：httpfs（read_csv 从 URL）、spatial（Excel/st_read）
+	for _, ext := range []string{"httpfs", "spatial"} {
+		if _, err := sqlDB.ExecContext(context.Background(), "INSTALL "+ext+";"); err != nil {
+			logger.Warnf(context.Background(), "[DuckDB] Failed to install %s extension: %v", ext, err)
+		}
+		if _, err := sqlDB.ExecContext(context.Background(), "LOAD "+ext+";"); err != nil {
+			logger.Warnf(context.Background(), "[DuckDB] Failed to load %s extension: %v", ext, err)
+		}
 	}
 
 	return sqlDB, nil
 }
 
-// registerWebSearchProviders registers all web search providers to the registry
-func registerWebSearchProviders(registry *web_search.Registry) {
-	// Register DuckDuckGo provider
-	registry.Register(web_search.DuckDuckGoProviderInfo(), func() (interfaces.WebSearchProvider, error) {
-		return web_search.NewDuckDuckGoProvider()
-	})
-
-	// Register Google provider
-	registry.Register(web_search.GoogleProviderInfo(), func() (interfaces.WebSearchProvider, error) {
-		return web_search.NewGoogleProvider()
-	})
-
-	// Register Bing provider
-	registry.Register(web_search.BingProviderInfo(), func() (interfaces.WebSearchProvider, error) {
-		return web_search.NewBingProvider()
-	})
+// registerWebSearchProviders registers all web search provider types to the registry.
+// Each provider type is registered with its factory function that accepts parameters.
+// Provider instances are created on-demand when tenants configure them.
+func registerWebSearchProviders(registry *infra_web_search.Registry) {
+	registry.Register("duckduckgo", infra_web_search.NewDuckDuckGoProvider)
+	registry.Register("google", infra_web_search.NewGoogleProvider)
+	registry.Register("bing", infra_web_search.NewBingProvider)
+	registry.Register("tavily", infra_web_search.NewTavilyProvider)
 }
 
 // registerIMAdapterFactories registers adapter factories for each IM platform
@@ -994,6 +955,7 @@ func registerIMAdapterFactories(imService *imPkg.Service) {
 			client := wecom.NewLongConnClient(
 				getString(creds, "bot_id"),
 				getString(creds, "bot_secret"),
+				getString(creds, "bot_name"),
 				msgHandler,
 			)
 
@@ -1171,6 +1133,40 @@ func registerIMAdapterFactories(imService *imPkg.Service) {
 		}
 	})
 
+	// Register Mattermost adapter factory (outgoing webhook + REST API).
+	imService.RegisterAdapterFactory("mattermost", func(factoryCtx context.Context, channel *imPkg.IMChannel, msgHandler func(context.Context, *imPkg.IncomingMessage) error) (imPkg.Adapter, context.CancelFunc, error) {
+		creds, err := parseCredentials(channel.Credentials)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse mattermost credentials: %w", err)
+		}
+
+		mode := channel.Mode
+		if mode == "" {
+			mode = "webhook"
+		}
+		if mode != "webhook" {
+			return nil, nil, fmt.Errorf("unsupported mattermost mode: %s (only webhook is supported)", mode)
+		}
+
+		siteURL := getString(creds, "site_url")
+		botToken := getString(creds, "bot_token")
+		outgoingToken := getString(creds, "outgoing_token")
+		botUserID := getString(creds, "bot_user_id")
+
+		if outgoingToken == "" {
+			return nil, nil, fmt.Errorf("mattermost outgoing_token is required")
+		}
+
+		client, err := mattermost.NewClient(siteURL, botToken)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		postReplyToMain := credentialBool(creds, "post_to_main")
+		adapter := mattermost.NewAdapter(client, outgoingToken, botUserID, postReplyToMain)
+		return adapter, func() {}, nil
+	})
+
 	// Load and start all enabled channels from database
 	if err := imService.LoadAndStartChannels(); err != nil {
 		logger.Warnf(ctx, "[IM] Failed to load channels from database: %v", err)
@@ -1197,4 +1193,55 @@ func getString(creds map[string]interface{}, key string) string {
 		}
 	}
 	return ""
+}
+
+// credentialBool reads a boolean from JSON credentials (bool, string "true"/"1", or non-zero number).
+func credentialBool(creds map[string]interface{}, key string) bool {
+	v, ok := creds[key]
+	if !ok {
+		return false
+	}
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		s := strings.TrimSpace(strings.ToLower(x))
+		return s == "true" || s == "1" || s == "yes"
+	case float64:
+		return x != 0
+	case int:
+		return x != 0
+	default:
+		return false
+	}
+}
+
+// initConnectorRegistry creates and populates the connector registry with all available connectors.
+func initConnectorRegistry() *datasource.ConnectorRegistry {
+	registry := datasource.NewConnectorRegistry()
+
+	// Register Feishu connector
+	_ = registry.Register(feishuConnector.NewConnector())
+
+	// Register Notion connector
+	_ = registry.Register(notionConnector.NewConnector())
+
+	// Future connectors will be registered here:
+	// _ = registry.Register(confluenceConnector.NewConnector())
+	// _ = registry.Register(yuqueConnector.NewConnector())
+	// _ = registry.Register(githubConnector.NewConnector())
+
+	return registry
+}
+
+// startDataSourceScheduler starts the data source cron scheduler and registers cleanup.
+func startDataSourceScheduler(scheduler *datasource.Scheduler, cleaner interfaces.ResourceCleaner) {
+	if err := scheduler.Start(context.Background()); err != nil {
+		logger.Warnf(context.Background(), "[Container] data source scheduler start failed: %v", err)
+	}
+
+	cleaner.RegisterWithName("DataSourceScheduler", func() error {
+		scheduler.Stop()
+		return nil
+	})
 }

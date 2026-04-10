@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
@@ -24,25 +25,31 @@ import (
 type KnowledgeBaseHandler struct {
 	service           interfaces.KnowledgeBaseService
 	knowledgeService  interfaces.KnowledgeService
+	chunkService      interfaces.ChunkService
 	kbShareService    interfaces.KBShareService
 	agentShareService interfaces.AgentShareService
 	asynqClient       interfaces.TaskEnqueuer
+	sharedKBService   interfaces.SharedKnowledgeBaseService
 }
 
 // NewKnowledgeBaseHandler creates a new knowledge base handler instance
 func NewKnowledgeBaseHandler(
 	service interfaces.KnowledgeBaseService,
 	knowledgeService interfaces.KnowledgeService,
+	chunkService interfaces.ChunkService,
 	kbShareService interfaces.KBShareService,
 	agentShareService interfaces.AgentShareService,
 	asynqClient interfaces.TaskEnqueuer,
+	sharedKBService interfaces.SharedKnowledgeBaseService,
 ) *KnowledgeBaseHandler {
 	return &KnowledgeBaseHandler{
 		service:           service,
 		knowledgeService:  knowledgeService,
+		chunkService:      chunkService,
 		kbShareService:    kbShareService,
 		agentShareService: agentShareService,
 		asynqClient:       asynqClient,
+		sharedKBService:   sharedKBService,
 	}
 }
 
@@ -197,6 +204,15 @@ func (h *KnowledgeBaseHandler) validateAndGetKnowledgeBase(c *gin.Context) (*typ
 		}
 	}
 
+	// Check 2.5: Direct shared KB (user is member)
+	if userExists && h.sharedKBService != nil {
+		role, err := h.sharedKBService.GetMemberRoleByKBAndUser(ctx, id, userID.(string))
+		if err == nil && role != "" {
+			logger.Infof(ctx, "User %s accessing direct shared KB %s with role %s", userID.(string), id, role)
+			return kb, id, kb.TenantID, types.OrgRoleViewer, nil
+		}
+	}
+
 	// Check 3: Shared agent — allow if request has agent_id (and agent can access this KB) OR user has any shared agent that can access this KB (e.g. opened from "通过智能体可见" list without agent_id)
 	if userExists && h.agentShareService != nil {
 		currentTenantID := tenantID.(uint64)
@@ -245,7 +261,7 @@ func (h *KnowledgeBaseHandler) validateAndGetKnowledgeBase(c *gin.Context) (*typ
 
 // GetKnowledgeBase godoc
 // @Summary      获取知识库详情
-// @Description  根据ID获取知识库详情。当使用共享智能体时，可传 agent_id 以校验该智能体是否有权访问该知识库。
+// @Description  根据ID获取知识库详情。当使用共享智能体时，可传 agent_id 以校验该智能体是否有权访问该知识库。支持组织共享与直接共享。
 // @Tags         知识库
 // @Accept       json
 // @Produce      json
@@ -353,15 +369,25 @@ func (h *KnowledgeBaseHandler) ListKnowledgeBases(c *gin.Context) {
 		return
 	}
 
-	// Get all knowledge bases for this tenant
-	kbs, err := h.service.ListKnowledgeBases(ctx)
+	// Get all knowledge bases for this tenant (including direct shared via ListUserKnowledgeBases)
+	kbs, err := h.sharedKBService.ListUserKnowledgeBases(ctx, true)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, nil)
 		c.Error(apperrors.NewInternalServerError(err.Error()))
 		return
 	}
 
-	// Get share counts for all knowledge bases
+	// knowledge_count / chunk_count 为派生字段，ListUserKnowledgeBases 不填充；前端 @ 列表等依赖列表 JSON
+	for _, kb := range kbs {
+		if kb == nil {
+			continue
+		}
+		if fillErr := h.service.FillKnowledgeBaseCounts(ctx, kb); fillErr != nil {
+			logger.Warnf(ctx, "FillKnowledgeBaseCounts failed for KB %s: %v", kb.ID, fillErr)
+		}
+	}
+
+	// Get share counts for all knowledge bases (org share)
 	if len(kbs) > 0 && h.kbShareService != nil {
 		kbIDs := make([]string, len(kbs))
 		for i, kb := range kbs {
@@ -410,6 +436,10 @@ func (h *KnowledgeBaseHandler) TogglePinKnowledgeBase(c *gin.Context) {
 	if err != nil {
 		if stderrors.Is(err, repository.ErrKnowledgeBaseNotFound) {
 			c.Error(apperrors.NewNotFoundError("knowledge base not found"))
+			return
+		}
+		if stderrors.Is(err, service.ErrSharedKnowledgeBasePinNotAllowed) {
+			c.Error(apperrors.NewBadRequestError("shared knowledge base does not support pin operation"))
 			return
 		}
 		logger.ErrorWithFields(ctx, err, nil)
@@ -839,5 +869,454 @@ func (h *KnowledgeBaseHandler) ListMoveTargets(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    targets,
+	})
+}
+
+// CreateSharedKnowledgeBase 创建共享知识库
+// @Summary      创建共享知识库
+// @Description  创建新的共享知识库
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        request  body      types.KnowledgeBase  true  "知识库信息（visibility 必须为 'shared'）"
+// @Success      201      {object}  map[string]interface{}  "创建的共享知识库"
+// @Failure      400      {object}  errors.AppError         "请求参数错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/shared [post]
+func (h *KnowledgeBaseHandler) CreateSharedKnowledgeBase(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	logger.Info(ctx, "Start creating shared knowledge base")
+
+	var req types.KnowledgeBase
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Error(ctx, "Failed to parse request parameters", err)
+		c.Error(errors.NewBadRequestError("Invalid request parameters").WithDetails(err.Error()))
+		return
+	}
+
+	// 确保 visibility 为 shared
+	req.Visibility = types.KnowledgeBaseVisibilityShared
+
+	kb, err := h.sharedKBService.CreateSharedKnowledgeBase(ctx, &req)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	logger.Infof(ctx, "Shared knowledge base created successfully, ID: %s", secutils.SanitizeForLog(kb.ID))
+	c.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"data":    kb,
+	})
+}
+
+// ListSharedKnowledgeBases 列出共享知识库广场
+// @Summary      列出共享知识库广场
+// @Description  列出所有共享知识库，支持搜索和分页
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        keyword   query     string  false  "搜索关键词"
+// @Param        page      query     int     false  "页码（默认1）"
+// @Param        page_size query     int     false  "每页数量（默认10）"
+// @Success      200       {object}  map[string]interface{}  "共享知识库列表"
+// @Security     Bearer
+// @Router       /knowledge-bases/shared [get]
+func (h *KnowledgeBaseHandler) ListSharedKnowledgeBases(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	keyword := c.DefaultQuery("keyword", "")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	kbs, total, err := h.sharedKBService.ListSharedKnowledgeBases(ctx, keyword, page, pageSize)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	// 为每个知识库计算知识数量
+	knowledgeRepo := h.knowledgeService.GetRepository()
+	chunkRepo := h.chunkService.GetRepository()
+
+	result := make([]map[string]interface{}, 0, len(kbs))
+	for _, kb := range kbs {
+		// 计算知识库统计信息（文档数量/分块数量）
+		// 注意：使用知识库自己的 tenant_id，而不是当前用户的 tenant_id
+		var knowledgeCount int64
+		var chunkCount int64
+
+		switch kb.Type {
+		case types.KnowledgeBaseTypeDocument:
+			// 文档类型：统计知识数量（使用知识库的 tenant_id）
+			count, err := knowledgeRepo.CountKnowledgeByKnowledgeBaseID(ctx, kb.TenantID, kb.ID)
+			if err == nil {
+				knowledgeCount = count
+			}
+		case types.KnowledgeBaseTypeFAQ:
+			// FAQ类型：统计分块数量（使用知识库的 tenant_id）
+			count, err := chunkRepo.CountChunksByKnowledgeBaseID(ctx, kb.TenantID, kb.ID)
+			if err == nil {
+				chunkCount = count
+			}
+		}
+
+		kbMap := map[string]interface{}{
+			"id":              kb.ID,
+			"name":            kb.Name,
+			"description":     kb.Description,
+			"type":            kb.Type,
+			"visibility":      kb.Visibility,
+			"owner_id":        kb.OwnerID,
+			"shared_at":       kb.SharedAt,
+			"member_count":    kb.MemberCount,
+			"knowledge_count": knowledgeCount,
+			"chunk_count":     chunkCount,
+			"created_at":      kb.CreatedAt,
+			"updated_at":      kb.UpdatedAt,
+		}
+		result = append(result, kbMap)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"data":      result,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
+}
+
+// ListUserKnowledgeBases 列出用户的知识库（个人 + 加入的共享知识库）
+// @Summary      获取用户的知识库列表
+// @Description  返回用户创建的个人知识库和加入的共享知识库
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        include_shared  query     bool  false  "是否包含共享知识库（默认true）"
+// @Success      200             {object}  map[string]interface{}  "知识库列表"
+// @Failure      500             {object}  errors.AppError         "服务器错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/user [get]
+func (h *KnowledgeBaseHandler) ListUserKnowledgeBases(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	includeShared := c.DefaultQuery("include_shared", "true") == "true"
+
+	kbs, err := h.sharedKBService.ListUserKnowledgeBases(ctx, includeShared)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	// 为每个知识库添加 is_owner 和 member_role 字段
+	userID := ctx.Value(types.UserIDContextKey).(string)
+
+	// 批量查询所有共享知识库的成员信息（优化性能）
+	sharedKBIDs := make([]string, 0)
+	for _, kb := range kbs {
+		if kb.Visibility == types.KnowledgeBaseVisibilityShared {
+			sharedKBIDs = append(sharedKBIDs, kb.ID)
+		}
+	}
+
+	// 构建成员角色映射表（知识库ID -> 成员角色）
+	memberRoleMap := make(map[string]string)
+	if len(sharedKBIDs) > 0 {
+		// 通过 Service 层批量查询当前用户在所有共享知识库中的成员角色（更高效）
+		for _, kbID := range sharedKBIDs {
+			role, err := h.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID)
+			if err == nil && role != "" {
+				memberRoleMap[kbID] = role
+			}
+		}
+	}
+
+	result := make([]map[string]interface{}, 0, len(kbs))
+
+	// 获取 repository 用于统计
+	knowledgeRepo := h.knowledgeService.GetRepository()
+	chunkRepo := h.chunkService.GetRepository()
+
+	for _, kb := range kbs {
+		// 计算知识库统计信息（文档数量/分块数量）
+		// 注意：使用知识库自己的 tenant_id，而不是当前用户的 tenant_id
+		var knowledgeCount int64
+		var chunkCount int64
+
+		switch kb.Type {
+		case types.KnowledgeBaseTypeDocument:
+			// 文档类型：统计知识数量（使用知识库的 tenant_id）
+			count, err := knowledgeRepo.CountKnowledgeByKnowledgeBaseID(ctx, kb.TenantID, kb.ID)
+			if err == nil {
+				knowledgeCount = count
+			}
+		case types.KnowledgeBaseTypeFAQ:
+			// FAQ类型：统计分块数量（使用知识库的 tenant_id）
+			count, err := chunkRepo.CountChunksByKnowledgeBaseID(ctx, kb.TenantID, kb.ID)
+			if err == nil {
+				chunkCount = count
+			}
+		}
+
+		kbMap := map[string]interface{}{
+			"id":                         kb.ID,
+			"name":                       kb.Name,
+			"description":                kb.Description,
+			"type":                       kb.Type,
+			"visibility":                 kb.Visibility,
+			"owner_id":                   kb.OwnerID,
+			"is_pinned":                  kb.IsPinned,
+			"pinned_at":                  kb.PinnedAt,
+			"shared_at":                  kb.SharedAt,
+			"member_count":               kb.MemberCount,
+			"tenant_id":                  kb.TenantID,
+			"embedding_model_id":         kb.EmbeddingModelID,
+			"summary_model_id":           kb.SummaryModelID,
+			"chunking_config":            kb.ChunkingConfig,
+			"image_processing_config":    kb.ImageProcessingConfig,
+			"vlm_config":                 kb.VLMConfig,
+			"cos_config":                 kb.StorageConfig,
+			"extract_config":             kb.ExtractConfig,
+			"faq_config":                 kb.FAQConfig,
+			"question_generation_config": kb.QuestionGenerationConfig,
+			"created_at":                 kb.CreatedAt,
+			"updated_at":                 kb.UpdatedAt,
+			"knowledge_count":            knowledgeCount,
+			"chunk_count":                chunkCount,
+		}
+
+		// 判断是否为创建者
+		isOwner := kb.OwnerID == userID
+		kbMap["is_owner"] = isOwner
+
+		// 设置成员角色
+		if kb.Visibility == types.KnowledgeBaseVisibilityShared {
+			// 共享知识库：从映射表获取或设置为 owner（如果是创建者）
+			if role, ok := memberRoleMap[kb.ID]; ok {
+				kbMap["member_role"] = role
+			} else if isOwner {
+				kbMap["member_role"] = types.KBMemberRoleOwner
+			}
+		} else {
+			// 个人知识库，角色为 owner
+			kbMap["member_role"] = types.KBMemberRoleOwner
+		}
+
+		result = append(result, kbMap)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+	})
+}
+
+// JoinSharedKnowledgeBase 加入共享知识库
+// @Summary      加入共享知识库
+// @Description  当前用户加入指定的共享知识库
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string  true  "知识库ID"
+// @Success      200      {object}  map[string]interface{}  "成功"
+// @Failure      400      {object}  errors.AppError         "请求参数错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/{id}/join [post]
+func (h *KnowledgeBaseHandler) JoinSharedKnowledgeBase(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	kbID := secutils.SanitizeForLog(c.Param("id"))
+	if kbID == "" {
+		c.Error(errors.NewBadRequestError("Knowledge base ID cannot be empty"))
+		return
+	}
+
+	if err := h.sharedKBService.JoinSharedKnowledgeBase(ctx, kbID); err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Successfully joined knowledge base",
+	})
+}
+
+// LeaveSharedKnowledgeBase 离开共享知识库
+// @Summary      离开共享知识库
+// @Description  当前用户离开指定的共享知识库
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string  true  "知识库ID"
+// @Success      200      {object}  map[string]interface{}  "成功"
+// @Failure      400      {object}  errors.AppError         "请求参数错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/{id}/leave [post]
+func (h *KnowledgeBaseHandler) LeaveSharedKnowledgeBase(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	kbID := secutils.SanitizeForLog(c.Param("id"))
+	if kbID == "" {
+		c.Error(errors.NewBadRequestError("Knowledge base ID cannot be empty"))
+		return
+	}
+
+	if err := h.sharedKBService.LeaveSharedKnowledgeBase(ctx, kbID); err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Successfully left knowledge base",
+	})
+}
+
+// ListKnowledgeBaseMembers 列出知识库成员
+// @Summary      列出知识库成员
+// @Description  列出指定知识库的所有成员
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        id         path      string  true  "知识库ID"
+// @Param        keyword    query     string  false "搜索关键词（按 email/username/姓名）"
+// @Param        page       query     int     false  "页码（默认1）"
+// @Param        page_size  query     int     false  "每页数量（默认10）"
+// @Success      200        {object}  map[string]interface{}  "成员列表"
+// @Security     Bearer
+// @Router       /knowledge-bases/{id}/members [get]
+func (h *KnowledgeBaseHandler) ListKnowledgeBaseMembers(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	kbID := secutils.SanitizeForLog(c.Param("id"))
+	if kbID == "" {
+		c.Error(errors.NewBadRequestError("Knowledge base ID cannot be empty"))
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	members, total, err := h.sharedKBService.ListKnowledgeBaseMembers(ctx, kbID, keyword, page, pageSize)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"data":      members,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
+}
+
+// UpdateMemberRole 更新成员权限
+// @Summary      更新成员权限
+// @Description  更新知识库成员的权限（仅创建者可操作）
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        id        path      string  true  "知识库ID"
+// @Param        user_id   path      string  true  "用户ID"
+// @Param        request   body      map[string]string  true  "权限信息（role: 'viewer' | 'editor'）"
+// @Success      200       {object}  map[string]interface{}  "成功"
+// @Failure      400       {object}  errors.AppError         "请求参数错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/{id}/members/{user_id} [put]
+func (h *KnowledgeBaseHandler) UpdateMemberRole(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	kbID := secutils.SanitizeForLog(c.Param("id"))
+	userID := secutils.SanitizeForLog(c.Param("user_id"))
+
+	if kbID == "" || userID == "" {
+		c.Error(errors.NewBadRequestError("Knowledge base ID and user ID cannot be empty"))
+		return
+	}
+
+	var req struct {
+		Role string `json:"role" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewBadRequestError("Invalid request parameters").WithDetails(err.Error()))
+		return
+	}
+
+	if err := h.sharedKBService.UpdateMemberRole(ctx, kbID, userID, req.Role); err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Member role updated successfully",
+	})
+}
+
+// RemoveMember 移除成员
+// @Summary      移除成员
+// @Description  从知识库中移除成员（仅创建者可操作）
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        id        path      string  true  "知识库ID"
+// @Param        user_id   path      string  true  "用户ID"
+// @Success      200       {object}  map[string]interface{}  "成功"
+// @Failure      400       {object}  errors.AppError         "请求参数错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/{id}/members/{user_id} [delete]
+func (h *KnowledgeBaseHandler) RemoveMember(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	kbID := secutils.SanitizeForLog(c.Param("id"))
+	userID := secutils.SanitizeForLog(c.Param("user_id"))
+
+	if kbID == "" || userID == "" {
+		c.Error(errors.NewBadRequestError("Knowledge base ID and user ID cannot be empty"))
+		return
+	}
+
+	if err := h.sharedKBService.RemoveMember(ctx, kbID, userID); err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Member removed successfully",
 	})
 }

@@ -6,7 +6,10 @@ import i18n from '@/i18n'
 const t = (key: string) => i18n.global.t(key)
 
 // API基础URL
-const BASE_URL = import.meta.env.VITE_IS_DOCKER ? "" : "http://localhost:8080";
+// 注意：生产环境必须使用 HTTPS，开发环境也需要 HTTPS 以支持 CAS Cookie
+const BASE_URL = import.meta.env.VITE_IS_DOCKER 
+  ? ""  // Docker 环境使用相对路径（同源）
+  : (import.meta.env.VITE_API_URL || (window.location.protocol === 'https:' ? "https://zsk.t.nxin.com:8080" : "http://zsk.t.nxin.com:8080"));  // 根据当前协议自动选择
 
 
 // 创建Axios实例
@@ -17,6 +20,7 @@ const instance = axios.create({
     "Content-Type": "application/json",
     "X-Request-ID": `${generateRandomString(12)}`,
   },
+  withCredentials: true, // 允许携带 Cookie（用于 CAS 认证）
 });
 
 // 获取当前用户语言（用于 Accept-Language header）
@@ -82,7 +86,7 @@ instance.interceptors.response.use(
   (response) => {
     // 根据业务状态码处理逻辑
     const { status, data } = response;
-    if (status === 200 || status === 201) {
+    if (status >= 200 && status < 300) {
       return data;
     } else {
       return Promise.reject(data);
@@ -190,9 +194,18 @@ instance.interceptors.response.use(
     // 将HTTP状态码一并抛出，方便上层判断401等场景
     // 后端返回格式: { success: false, error: { code, message, details } }
     // 提取 error.message 作为顶层 message，方便前端使用 error?.message 获取
-    const errorMessage = typeof data === 'object' && data?.error?.message 
-      ? data.error.message 
-      : (typeof data === 'object' ? data?.message : data);
+    let errorMessage: string | undefined;
+    if (typeof data === 'object') {
+      if (typeof data?.error === 'string') {
+        errorMessage = data.error;
+      } else if (data?.error?.message) {
+        errorMessage = data.error.message;
+      } else {
+        errorMessage = data?.message;
+      }
+    } else if (typeof data === 'string') {
+      errorMessage = data;
+    }
     return Promise.reject({ 
       status, 
       message: errorMessage,

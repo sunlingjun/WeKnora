@@ -366,7 +366,7 @@ onUnmounted(() => {
   margin-bottom: 8px;
   background: var(--td-bg-color-container);
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--td-shadow-3);
   border: 1px solid var(--td-component-stroke);
   overflow: hidden;
   z-index: 1000;

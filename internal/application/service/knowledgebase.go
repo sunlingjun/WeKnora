@@ -16,20 +16,22 @@ import (
 
 // ErrInvalidTenantID represents an error for invalid tenant ID
 var ErrInvalidTenantID = errors.New("invalid tenant ID")
+var ErrSharedKnowledgeBasePinNotAllowed = errors.New("shared knowledge base does not support pin operation")
 
 // knowledgeBaseService implements the knowledge base service interface
 type knowledgeBaseService struct {
-	repo           interfaces.KnowledgeBaseRepository
-	kgRepo         interfaces.KnowledgeRepository
-	chunkRepo      interfaces.ChunkRepository
-	shareRepo      interfaces.KBShareRepository
-	kbShareService interfaces.KBShareService
-	modelService   interfaces.ModelService
-	retrieveEngine interfaces.RetrieveEngineRegistry
-	tenantRepo     interfaces.TenantRepository
-	fileSvc        interfaces.FileService
-	graphEngine    interfaces.RetrieveGraphRepository
-	asynqClient    interfaces.TaskEnqueuer
+	repo            interfaces.KnowledgeBaseRepository
+	kgRepo          interfaces.KnowledgeRepository
+	chunkRepo       interfaces.ChunkRepository
+	shareRepo       interfaces.KBShareRepository
+	kbShareService  interfaces.KBShareService
+	sharedKBService interfaces.SharedKnowledgeBaseService
+	modelService    interfaces.ModelService
+	retrieveEngine  interfaces.RetrieveEngineRegistry
+	tenantRepo      interfaces.TenantRepository
+	fileSvc         interfaces.FileService
+	graphEngine     interfaces.RetrieveGraphRepository
+	asynqClient     interfaces.TaskEnqueuer
 }
 
 // NewKnowledgeBaseService creates a new knowledge base service
@@ -38,6 +40,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 	chunkRepo interfaces.ChunkRepository,
 	shareRepo interfaces.KBShareRepository,
 	kbShareService interfaces.KBShareService,
+	sharedKBService interfaces.SharedKnowledgeBaseService,
 	modelService interfaces.ModelService,
 	retrieveEngine interfaces.RetrieveEngineRegistry,
 	tenantRepo interfaces.TenantRepository,
@@ -46,17 +49,18 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 	asynqClient interfaces.TaskEnqueuer,
 ) interfaces.KnowledgeBaseService {
 	return &knowledgeBaseService{
-		repo:           repo,
-		kgRepo:         kgRepo,
-		chunkRepo:      chunkRepo,
-		shareRepo:      shareRepo,
-		kbShareService: kbShareService,
-		modelService:   modelService,
-		retrieveEngine: retrieveEngine,
-		tenantRepo:     tenantRepo,
-		fileSvc:        fileSvc,
-		graphEngine:    graphEngine,
-		asynqClient:    asynqClient,
+		repo:            repo,
+		kgRepo:          kgRepo,
+		chunkRepo:       chunkRepo,
+		shareRepo:       shareRepo,
+		kbShareService:  kbShareService,
+		sharedKBService: sharedKBService,
+		modelService:    modelService,
+		retrieveEngine:  retrieveEngine,
+		tenantRepo:      tenantRepo,
+		fileSvc:         fileSvc,
+		graphEngine:     graphEngine,
+		asynqClient:     asynqClient,
 	}
 }
 
@@ -81,9 +85,13 @@ func (s *knowledgeBaseService) CreateKnowledgeBase(ctx context.Context,
 	kb.CreatedAt = time.Now()
 	kb.TenantID = types.MustTenantIDFromContext(ctx)
 	kb.UpdatedAt = time.Now()
+	if userID, ok := ctx.Value(types.UserIDContextKey).(string); ok && userID != "" {
+		kb.OwnerID = userID
+	}
 	kb.EnsureDefaults()
 
-	logger.Infof(ctx, "Creating knowledge base, ID: %s, tenant ID: %d, name: %s", kb.ID, kb.TenantID, kb.Name)
+	logger.Infof(ctx, "Creating knowledge base, ID: %s, tenant ID: %d, name: %s, visibility: %s",
+		kb.ID, kb.TenantID, kb.Name, kb.Visibility)
 
 	if err := s.repo.CreateKnowledgeBase(ctx, kb); err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
@@ -296,6 +304,24 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 		}
 	}
 	kb.UpdatedAt = time.Now()
+
+	// 设置默认可见性（如果未指定）
+	if kb.Visibility == "" {
+		kb.Visibility = types.KnowledgeBaseVisibilityPrivate
+	}
+
+	// 设置创建者 ID（如果未指定）
+	if kb.OwnerID == "" {
+		kb.OwnerID = ctx.Value(types.UserIDContextKey).(string)
+	}
+
+	// 如果是共享知识库，设置共享时间
+	if kb.Visibility == types.KnowledgeBaseVisibilityShared && kb.SharedAt == nil {
+		now := time.Now()
+		kb.SharedAt = &now
+		kb.MemberCount = 1 // 创建者自己
+	}
+
 	kb.EnsureDefaults()
 
 	logger.Info(ctx, "Saving knowledge base update")
@@ -316,7 +342,14 @@ func (s *knowledgeBaseService) TogglePinKnowledgeBase(ctx context.Context, id st
 		return nil, errors.New("knowledge base ID cannot be empty")
 	}
 	tenantID := types.MustTenantIDFromContext(ctx)
-	kb, err := s.repo.TogglePinKnowledgeBase(ctx, id, tenantID)
+	kb, err := s.repo.GetKnowledgeBaseByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if kb.Visibility == types.KnowledgeBaseVisibilityShared {
+		return nil, ErrSharedKnowledgeBasePinNotAllowed
+	}
+	kb, err = s.repo.TogglePinKnowledgeBase(ctx, id, tenantID)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"knowledge_base_id": id,
@@ -453,6 +486,17 @@ func (s *knowledgeBaseService) ProcessKBDelete(ctx context.Context, t *asynq.Tas
 			}
 		}
 
+		// Collect image URLs before chunks are deleted
+		chunkImageInfos, imgErr := s.chunkRepo.ListImageInfoByKnowledgeIDs(ctx, tenantID, knowledgeIDs)
+		if imgErr != nil {
+			logger.Warnf(ctx, "Failed to collect image URLs for KB delete: %v", imgErr)
+		}
+		var imageInfoStrs []string
+		for _, ci := range chunkImageInfos {
+			imageInfoStrs = append(imageInfoStrs, ci.ImageInfo)
+		}
+		imageURLs := collectImageURLs(ctx, imageInfoStrs)
+
 		// Delete all chunks
 		logger.Infof(ctx, "Deleting all chunks in knowledge base")
 		for _, knowledgeID := range knowledgeIDs {
@@ -461,8 +505,8 @@ func (s *knowledgeBaseService) ProcessKBDelete(ctx context.Context, t *asynq.Tas
 			}
 		}
 
-		// Delete physical files and adjust storage
-		logger.Infof(ctx, "Deleting physical files")
+		// Delete physical files, extracted images, and adjust storage
+		logger.Infof(ctx, "Deleting physical files and extracted images")
 		storageAdjust := int64(0)
 		for _, knowledge := range knowledgeList {
 			if knowledge.FilePath != "" {
@@ -472,6 +516,7 @@ func (s *knowledgeBaseService) ProcessKBDelete(ctx context.Context, t *asynq.Tas
 			}
 			storageAdjust -= knowledge.StorageSize
 		}
+		deleteExtractedImages(ctx, s.fileSvc, imageURLs)
 		if storageAdjust != 0 {
 			if err := s.tenantRepo.AdjustStorageUsed(ctx, tenantID, storageAdjust); err != nil {
 				logger.Warnf(ctx, "Failed to adjust tenant storage: %v", err)

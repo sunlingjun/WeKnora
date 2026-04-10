@@ -47,11 +47,11 @@
                         {{ org.member_count ?? 0 }}
                       </span>
                       <span class="org-meta-tag">
-                        <img src="@/assets/img/zhishiku.svg" class="org-meta-icon org-meta-icon-kb" alt="" aria-hidden="true" />
+                        <SvgIcon name="zhishiku" variant="default" theme="secondary" :size="16" class="org-meta-icon org-meta-icon-kb" />
                         {{ org.share_count ?? 0 }}
                       </span>
                       <span class="org-meta-tag">
-                        <img src="@/assets/img/agent.svg" class="org-meta-icon org-meta-icon-agent" alt="" aria-hidden="true" />
+                        <SvgIcon name="agent" variant="default" theme="default" :size="16" class="org-meta-icon org-meta-icon-agent" />
                         {{ org.agent_share_count ?? 0 }}
                       </span>
                     </div>
@@ -102,12 +102,12 @@
                   {{ getOrgForShare(share.organization_id)?.member_count ?? 0 }}
                 </span>
                 <span class="org-meta-tag">
-                  <img src="@/assets/img/zhishiku.svg" class="org-meta-icon org-meta-icon-kb" alt="" aria-hidden="true" />
+                  <SvgIcon name="zhishiku" variant="default" theme="secondary" :size="16" class="org-meta-icon org-meta-icon-kb" />
                   {{ getOrgForShare(share.organization_id)?.share_count ?? 0 }}
                 </span>
                 <t-tooltip :content="$t('organization.share.spaceAgentShareCountTip')" placement="top">
                   <span class="org-meta-tag">
-                    <img src="@/assets/img/agent.svg" class="org-meta-icon org-meta-icon-agent" alt="" aria-hidden="true" />
+                    <SvgIcon name="agent" variant="default" theme="default" :size="16" class="org-meta-icon org-meta-icon-agent" />
                     {{ getOrgForShare(share.organization_id)?.agent_share_count ?? 0 }}
                   </span>
                 </t-tooltip>
@@ -139,6 +139,7 @@ import { shareAgent, listAgentShares, removeAgentShare } from '@/api/organizatio
 import type { AgentShareResponse } from '@/api/organization'
 import type { CustomAgent } from '@/api/agent'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import { SvgIcon } from '@/components/icons'
 
 const { t } = useI18n()
 const orgStore = useOrganizationStore()
@@ -272,7 +273,7 @@ defineExpose({ loadShares })
   margin-bottom: 16px;
   .shares-title {
     font-family: "PingFang SC";
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     color: var(--td-text-color-primary);
   }

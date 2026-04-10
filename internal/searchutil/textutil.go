@@ -45,8 +45,7 @@ func TokenizeSimple(text string) map[string]struct{} {
 
 	var words []string
 	if containsChinese(text) {
-		// Use jieba for Chinese text segmentation (search mode for finer granularity)
-		words = types.Jieba.CutForSearch(text, true)
+		words = types.GetJieba().CutForSearch(text, true)
 	} else {
 		words = strings.Fields(text)
 	}
@@ -65,11 +64,15 @@ func TokenizeSimple(text string) map[string]struct{} {
 // isAllPunct checks if a string consists entirely of punctuation or whitespace.
 func isAllPunct(s string) bool {
 	for _, r := range s {
-		if !unicode.IsPunct(r) && !unicode.IsSpace(r) && !unicode.IsSymbol(r) {
+		if !isRunePunctOrSymbol(r) && !unicode.IsSpace(r) {
 			return false
 		}
 	}
 	return true
+}
+
+func isRunePunctOrSymbol(r rune) bool {
+	return unicode.IsPunct(r) || unicode.IsSymbol(r)
 }
 
 // Jaccard calculates Jaccard similarity between two token sets.

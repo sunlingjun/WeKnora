@@ -11,15 +11,15 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// redisStorage implements ContextStorage using Redis
+// redisStorage implements ContextStorage using Redis（支持单机 Client 或集群 ClusterClient）
 type redisStorage struct {
-	client *redis.Client
+	client redis.UniversalClient
 	ttl    time.Duration
 	prefix string
 }
 
 // NewRedisStorage creates a new Redis-based storage
-func NewRedisStorage(client *redis.Client, ttl time.Duration, prefix string) (ContextStorage, error) {
+func NewRedisStorage(client redis.UniversalClient, ttl time.Duration, prefix string) (ContextStorage, error) {
 	// Validate connection
 	_, err := client.Ping(context.Background()).Result()
 	if err != nil {

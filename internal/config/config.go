@@ -20,6 +20,7 @@ type Config struct {
 	Server          *ServerConfig          `yaml:"server"           json:"server"`
 	KnowledgeBase   *KnowledgeBaseConfig   `yaml:"knowledge_base"   json:"knowledge_base"`
 	Tenant          *TenantConfig          `yaml:"tenant"           json:"tenant"`
+	OIDCAuth        *OIDCAuthConfig        `yaml:"oidc_auth"        json:"oidc_auth"`
 	Models          []ModelConfig          `yaml:"models"           json:"models"`
 	VectorDatabase  *VectorDatabaseConfig  `yaml:"vector_database"  json:"vector_database"`
 	DocReader       *DocReaderConfig       `yaml:"docreader"        json:"docreader"`
@@ -27,7 +28,16 @@ type Config struct {
 	ExtractManager  *ExtractManagerConfig  `yaml:"extract"          json:"extract"`
 	WebSearch       *WebSearchConfig       `yaml:"web_search"       json:"web_search"`
 	PromptTemplates *PromptTemplatesConfig `yaml:"prompt_templates" json:"prompt_templates"`
+	CAS             *CASConfig             `yaml:"cas"              json:"cas"`
 	IM              *IMConfig              `yaml:"im"               json:"im"`
+	Agent           *AgentConfig           `yaml:"agent"            json:"agent"`
+}
+
+// AgentConfig represents the global agent settings.
+type AgentConfig struct {
+	// LLMCallTimeout is the default timeout for a single LLM call in seconds.
+	// Default: 120 (standard agents) or 300 (can be overridden by Env).
+	LLMCallTimeout int `yaml:"llm_call_timeout" json:"llm_call_timeout"`
 }
 
 // IMConfig configures the IM integration service.
@@ -85,13 +95,13 @@ type ConversationConfig struct {
 	Summary              *SummaryConfig `yaml:"summary"                          json:"summary"`
 
 	// Prompt template ID fields — resolved to text by backfillConversationDefaults
-	FallbackPromptID               string `yaml:"fallback_prompt_id"                json:"fallback_prompt_id"`
-	RewritePromptID                string `yaml:"rewrite_prompt_id"                 json:"rewrite_prompt_id"`
-	GenerateSessionTitlePromptID   string `yaml:"generate_session_title_prompt_id"  json:"generate_session_title_prompt_id"`
-	GenerateSummaryPromptID        string `yaml:"generate_summary_prompt_id"        json:"generate_summary_prompt_id"`
-	ExtractEntitiesPromptID        string `yaml:"extract_entities_prompt_id"        json:"extract_entities_prompt_id"`
-	ExtractRelationshipsPromptID   string `yaml:"extract_relationships_prompt_id"   json:"extract_relationships_prompt_id"`
-	GenerateQuestionsPromptID      string `yaml:"generate_questions_prompt_id"      json:"generate_questions_prompt_id"`
+	FallbackPromptID             string `yaml:"fallback_prompt_id"                json:"fallback_prompt_id"`
+	RewritePromptID              string `yaml:"rewrite_prompt_id"                 json:"rewrite_prompt_id"`
+	GenerateSessionTitlePromptID string `yaml:"generate_session_title_prompt_id"  json:"generate_session_title_prompt_id"`
+	GenerateSummaryPromptID      string `yaml:"generate_summary_prompt_id"        json:"generate_summary_prompt_id"`
+	ExtractEntitiesPromptID      string `yaml:"extract_entities_prompt_id"        json:"extract_entities_prompt_id"`
+	ExtractRelationshipsPromptID string `yaml:"extract_relationships_prompt_id"   json:"extract_relationships_prompt_id"`
+	GenerateQuestionsPromptID    string `yaml:"generate_questions_prompt_id"      json:"generate_questions_prompt_id"`
 
 	// Resolved prompt text fields (populated by backfill, not from YAML)
 	FallbackPrompt             string `yaml:"-" json:"fallback_prompt"`
@@ -110,6 +120,7 @@ type ConversationConfig struct {
 
 // SummaryConfig 摘要配置
 type SummaryConfig struct {
+	MaxInputChars       int     `yaml:"max_input_chars"       json:"max_input_chars"` // Max input characters for summary generation (default: 16384)
 	MaxTokens           int     `yaml:"max_tokens"            json:"max_tokens"`
 	RepeatPenalty       float64 `yaml:"repeat_penalty"        json:"repeat_penalty"`
 	TopK                int     `yaml:"top_k"                 json:"top_k"`
@@ -131,12 +142,27 @@ type SummaryConfig struct {
 	ContextTemplate string `yaml:"-" json:"context_template"`
 }
 
+// HTTPSConfig 进程内 TLS（与前置 Nginx/Ingress 终结 TLS 二选一；未启用时可省略整个 https 块）。
+type HTTPSConfig struct {
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	CertFile string `yaml:"cert_file" json:"cert_file"`
+	KeyFile  string `yaml:"key_file" json:"key_file"`
+}
+
 // ServerConfig 服务器配置
 type ServerConfig struct {
 	Port            int           `yaml:"port"             json:"port"`
 	Host            string        `yaml:"host"             json:"host"`
 	LogPath         string        `yaml:"log_path"         json:"log_path"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" json:"shutdown_timeout" default:"30s"`
+	// BehindProxy: Gin 仅在来自 TrustedProxies 的请求上信任 X-Forwarded-Proto / X-Forwarded-For 等头。
+	// 生产环境由 Nginx、Ingress、负载均衡终结 TLS 且直连为 HTTP 时应开启。
+	BehindProxy bool `yaml:"behind_proxy" json:"behind_proxy"`
+	// TrustedProxies: 反向代理的 IP 或 CIDR 列表；BehindProxy 为 true 且本项为空时使用常见私网段默认值。
+	TrustedProxies []string `yaml:"trusted_proxies" json:"trusted_proxies"`
+
+	// HTTPS: 可选；enabled 为 true 时必须同时配置 cert_file 与 key_file（无内置默认路径）。
+	HTTPS *HTTPSConfig `yaml:"https" json:"https"`
 }
 
 // KnowledgeBaseConfig 知识库配置
@@ -162,6 +188,25 @@ type TenantConfig struct {
 	EnableCrossTenantAccess bool `yaml:"enable_cross_tenant_access" json:"enable_cross_tenant_access"`
 }
 
+type OIDCUserInfoMapping struct {
+	Username string `yaml:"username" json:"username"`
+	Email    string `yaml:"email"    json:"email"`
+}
+
+type OIDCAuthConfig struct {
+	Enable                bool                 `yaml:"enable"                 json:"enable"`
+	IssuerURL             string               `yaml:"issuer_url"             json:"issuer_url"`
+	DiscoveryURL          string               `yaml:"discovery_url"          json:"discovery_url"`
+	ProviderDisplayName   string               `yaml:"provider_display_name"  json:"provider_display_name"`
+	ClientID              string               `yaml:"client_id"              json:"client_id"`
+	ClientSecret          string               `yaml:"client_secret"          json:"-"`
+	AuthorizationEndpoint string               `yaml:"authorization_endpoint" json:"authorization_endpoint"`
+	TokenEndpoint         string               `yaml:"token_endpoint"         json:"token_endpoint"`
+	UserInfoEndpoint      string               `yaml:"user_info_endpoint"     json:"user_info_endpoint"`
+	Scopes                []string             `yaml:"scopes"                 json:"scopes"`
+	UserInfoMapping       *OIDCUserInfoMapping `yaml:"user_info_mapping"      json:"user_info_mapping"`
+}
+
 // PromptTemplateI18n holds localized name and description for a prompt template.
 type PromptTemplateI18n struct {
 	Name        string `yaml:"name"        json:"name"`
@@ -175,16 +220,16 @@ type PromptTemplateI18n struct {
 //   - user:    用户侧 Prompt（仅在需要 system+user 配对的模板中使用，如 rewrite、keywords_extraction）
 //   - i18n:    多语言 name/description，键为 locale（如 "zh-CN"、"en-US"、"ko-KR"），后端根据请求语言替换 Name/Description 再返回
 type PromptTemplate struct {
-	ID               string                         `yaml:"id"                 json:"id"`
-	Name             string                         `yaml:"name"               json:"name"`
-	Description      string                         `yaml:"description"        json:"description"`
-	Content          string                         `yaml:"content"            json:"content"`
-	User             string                         `yaml:"user"               json:"user,omitempty"`
-	HasKnowledgeBase bool                           `yaml:"has_knowledge_base" json:"has_knowledge_base,omitempty"`
-	HasWebSearch     bool                           `yaml:"has_web_search"     json:"has_web_search,omitempty"`
-	Default          bool                           `yaml:"default"            json:"default,omitempty"`
-	Mode             string                         `yaml:"mode"               json:"mode,omitempty"`
-	I18n             map[string]PromptTemplateI18n   `yaml:"i18n"               json:"-"`
+	ID               string                        `yaml:"id"                 json:"id"`
+	Name             string                        `yaml:"name"               json:"name"`
+	Description      string                        `yaml:"description"        json:"description"`
+	Content          string                        `yaml:"content"            json:"content"`
+	User             string                        `yaml:"user"               json:"user,omitempty"`
+	HasKnowledgeBase bool                          `yaml:"has_knowledge_base" json:"has_knowledge_base,omitempty"`
+	HasWebSearch     bool                          `yaml:"has_web_search"     json:"has_web_search,omitempty"`
+	Default          bool                          `yaml:"default"            json:"default,omitempty"`
+	Mode             string                        `yaml:"mode"               json:"mode,omitempty"`
+	I18n             map[string]PromptTemplateI18n `yaml:"i18n"               json:"-"`
 }
 
 // PromptTemplatesConfig 提示词模板配置
@@ -240,7 +285,9 @@ func DefaultTemplateByMode(templates []PromptTemplate, mode string) *PromptTempl
 
 // LocalizeTemplates returns a deep copy of the template list with Name and
 // Description replaced according to the given locale.  Fallback chain:
-//   locale → primary language (e.g. "zh" from "zh-CN") → original Name/Description.
+//
+//	locale → primary language (e.g. "zh" from "zh-CN") → original Name/Description.
+//
 // The returned slice is safe to serialise directly; it never mutates the original.
 func LocalizeTemplates(templates []PromptTemplate, locale string) []PromptTemplate {
 	if len(templates) == 0 {
@@ -386,6 +433,9 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// Validate configuration values
+	applyOIDCEnvOverrides(&cfg)
+	applyAgentEnvOverrides(&cfg)
+
 	if err := ValidateConfig(&cfg); err != nil {
 		return nil, err
 	}
@@ -398,6 +448,19 @@ func LoadConfig() (*Config, error) {
 func ValidateConfig(cfg *Config) error {
 	var errs []string
 
+	if cfg.OIDCAuth != nil && cfg.OIDCAuth.Enable {
+		if strings.TrimSpace(cfg.OIDCAuth.ClientID) == "" {
+			errs = append(errs, "oidc_auth.client_id is required when OIDC is enabled")
+		}
+		if strings.TrimSpace(cfg.OIDCAuth.ClientSecret) == "" {
+			errs = append(errs, "oidc_auth.client_secret is required when OIDC is enabled")
+		}
+		if strings.TrimSpace(cfg.OIDCAuth.DiscoveryURL) == "" &&
+			(strings.TrimSpace(cfg.OIDCAuth.AuthorizationEndpoint) == "" || strings.TrimSpace(cfg.OIDCAuth.TokenEndpoint) == "") {
+			errs = append(errs, "oidc_auth.discovery_url or both oidc_auth.authorization_endpoint and oidc_auth.token_endpoint are required when OIDC is enabled")
+		}
+	}
+
 	if cfg.Conversation != nil {
 		if cfg.Conversation.EmbeddingTopK < 0 {
 			errs = append(errs, "conversation.embedding_top_k must be >= 0")
@@ -408,8 +471,8 @@ func ValidateConfig(cfg *Config) error {
 		if cfg.Conversation.VectorThreshold < 0 || cfg.Conversation.VectorThreshold > 1 {
 			errs = append(errs, "conversation.vector_threshold must be between 0 and 1")
 		}
-		if cfg.Conversation.RerankThreshold < 0 || cfg.Conversation.RerankThreshold > 1 {
-			errs = append(errs, "conversation.rerank_threshold must be between 0 and 1")
+		if cfg.Conversation.RerankThreshold < -10 || cfg.Conversation.RerankThreshold > 10 {
+			errs = append(errs, "conversation.rerank_threshold must be between -10 and 10")
 		}
 	}
 
@@ -429,12 +492,93 @@ func ValidateConfig(cfg *Config) error {
 		if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
 			errs = append(errs, "server.port must be between 1 and 65535")
 		}
+		if h := cfg.Server.HTTPS; h != nil && h.Enabled {
+			if strings.TrimSpace(h.CertFile) == "" || strings.TrimSpace(h.KeyFile) == "" {
+				errs = append(errs, "server.https.enabled requires non-empty server.https.cert_file and server.https.key_file")
+			}
+		}
 	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("config validation errors: %s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+func applyOIDCEnvOverrides(cfg *Config) {
+	if cfg.OIDCAuth == nil {
+		cfg.OIDCAuth = &OIDCAuthConfig{}
+	}
+	if cfg.OIDCAuth.UserInfoMapping == nil {
+		cfg.OIDCAuth.UserInfoMapping = &OIDCUserInfoMapping{}
+	}
+
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_ENABLE")); value != "" {
+		cfg.OIDCAuth.Enable = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_ISSUER_URL")); value != "" {
+		cfg.OIDCAuth.IssuerURL = value
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_DISCOVERY_URL")); value != "" {
+		cfg.OIDCAuth.DiscoveryURL = value
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_PROVIDER_DISPLAY_NAME")); value != "" {
+		cfg.OIDCAuth.ProviderDisplayName = value
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_CLIENT_ID")); value != "" {
+		cfg.OIDCAuth.ClientID = value
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_CLIENT_SECRET")); value != "" {
+		cfg.OIDCAuth.ClientSecret = value
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_AUTHORIZATION_ENDPOINT")); value != "" {
+		cfg.OIDCAuth.AuthorizationEndpoint = value
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_TOKEN_ENDPOINT")); value != "" {
+		cfg.OIDCAuth.TokenEndpoint = value
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_USER_INFO_ENDPOINT")); value != "" {
+		cfg.OIDCAuth.UserInfoEndpoint = value
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_AUTH_SCOPES")); value != "" {
+		cfg.OIDCAuth.Scopes = strings.Fields(strings.ReplaceAll(value, ",", " "))
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_USER_INFO_MAPPING_USER_NAME")); value != "" {
+		cfg.OIDCAuth.UserInfoMapping.Username = value
+	}
+	if value := strings.TrimSpace(os.Getenv("OIDC_USER_INFO_MAPPING_EMAIL")); value != "" {
+		cfg.OIDCAuth.UserInfoMapping.Email = value
+	}
+
+	if cfg.OIDCAuth.ProviderDisplayName == "" {
+		cfg.OIDCAuth.ProviderDisplayName = "OIDC"
+	}
+	if len(cfg.OIDCAuth.Scopes) == 0 {
+		cfg.OIDCAuth.Scopes = []string{"openid", "profile", "email"}
+	}
+	if cfg.OIDCAuth.UserInfoMapping.Username == "" {
+		cfg.OIDCAuth.UserInfoMapping.Username = "name"
+	}
+	if cfg.OIDCAuth.UserInfoMapping.Email == "" {
+		cfg.OIDCAuth.UserInfoMapping.Email = "email"
+	}
+	if cfg.OIDCAuth.DiscoveryURL == "" && cfg.OIDCAuth.IssuerURL != "" {
+		cfg.OIDCAuth.DiscoveryURL = strings.TrimRight(cfg.OIDCAuth.IssuerURL, "/") + "/.well-known/openid-configuration"
+	}
+}
+
+func applyAgentEnvOverrides(cfg *Config) {
+	if cfg.Agent == nil {
+		cfg.Agent = &AgentConfig{}
+	}
+	if value := strings.TrimSpace(os.Getenv("WEKNORA_AGENT_LLM_TIMEOUT")); value != "" {
+		if timeout, err := time.ParseDuration(value); err == nil {
+			cfg.Agent.LLMCallTimeout = int(timeout.Seconds())
+		} else if sec, err := time.ParseDuration(value + "s"); err == nil {
+			// Handle case where user just provides a number like "300"
+			cfg.Agent.LLMCallTimeout = int(sec.Seconds())
+		}
+	}
 }
 
 // backfillConversationDefaults resolves prompt template ID references
@@ -592,7 +736,7 @@ func loadPromptTemplates(configDir string) (*PromptTemplatesConfig, error) {
 		"agent_system_prompt.yaml":    &config.AgentSystemPrompt,
 		"graph_extraction.yaml":       &config.GraphExtraction,
 		"generate_questions.yaml":     &config.GenerateQuestions,
-		"intent_prompts.yaml":        &config.IntentPrompts,
+		"intent_prompts.yaml":         &config.IntentPrompts,
 	}
 
 	// 加载每个模板文件
@@ -621,4 +765,44 @@ func loadPromptTemplates(configDir string) (*PromptTemplatesConfig, error) {
 // WebSearchConfig represents the web search configuration
 type WebSearchConfig struct {
 	Timeout int `yaml:"timeout" json:"timeout"` // 超时时间（秒）
+}
+
+// CASConfig CAS 单点登录配置
+type CASConfig struct {
+	Environment string        `yaml:"environment" json:"environment"` // production 或 test
+	Production  *CASEnvConfig `yaml:"production"  json:"production"`
+	Test        *CASEnvConfig `yaml:"test"        json:"test"`
+}
+
+// CASEnvConfig CAS 环境配置
+type CASEnvConfig struct {
+	APIHost   string `yaml:"api_host"   json:"api_host"`   // API 主机地址（如：open.nxin.com）
+	LoginHost string `yaml:"login_host" json:"login_host"` // 登录页面主机地址（如：cas.nxin.com）
+	CookieSID string `yaml:"cookie_sid" json:"cookie_sid"` // Cookie SID 名称（如：_cas_sid）
+	CookieUID string `yaml:"cookie_uid" json:"cookie_uid"` // Cookie UID 名称（如：_cas_uid）
+	ImageHost string `yaml:"image_host" json:"image_host"` // 头像图片主机地址（可选）
+}
+
+// GetCurrentConfig 获取当前环境的配置
+func (c *CASConfig) GetCurrentConfig() *CASEnvConfig {
+	if c == nil {
+		return nil
+	}
+
+	// 从环境变量获取环境类型，如果没有则使用配置中的值
+	env := os.Getenv("CAS_ENVIRONMENT")
+	if env == "" {
+		env = c.Environment
+	}
+
+	if env == "test" && c.Test != nil {
+		return c.Test
+	}
+
+	// 默认返回生产环境配置
+	if c.Production != nil {
+		return c.Production
+	}
+
+	return c.Test // 如果生产环境配置不存在，返回测试环境配置
 }

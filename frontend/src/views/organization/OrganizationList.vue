@@ -32,7 +32,7 @@
                   class="header-action-btn"
                   @click="handleCreateOrganization"
                 >
-                  <template #icon><img src="@/assets/img/organization-green.svg" class="org-create-icon" alt="" aria-hidden="true" /></template>
+                  <template #icon><SvgIcon name="organization" variant="green" :size="16" class="org-create-icon sidebar-org-icon" /></template>
                 </t-button>
               </t-tooltip>
             </div>
@@ -131,7 +131,7 @@
               </t-tooltip>
               <t-tooltip :content="$t('organization.invite.agents')" placement="top">
                 <div class="feature-badge stat-agent">
-                  <img src="@/assets/img/agent-green.svg" class="stat-agent-icon" alt="" aria-hidden="true" />
+                  <SvgIcon name="agent" variant="green" :size="14" class="stat-agent-icon" />
                   <span class="badge-count">{{ org.agent_share_count ?? 0 }}</span>
                 </div>
               </t-tooltip>
@@ -161,7 +161,7 @@
           {{ $t('organization.joinOrg') }}
         </t-button>
         <t-button class="org-create-btn" @click="handleCreateOrganization">
-          <template #icon><img src="@/assets/img/organization-green.svg" class="org-create-icon" alt="" aria-hidden="true" /></template>
+          <template #icon><SvgIcon name="organization" variant="green" theme="anti" :size="16" class="org-create-icon"  /></template>
           {{ $t('organization.createOrg') }}
         </t-button>
       </div>
@@ -397,7 +397,7 @@
                                 {{ org.share_count }}
                               </span>
                               <span class="searchable-badge searchable-badge-agent">
-                                <img src="@/assets/img/agent.svg" class="searchable-badge-agent-icon" alt="" aria-hidden="true" />
+                                <SvgIcon name="agent" variant="default" :size="12" class="searchable-badge-agent-icon" />
                                 {{ org.agent_share_count ?? 0 }}
                               </span>
                               <t-tag v-if="org.require_approval" class="searchable-tag-approval" size="small" variant="light">
@@ -474,7 +474,7 @@
                         {{ invitePreviewData.share_count }} {{ $t('organization.invite.knowledgeBases') }}
                       </span>
                       <span class="preview-badge preview-badge-agent">
-                        <img src="@/assets/img/agent.svg" class="preview-badge-agent-icon" alt="" aria-hidden="true" />
+                        <SvgIcon name="agent" variant="default" :size="14" class="preview-badge-agent-icon" />
                         {{ invitePreviewData.agent_share_count ?? 0 }} {{ $t('organization.invite.agents') }}
                       </span>
                       <t-tag v-if="invitePreviewData.require_approval" class="preview-tag-approval" size="small" variant="light">
@@ -573,6 +573,7 @@ import { useI18n } from 'vue-i18n'
 import OrganizationSettingsModal from './OrganizationSettingsModal.vue'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import ListSpaceSidebar from '@/components/ListSpaceSidebar.vue'
+import { SvgIcon } from '@/components/icons'
 
 interface OrgWithUI extends Organization {
   showMore?: boolean
@@ -1306,12 +1307,12 @@ onUnmounted(() => {
   border: none;
   color: var(--td-text-color-anti);
   font-weight: 500;
-  box-shadow: 0 2px 8px rgba(7, 192, 95, 0.25);
+  box-shadow: 0 2px 8px rgba(from var(--td-brand-color, #07c05f) r g b / 0.25);
   transition: all 0.25s ease;
 
   &:hover {
-    background: var(--td-brand-color);
-    box-shadow: 0 4px 14px rgba(7, 192, 95, 0.35);
+    background: var(--td-brand-color-hover, #05a650);
+    box-shadow: 0 4px 14px rgba(from var(--td-brand-color, #07c05f) r g b / 0.35);
   }
 
   .org-create-icon {
@@ -1434,29 +1435,29 @@ onUnmounted(() => {
     right: 0;
     width: 120px;
     height: 80px;
-    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(7, 192, 95, 0.06) 0%, transparent 70%);
+    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(from var(--td-brand-color, #07c05f) r g b / 0.06) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
 
   &.joined-org {
     &:hover {
-      border-color: rgba(7, 192, 95, 0.4);
-      box-shadow: 0 4px 16px rgba(7, 192, 95, 0.08);
+      border-color: rgba(from var(--td-brand-color, #07c05f) r g b / 0.4);
+      box-shadow: 0 4px 16px rgba(from var(--td-brand-color, #07c05f) r g b / 0.08);
     }
   }
 
   &:hover {
-    border-color: rgba(7, 192, 95, 0.5);
-    box-shadow: 0 6px 20px rgba(7, 192, 95, 0.12);
+    border-color: rgba(from var(--td-brand-color, #07c05f) r g b / 0.5);
+    box-shadow: 0 6px 20px rgba(from var(--td-brand-color, #07c05f) r g b / 0.12);
   }
 
   .card-decoration {
-    color: rgba(7, 192, 95, 0.35);
+    color: rgba(from var(--td-brand-color, #07c05f) r g b / 0.35);
   }
 
   &:hover .card-decoration {
-    color: rgba(7, 192, 95, 0.55);
+    color: rgba(from var(--td-brand-color, #07c05f) r g b / 0.55);
   }
 
   .card-header {
@@ -1667,17 +1668,17 @@ onUnmounted(() => {
   }
 
   &.stat-member {
-    background: rgba(100, 116, 139, 0.08);
+    background: rgba(from var(--td-text-color-secondary, #64748b) r g b / 0.08);
     color: var(--td-text-color-secondary);
     .t-icon { color: var(--td-text-color-secondary); }
-    &:hover { background: rgba(100, 116, 139, 0.12); }
+    &:hover { background: rgba(from var(--td-text-color-secondary, #64748b) r g b / 0.12); }
   }
 
   &.stat-kb {
-    background: rgba(7, 192, 95, 0.08);
-    color: var(--td-brand-color);
-    .t-icon { color: var(--td-brand-color); }
-    &:hover { background: rgba(7, 192, 95, 0.12); }
+    background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.08);
+    color: var(--td-brand-color, #07c05f);
+    .t-icon { color: var(--td-brand-color, #07c05f); }
+    &:hover { background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.12); }
   }
 
   &.stat-agent {
@@ -1703,8 +1704,8 @@ onUnmounted(() => {
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
-  background: rgba(250, 173, 20, 0.12);
-  color: var(--td-warning-color);
+  background: rgba(from var(--td-warning-color-5, #f59e0b) r g b / 0.12);
+  color: var(--td-warning-color, #d48806);
   white-space: nowrap;
 }
 
@@ -1725,7 +1726,7 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 500;
   font-family: "PingFang SC", system-ui, sans-serif;
-  background: rgba(107, 114, 128, 0.08);
+  background: rgba(from var(--td-text-color-placeholder, #6b7280) r g b / 0.08);
   color: var(--td-text-color-secondary);
 
   .t-icon {
@@ -1740,21 +1741,21 @@ onUnmounted(() => {
   }
 
   &.admin {
-    background: rgba(7, 192, 95, 0.12);
+    background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.08);
     color: var(--td-brand-color);
     .t-icon { color: var(--td-brand-color); }
   }
 
   &.editor {
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.08);
     color: var(--td-brand-color);
     .t-icon { color: var(--td-brand-color); }
   }
 
   &.viewer {
-    background: rgba(107, 114, 128, 0.08);
-    color: var(--td-text-color-secondary);
-    .t-icon { color: var(--td-text-color-secondary); }
+    background: rgba(from var(--td-text-color-placeholder, #6b7280) r g b / 0.08);
+    color: var(--td-text-color-secondary, #6b7280);
+    .t-icon { color: var(--td-text-color-secondary, #6b7280); }
   }
 }
 
@@ -1936,7 +1937,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 2000;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(from var(--td-text-color-primary, #000) r g b / 0.5);
   display: flex;
   align-items: center;
   justify-content: center;

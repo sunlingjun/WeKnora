@@ -35,6 +35,8 @@ const (
 	dedupCleanupInterval = 1 * time.Minute
 	// maxContentLength is the maximum allowed message content length.
 	maxContentLength = 4096
+	// maxQuoteContentLength is the max runes to include from a quoted message.
+	maxQuoteContentLength = 500
 	// streamFlushInterval is how often buffered stream content is flushed to the IM platform.
 	// This prevents API rate-limiting while keeping perceived latency low.
 	streamFlushInterval = 300 * time.Millisecond
@@ -141,7 +143,7 @@ type Service struct {
 	// redis is the optional Redis client for distributed state (dedup, rate
 	// limiting, leader election, cross-instance /stop). When nil the service
 	// falls back to local in-memory state (single-instance / Lite mode).
-	redis *redis.Client
+	redis redis.UniversalClient
 
 	// instanceID uniquely identifies this service instance for leader election.
 	instanceID string
@@ -151,8 +153,54 @@ type Service struct {
 
 // makeUserKey builds the canonical key used to identify a user's request
 // across the queue, inflight map, and /stop command.
-func makeUserKey(channelID, userID, chatID string) string {
+// threadID should only be non-empty when channel.SessionMode == "thread";
+// callers must guard this to avoid leaking thread scope into user-mode keys.
+func makeUserKey(channelID, userID, chatID, threadID string) string {
+	if threadID != "" {
+		return fmt.Sprintf("%s:%s:%s:%s", channelID, userID, chatID, threadID)
+	}
 	return fmt.Sprintf("%s:%s:%s", channelID, userID, chatID)
+}
+
+// nonTextTypeLabel maps a message type to a Chinese label for LLM instructions.
+var nonTextTypeLabel = map[string]string{
+	"image": "图片",
+	"file":  "文件",
+	"video": "视频",
+	"voice": "语音",
+}
+
+// formatQuotedContext formats a QuotedMessage into a labeled string for LLM context.
+// Returns empty string if quote is nil.
+// For non-text quotes, generates an instruction telling the LLM to acknowledge
+// the unprocessable content instead of a placeholder that causes hallucination.
+func formatQuotedContext(quote *QuotedMessage) string {
+	if quote == nil {
+		return ""
+	}
+	// Non-text quote: generate instruction, not content placeholder.
+	if quote.NonTextType != "" {
+		label := nonTextTypeLabel[quote.NonTextType]
+		if label == "" {
+			label = "该类型的"
+		}
+		return "用户引用了一条" + label + "消息，但你无法查看该内容。请直接告知用户你目前无法处理" + label + "消息，建议用户用文字描述问题。不要猜测该消息的内容。"
+	}
+	if quote.Content == "" {
+		return ""
+	}
+	content := quote.Content
+	runes := []rune(content)
+	if len(runes) > maxQuoteContentLength {
+		content = string(runes[:maxQuoteContentLength]) + "..."
+	}
+	// Prevent quoted content from escaping the XML tag boundary.
+	content = strings.ReplaceAll(content, "</quoted_message>", "")
+	label := "以下是用户引用的一条历史消息，仅作为上下文参考："
+	if quote.IsBotMessage {
+		label = "以下是用户引用的你（机器人）之前的回复，仅作为上下文参考："
+	}
+	return label + "\n<quoted_message>\n" + content + "\n</quoted_message>"
 }
 
 func buildIMQARequest(
@@ -162,11 +210,13 @@ func buildIMQARequest(
 	userMessageID string,
 	customAgent *types.CustomAgent,
 	kbIDs []string,
+	quote *QuotedMessage,
 ) *types.QARequest {
 	// WebSearchEnabled: the web handler passes this per-request from the
 	// frontend toggle; for IM channels the user has no per-message toggle,
 	// so we derive it from the agent config (the single source of truth).
 	webSearchEnabled := customAgent != nil && customAgent.Config.WebSearchEnabled
+	quotedContext := formatQuotedContext(quote)
 	return &types.QARequest{
 		Session:            session,
 		Query:              query,
@@ -175,6 +225,7 @@ func buildIMQARequest(
 		KnowledgeBaseIDs:   kbIDs,
 		UserMessageID:      userMessageID,
 		WebSearchEnabled:   webSearchEnabled,
+		QuotedContext:      quotedContext,
 	}
 }
 
@@ -226,7 +277,7 @@ func NewService(
 	kbService interfaces.KnowledgeBaseService,
 	modelService interfaces.ModelService,
 	streamManager interfaces.StreamManager,
-	redisClient *redis.Client,
+	redisClient redis.UniversalClient,
 	appCfg *config.Config,
 ) *Service {
 	// Resolve IM configuration with defaults.
@@ -716,7 +767,9 @@ func (s *Service) HandleMessage(ctx context.Context, msg *IncomingMessage, chann
 		attribute.String("im.platform", string(msg.Platform)),
 		attribute.String("im.user_id", msg.UserID),
 		attribute.String("im.chat_id", msg.ChatID),
+		attribute.String("im.thread_id", msg.ThreadID),
 		attribute.String("im.message_type", string(msg.MessageType)),
+		attribute.Bool("im.has_quote", msg.Quote != nil),
 	)
 
 	// Dedup: skip if this message was already processed (IM platforms may retry)
@@ -752,12 +805,21 @@ func (s *Service) HandleMessage(ctx context.Context, msg *IncomingMessage, chann
 		}
 	}
 
+	span.SetAttributes(attribute.String("im.session_mode", channel.SessionMode))
+
+	// Resolve threadID for key building — only include in thread mode to avoid
+	// leaking thread scope into user-mode rate limit / inflight keys.
+	threadID := ""
+	if channel.SessionMode == string(SessionModeThread) {
+		threadID = msg.ThreadID
+	}
+
 	// Rate limit: enforce per-user sliding window to prevent abuse.
 	// Slash-commands (/stop, /clear, etc.) bypass rate limiting so the user
 	// always retains control over the bot even under heavy messaging.
 	isCommand := s.cmdRegistry.IsRegistered(msg.Content)
 	if !isCommand {
-		rateLimitKey := makeUserKey(channelID, msg.UserID, msg.ChatID)
+		rateLimitKey := makeUserKey(channelID, msg.UserID, msg.ChatID, threadID)
 		if !s.rateLimiter.Allow(rateLimitKey) {
 			logger.Warnf(ctx, "[IM] Rate limited: channel=%s user=%s chat=%s", channelID, msg.UserID, msg.ChatID)
 			_ = adapter.SendReply(ctx, msg, &ReplyMessage{
@@ -783,6 +845,21 @@ func (s *Service) HandleMessage(ctx context.Context, msg *IncomingMessage, chann
 		return s.handleFileMessage(ctx, msg, adapter, channel)
 	}
 
+	// ── Non-text message without text content ──
+	// If the message is an image/file/video but has no text content, the QA pipeline
+	// cannot do anything useful (no vision support in IM yet). Sending an empty query
+	// to KB retrieval would return irrelevant results and cause hallucination.
+	if msg.Content == "" && (msg.MessageType == MessageTypeImage || msg.MessageType == MessageTypeFile) {
+		logger.Infof(ctx, "[IM] Skipping QA for non-text message without content: type=%s", msg.MessageType)
+		if err := adapter.SendReply(ctx, msg, &ReplyMessage{
+			Content: "当前渠道未配置文件知识库，无法处理图片/文件消息。请在渠道设置中配置文件知识库后再发送，或直接用文字描述您的问题。",
+			IsFinal: true,
+		}); err != nil {
+			logger.Warnf(ctx, "[IM] Failed to send non-text hint reply: %v", err)
+		}
+		return nil
+	}
+
 	// 1. Get tenant
 	tenant, err := s.tenantService.GetTenantByID(ctx, tenantID)
 	if err != nil {
@@ -792,7 +869,7 @@ func (s *Service) HandleMessage(ctx context.Context, msg *IncomingMessage, chann
 	sessionCtx = context.WithValue(sessionCtx, types.TenantInfoContextKey, tenant)
 
 	// 2. Resolve or create a WeKnora session
-	channelSession, err := s.resolveSession(sessionCtx, msg, tenantID, agentID, channelID)
+	channelSession, err := s.resolveSession(sessionCtx, msg, tenantID, agentID, channelID, channel.SessionMode)
 	if err != nil {
 		return fmt.Errorf("resolve session: %w", err)
 	}
@@ -831,7 +908,7 @@ func (s *Service) HandleMessage(ctx context.Context, msg *IncomingMessage, chann
 	// 5. Enqueue the QA request into the bounded worker pool.
 	// The worker pool controls LLM concurrency and provides backpressure.
 	qaCtx, qaCancel := context.WithCancel(sessionCtx)
-	userKey := makeUserKey(channelID, msg.UserID, msg.ChatID)
+	userKey := makeUserKey(channelID, msg.UserID, msg.ChatID, threadID)
 
 	req := &qaRequest{
 		ctx:       qaCtx,
@@ -922,7 +999,7 @@ func (s *Service) executeQARequest(req *qaRequest) {
 	}
 
 	// Non-streaming fallback: collect full answer then send.
-	answer, err := s.runQA(ctx, req.session, req.msg.Content, req.agent, kbIDs, req.userKey)
+	answer, err := s.runQA(ctx, req.session, req.msg.Content, req.agent, kbIDs, req.userKey, req.msg.Quote)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		logger.Errorf(ctx, "[IM] QA failed: %v, sending fallback reply", err)
@@ -1000,7 +1077,11 @@ func (s *Service) handleCommand(
 			logger.Warnf(ctx, "[IM] Failed to clear session context: %v", err)
 		}
 	case ActionStop:
-		inflightKey := makeUserKey(channel.ID, msg.UserID, msg.ChatID)
+		stopThreadID := ""
+		if channel.SessionMode == string(SessionModeThread) {
+			stopThreadID = msg.ThreadID
+		}
+		inflightKey := makeUserKey(channel.ID, msg.UserID, msg.ChatID, stopThreadID)
 
 		// 1. Try local cancel: remove from queue or cancel in-flight.
 		var localSessionID, localMessageID string
@@ -1080,9 +1161,20 @@ func (s *Service) sendStreamReply(ctx context.Context, msg *IncomingMessage, str
 	return nil
 }
 
-// resolveSession finds or creates a ChannelSession for the given IM message.
-// ctx must already carry TenantIDContextKey and TenantInfoContextKey.
-func (s *Service) resolveSession(ctx context.Context, msg *IncomingMessage, tenantID uint64, agentID string, imChannelID string) (*ChannelSession, error) {
+// resolveSession dispatches to the appropriate session resolution strategy
+// based on the channel's session mode.
+func (s *Service) resolveSession(ctx context.Context, msg *IncomingMessage, tenantID uint64, agentID string, imChannelID string, sessionMode string) (*ChannelSession, error) {
+	switch SessionMode(sessionMode) {
+	case SessionModeThread:
+		return s.resolveThreadSession(ctx, msg, tenantID, agentID, imChannelID)
+	default: // SessionModeUser
+		return s.resolveUserSession(ctx, msg, tenantID, agentID, imChannelID)
+	}
+}
+
+// resolveUserSession finds or creates a ChannelSession keyed by (platform, user_id, chat_id, tenant_id).
+// This is the original session resolution strategy.
+func (s *Service) resolveUserSession(ctx context.Context, msg *IncomingMessage, tenantID uint64, agentID string, imChannelID string) (*ChannelSession, error) {
 	var cs ChannelSession
 	result := s.db.Where("platform = ? AND user_id = ? AND chat_id = ? AND tenant_id = ? AND deleted_at IS NULL",
 		string(msg.Platform), msg.UserID, msg.ChatID, tenantID).
@@ -1125,14 +1217,9 @@ func (s *Service) resolveSession(ctx context.Context, msg *IncomingMessage, tena
 		IMChannelID: imChannelID,
 	}
 	if err := s.db.Create(&cs).Error; err != nil {
-		// The insert failed (likely unique constraint from a concurrent request on
-		// another instance). Clean up the orphaned Session we just created — it has
-		// no messages yet, so a direct delete is safe.
 		if delErr := s.db.Where("id = ?", createdSession.ID).Delete(createdSession).Error; delErr != nil {
 			logger.Warnf(ctx, "[IM] Failed to clean up orphaned session %s: %v", createdSession.ID, delErr)
 		}
-
-		// Fetch the existing ChannelSession created by the winning instance.
 		var existing ChannelSession
 		if findErr := s.db.Where("platform = ? AND user_id = ? AND chat_id = ? AND tenant_id = ? AND deleted_at IS NULL",
 			string(msg.Platform), msg.UserID, msg.ChatID, tenantID).
@@ -1145,6 +1232,83 @@ func (s *Service) resolveSession(ctx context.Context, msg *IncomingMessage, tena
 	logger.Infof(ctx, "[IM] Created new session mapping: channel=%s/%s/%s -> session=%s",
 		msg.Platform, msg.UserID, msg.ChatID, createdSession.ID)
 
+	return &cs, nil
+}
+
+// resolveThreadSession finds or creates a ChannelSession keyed by (platform, chat_id, thread_id, tenant_id).
+// In thread mode, each message thread gets its own session. Multiple users in the
+// same thread share the same session. Top-level messages use their own ID as
+// ThreadID, creating a new session per top-level message.
+func (s *Service) resolveThreadSession(ctx context.Context, msg *IncomingMessage, tenantID uint64, agentID string, imChannelID string) (*ChannelSession, error) {
+	threadID := msg.ThreadID
+	if threadID == "" {
+		// Defense-in-depth: frontend blocks thread mode for unsupported platforms,
+		// but if ThreadID is somehow empty, fall back to user-mode resolution
+		// to avoid creating a shared session for all empty-thread messages.
+		logger.Warnf(ctx, "[IM] Thread mode but ThreadID is empty (platform=%s chat=%s), falling back to user session", msg.Platform, msg.ChatID)
+		return s.resolveUserSession(ctx, msg, tenantID, agentID, imChannelID)
+	}
+
+	var cs ChannelSession
+	result := s.db.Where(
+		"platform = ? AND chat_id = ? AND thread_id = ? AND tenant_id = ? AND deleted_at IS NULL",
+		string(msg.Platform), threadID, msg.ChatID, tenantID,
+	).First(&cs)
+
+	if result.Error == nil {
+		return &cs, nil
+	}
+
+	if result.Error != gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("query thread session: %w", result.Error)
+	}
+
+	// Build a session title with thread ID suffix for traceability.
+	threadSuffix := threadID
+	if len(threadSuffix) > 8 {
+		threadSuffix = threadSuffix[len(threadSuffix)-8:]
+	}
+	title := fmt.Sprintf("IM-%s-thread-%s", msg.Platform, threadSuffix)
+
+	newSession := &types.Session{
+		TenantID:    tenantID,
+		Title:       title,
+		Description: fmt.Sprintf("Thread-based session from %s IM", msg.Platform),
+	}
+
+	createdSession, err := s.sessionService.CreateSession(ctx, newSession)
+	if err != nil {
+		return nil, fmt.Errorf("create session: %w", err)
+	}
+
+	cs = ChannelSession{
+		Platform:    string(msg.Platform),
+		UserID:      msg.UserID, // record the first creator
+		ChatID:      msg.ChatID,
+		ThreadID:    threadID,
+		SessionID:   createdSession.ID,
+		TenantID:    tenantID,
+		AgentID:     agentID,
+		IMChannelID: imChannelID,
+	}
+
+	if err := s.db.Create(&cs).Error; err != nil {
+		// Unique constraint fallback for concurrent creation.
+		if delErr := s.db.Where("id = ?", createdSession.ID).Delete(createdSession).Error; delErr != nil {
+			logger.Warnf(ctx, "[IM] Failed to clean up orphaned session %s: %v", createdSession.ID, delErr)
+		}
+		var existing ChannelSession
+		if findErr := s.db.Where(
+			"platform = ? AND chat_id = ? AND thread_id = ? AND tenant_id = ? AND deleted_at IS NULL",
+			string(msg.Platform), msg.ChatID, threadID, tenantID,
+		).First(&existing).Error; findErr != nil {
+			return nil, fmt.Errorf("create thread session: %w (lookup fallback: %v)", err, findErr)
+		}
+		return &existing, nil
+	}
+
+	logger.Infof(ctx, "[IM] Created new thread session: platform=%s thread=%s chat=%s -> session=%s",
+		msg.Platform, threadID, msg.ChatID, createdSession.ID)
 	return &cs, nil
 }
 
@@ -1457,7 +1621,10 @@ func (s *Service) handleMessageStream(ctx context.Context, msg *IncomingMessage,
 	// Run QA async
 	go func() {
 		var err error
-		req := buildIMQARequest(session, msg.Content, assistantMsg.ID, userMsg.ID, customAgent, kbIDs)
+		req := buildIMQARequest(session, msg.Content, assistantMsg.ID, userMsg.ID, customAgent, kbIDs, msg.Quote)
+		if req.QuotedContext != "" {
+			logger.Debugf(qaCtx, "[IM] QuotedContext set: length=%d", len(req.QuotedContext))
+		}
 		if useAgent {
 			err = s.sessionService.AgentQA(qaCtx, req, eventBus)
 		} else {
@@ -1547,7 +1714,7 @@ loop:
 
 // fallbackNonStream is used when streaming initialization fails.
 func (s *Service) fallbackNonStream(ctx context.Context, msg *IncomingMessage, session *types.Session, customAgent *types.CustomAgent, kbIDs []string, adapter Adapter, userKey string) error {
-	answer, err := s.runQA(ctx, session, msg.Content, customAgent, kbIDs, userKey)
+	answer, err := s.runQA(ctx, session, msg.Content, customAgent, kbIDs, userKey, msg.Quote)
 	if err != nil {
 		logger.Errorf(ctx, "[IM] QA fallback failed: %v", err)
 		answer = "抱歉，处理您的问题时出现了异常，请稍后再试。"
@@ -1557,7 +1724,7 @@ func (s *Service) fallbackNonStream(ctx context.Context, msg *IncomingMessage, s
 }
 
 // runQA executes the WeKnora QA pipeline and returns the full answer text.
-func (s *Service) runQA(ctx context.Context, session *types.Session, query string, customAgent *types.CustomAgent, kbIDs []string, userKey string) (string, error) {
+func (s *Service) runQA(ctx context.Context, session *types.Session, query string, customAgent *types.CustomAgent, kbIDs []string, userKey string, quote *QuotedMessage) (string, error) {
 	// Add timeout to prevent indefinite blocking
 	ctx, cancel := context.WithTimeout(ctx, qaTimeout)
 	defer cancel()
@@ -1647,7 +1814,10 @@ func (s *Service) runQA(ctx context.Context, session *types.Session, query strin
 	// Run QA async
 	go func() {
 		var err error
-		req := buildIMQARequest(session, query, assistantMsg.ID, userMsg.ID, customAgent, kbIDs)
+		req := buildIMQARequest(session, query, assistantMsg.ID, userMsg.ID, customAgent, kbIDs, quote)
+		if req.QuotedContext != "" {
+			logger.Debugf(ctx, "[IM] QuotedContext set: length=%d", len(req.QuotedContext))
+		}
 		if useAgent {
 			err = s.sessionService.AgentQA(ctx, req, eventBus)
 		} else {

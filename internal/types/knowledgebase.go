@@ -50,6 +50,14 @@ type KnowledgeBase struct {
 	Description string `yaml:"description"             json:"description"`
 	// Tenant ID
 	TenantID uint64 `yaml:"tenant_id"               json:"tenant_id"`
+	// Visibility: 'private' (个人知识库) | 'shared' (共享知识库)
+	Visibility string `yaml:"visibility"            json:"visibility"            gorm:"type:varchar(32);default:'private'"`
+	// Owner ID: 创建者用户 ID（关联 users.id）
+	OwnerID string `yaml:"owner_id"                 json:"owner_id"              gorm:"type:varchar(36);index"`
+	// SharedAt: 共享时间（当 visibility 变为 'shared' 时设置）
+	SharedAt *time.Time `yaml:"shared_at"           json:"shared_at"            gorm:"index"`
+	// MemberCount: 成员数量（冗余字段，用于快速查询）
+	MemberCount int `yaml:"member_count"            json:"member_count"         gorm:"default:0"`
 	// Chunking configuration
 	ChunkingConfig ChunkingConfig `yaml:"chunking_config"         json:"chunking_config"         gorm:"type:json"`
 	// Image processing configuration
@@ -60,6 +68,8 @@ type KnowledgeBase struct {
 	SummaryModelID string `yaml:"summary_model_id"        json:"summary_model_id"`
 	// VLM config
 	VLMConfig VLMConfig `yaml:"vlm_config"              json:"vlm_config"              gorm:"type:json"`
+	// ASR config (Automatic Speech Recognition)
+	ASRConfig ASRConfig `yaml:"asr_config"              json:"asr_config"              gorm:"type:json"`
 	// Storage provider config (new): only stores provider selection; credentials from tenant StorageEngineConfig
 	StorageProviderConfig *StorageProviderConfig `yaml:"storage_provider_config" json:"storage_provider_config"  gorm:"column:storage_provider_config;type:jsonb"`
 	// Deprecated: legacy COS config column. Kept for backward compatibility with old data.
@@ -264,7 +274,7 @@ func InferStorageFromFilePath(filePath string) string {
 // e.g. "minio://bucket/key" → "minio", "local://tenant/file.pdf" → "local"
 // Returns "" if the path does not use a known provider scheme.
 func ParseProviderScheme(filePath string) string {
-	for _, provider := range []string{"local", "minio", "cos", "tos"} {
+	for _, provider := range []string{"local", "minio", "cos", "tos", "s3"} {
 		if strings.HasPrefix(filePath, provider+"://") {
 			return provider
 		}
@@ -386,6 +396,35 @@ func (c *VLMConfig) Scan(value interface{}) error {
 	return json.Unmarshal(b, c)
 }
 
+// ASRConfig represents the ASR (Automatic Speech Recognition) configuration
+type ASRConfig struct {
+	Enabled  bool   `yaml:"enabled"  json:"enabled"`
+	ModelID  string `yaml:"model_id" json:"model_id"`
+	Language string `yaml:"language" json:"language"` // optional: language hint for transcription
+}
+
+// IsASREnabled checks if ASR is enabled with a valid model
+func (c ASRConfig) IsASREnabled() bool {
+	return c.Enabled && c.ModelID != ""
+}
+
+// Value implements the driver.Valuer interface, used to convert ASRConfig to database value
+func (c ASRConfig) Value() (driver.Value, error) {
+	return json.Marshal(c)
+}
+
+// Scan implements the sql.Scanner interface, used to convert database value to ASRConfig
+func (c *ASRConfig) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	b, ok := value.([]byte)
+	if !ok {
+		return nil
+	}
+	return json.Unmarshal(b, c)
+}
+
 // ExtractConfig represents the extract configuration for a knowledge base
 type ExtractConfig struct {
 	Enabled   bool             `yaml:"enabled"   json:"enabled"`
@@ -478,4 +517,34 @@ func (kb *KnowledgeBase) IsMultimodalEnabled() bool {
 		return true
 	}
 	return false
+}
+
+// KnowledgeBaseVisibility 知识库可见性常量
+const (
+	KnowledgeBaseVisibilityPrivate = "private" // 个人知识库
+	KnowledgeBaseVisibilityShared  = "shared"  // 共享知识库
+)
+
+// KnowledgeBaseMemberRole 成员角色常量
+const (
+	KBMemberRoleOwner  = "owner"  // 创建者（拥有所有权限）
+	KBMemberRoleEditor = "editor" // 编辑者（可编辑知识库内容，但不能删除知识库）
+	KBMemberRoleViewer = "viewer" // 查看者（只能使用，不能编辑）
+)
+
+// KnowledgeBaseMember 知识库成员
+type KnowledgeBaseMember struct {
+	ID              string         `json:"id" gorm:"type:varchar(36);primaryKey"`
+	KnowledgeBaseID string         `json:"knowledge_base_id" gorm:"type:varchar(36);index;not null"`
+	UserID          string         `json:"user_id" gorm:"type:varchar(36);index;not null"`
+	TenantID        uint64         `json:"tenant_id" gorm:"index;not null"`
+	Role            string         `json:"role" gorm:"type:varchar(32);default:'viewer'"` // 'owner' | 'editor' | 'viewer'
+	JoinedAt        time.Time      `json:"joined_at"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+
+	// 关联关系
+	User          *User          `json:"user,omitempty" gorm:"foreignKey:UserID"`
+	KnowledgeBase *KnowledgeBase `json:"knowledge_base,omitempty" gorm:"foreignKey:KnowledgeBaseID"`
 }

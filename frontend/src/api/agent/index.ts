@@ -182,11 +182,12 @@ export interface IMChannel {
   id: string;
   tenant_id?: number;
   agent_id: string;
-  platform: 'wecom' | 'feishu' | 'slack' | 'telegram' | 'dingtalk';
+  platform: 'wecom' | 'feishu' | 'slack' | 'telegram' | 'dingtalk' | 'mattermost';
   name: string;
   enabled: boolean;
   mode: 'webhook' | 'websocket';
   output_mode: 'stream' | 'full';
+  session_mode?: 'user' | 'thread';
   knowledge_base_id?: string;
   credentials: Record<string, any>;
   created_at?: string;

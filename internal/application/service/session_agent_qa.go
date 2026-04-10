@@ -174,6 +174,9 @@ func (s *sessionService) AgentQA(
 		agentQuery = req.Query + "\n\n[用户上传图片内容]\n" + req.ImageDescription
 		logger.Infof(ctx, "Agent model does not support vision, appending image description (%d chars)", len(req.ImageDescription))
 	}
+	if req.QuotedContext != "" {
+		agentQuery += "\n\n" + req.QuotedContext
+	}
 
 	// Execute agent with streaming (asynchronously)
 	// Events will be emitted to EventBus and handled by the Handler layer
@@ -209,12 +212,19 @@ func (s *sessionService) buildAgentConfig(
 		Temperature:                 customAgent.Config.Temperature,
 		WebSearchEnabled:            customAgent.Config.WebSearchEnabled && req.WebSearchEnabled,
 		WebSearchMaxResults:         customAgent.Config.WebSearchMaxResults,
+		WebSearchProviderID:         customAgent.Config.WebSearchProviderID,
 		MultiTurnEnabled:            customAgent.Config.MultiTurnEnabled,
 		HistoryTurns:                customAgent.Config.HistoryTurns,
 		MCPSelectionMode:            customAgent.Config.MCPSelectionMode,
 		MCPServices:                 customAgent.Config.MCPServices,
 		Thinking:                    customAgent.Config.Thinking,
 		RetrieveKBOnlyWhenMentioned: customAgent.Config.RetrieveKBOnlyWhenMentioned,
+		LLMCallTimeout:              customAgent.Config.LLMCallTimeout,
+	}
+
+	// Falls back to global configuration if no specific timeout is set for the agent.
+	if agentConfig.LLMCallTimeout == 0 && s.cfg.Agent != nil && s.cfg.Agent.LLMCallTimeout > 0 {
+		agentConfig.LLMCallTimeout = s.cfg.Agent.LLMCallTimeout
 	}
 
 	// Configure skills based on CustomAgentConfig
@@ -244,6 +254,13 @@ func (s *sessionService) buildAgentConfig(
 		agentConfig.WebSearchMaxResults = 5
 		if tenantInfo.WebSearchConfig != nil && tenantInfo.WebSearchConfig.MaxResults > 0 {
 			agentConfig.WebSearchMaxResults = tenantInfo.WebSearchConfig.MaxResults
+		}
+	}
+
+	// Resolve web search provider ID: agent-level > tenant default (is_default=true)
+	if agentConfig.WebSearchProviderID == "" {
+		if defaultProvider, err := s.webSearchProviderRepo.GetDefault(ctx, tenantInfo.ID); err == nil && defaultProvider != nil {
+			agentConfig.WebSearchProviderID = defaultProvider.ID
 		}
 	}
 
