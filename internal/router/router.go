@@ -319,6 +319,24 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 	// 知识库路由组
 	kb := r.Group("/knowledge-bases")
 	{
+		// 共享知识库相关路由
+		// 创建共享知识库
+		kb.POST("/shared", handler.CreateSharedKnowledgeBase)
+		// 列出共享知识库广场
+		kb.GET("/shared", handler.ListSharedKnowledgeBases)
+		// 列出用户的知识库（个人 + 加入的共享知识库）
+		kb.GET("/user", handler.ListUserKnowledgeBases)
+		// 加入共享知识库
+		kb.POST("/:id/join", handler.JoinSharedKnowledgeBase)
+		// 离开共享知识库
+		kb.POST("/:id/leave", handler.LeaveSharedKnowledgeBase)
+		// 列出知识库成员
+		kb.GET("/:id/members", handler.ListKnowledgeBaseMembers)
+		// 更新成员权限
+		kb.PUT("/:id/members/:user_id", handler.UpdateMemberRole)
+		// 移除成员
+		kb.DELETE("/:id/members/:user_id", handler.RemoveMember)
+
 		// 创建知识库
 		kb.POST("", handler.CreateKnowledgeBase)
 		// 获取知识库列表
@@ -339,24 +357,6 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		kb.GET("/copy/progress/:task_id", handler.GetKBCloneProgress)
 		// 获取可移动目标知识库列表
 		kb.GET("/:id/move-targets", handler.ListMoveTargets)
-
-		// 共享知识库相关路由
-		// 创建共享知识库
-		kb.POST("/shared", handler.CreateSharedKnowledgeBase)
-		// 列出共享知识库广场
-		kb.GET("/shared", handler.ListSharedKnowledgeBases)
-		// 列出用户的知识库（个人 + 加入的共享知识库）
-		kb.GET("/user", handler.ListUserKnowledgeBases)
-		// 加入共享知识库
-		kb.POST("/:id/join", handler.JoinSharedKnowledgeBase)
-		// 离开共享知识库
-		kb.POST("/:id/leave", handler.LeaveSharedKnowledgeBase)
-		// 列出知识库成员
-		kb.GET("/:id/members", handler.ListKnowledgeBaseMembers)
-		// 更新成员权限
-		kb.PUT("/:id/members/:user_id", handler.UpdateMemberRole)
-		// 移除成员
-		kb.DELETE("/:id/members/:user_id", handler.RemoveMember)
 	}
 }
 
