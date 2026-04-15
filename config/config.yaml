@@ -3,7 +3,7 @@ server:
   port: 8080
   host: "0.0.0.0"
   # 前置 Nginx/Ingress 终结 TLS、直连本服务为 HTTP 时设为 true（信任 X-Forwarded-Proto 等）
-  behind_proxy: true
+  behind_proxy: false
   # 可选：需要进程内 HTTPS 时取消注释并填写路径（无默认路径，必须与 enabled 同时配置）
 #  https:
 #    enabled: true

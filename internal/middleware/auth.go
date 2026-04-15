@@ -23,25 +23,42 @@ import (
 
 // 无需认证的API列表
 var noAuthAPI = map[string][]string{
-	"/health":                    {"GET"},
-	"/api/v1/auth/register":      {"POST"},
-	"/api/v1/auth/login":         {"POST"},
-	"/api/v1/auth/oidc/config":   {"GET"},
-	"/api/v1/auth/oidc/url":      {"GET"},
-	"/api/v1/auth/oidc/callback": {"GET"},
-	"/api/v1/auth/refresh":       {"POST"},
-	"/api/v1/cas/validate":       {"GET"}, // CAS 会话验证（认证过程本身）
+	"/health":                         {"GET"},
+	"/api/v1/open/knowledge/retrieve": {"POST"},
+	"/api/v1/auth/register":           {"POST"},
+	"/api/v1/auth/login":              {"POST"},
+	"/api/v1/auth/oidc/config":        {"GET"},
+	"/api/v1/auth/oidc/url":           {"GET"},
+	"/api/v1/auth/oidc/callback":      {"GET"},
+	"/api/v1/auth/refresh":            {"POST"},
+	"/api/v1/cas/validate":            {"GET"}, // CAS 会话验证（认证过程本身）
+}
+
+// normalizeRequestPath trims space and trailing slashes (except "/") so
+// /api/v1/foo/ matches the registered no-auth path /api/v1/foo.
+func normalizeRequestPath(p string) string {
+	p = strings.TrimSpace(p)
+	for len(p) > 1 && strings.HasSuffix(p, "/") {
+		p = strings.TrimSuffix(p, "/")
+	}
+	if p == "" {
+		return "/"
+	}
+	return p
 }
 
 // 检查请求是否在无需认证的API列表中
 func isNoAuthAPI(path string, method string) bool {
+	path = normalizeRequestPath(path)
+	method = strings.ToUpper(strings.TrimSpace(method))
 	for api, methods := range noAuthAPI {
 		// 如果以*结尾，按照前缀匹配，否则按照全路径匹配
 		if strings.HasSuffix(api, "*") {
-			if strings.HasPrefix(path, strings.TrimSuffix(api, "*")) && slices.Contains(methods, method) {
+			prefix := normalizeRequestPath(strings.TrimSuffix(api, "*"))
+			if strings.HasPrefix(path, prefix) && slices.Contains(methods, method) {
 				return true
 			}
-		} else if path == api && slices.Contains(methods, method) {
+		} else if normalizeRequestPath(api) == path && slices.Contains(methods, method) {
 			return true
 		}
 	}
