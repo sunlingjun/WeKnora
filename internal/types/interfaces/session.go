@@ -41,6 +41,9 @@ type SessionService interface {
 	// knowledgeBaseIDs: list of knowledge base IDs to search (supports multi-KB)
 	// knowledgeIDs: list of specific knowledge (file) IDs to search
 	SearchKnowledge(ctx context.Context, knowledgeBaseIDs []string, knowledgeIDs []string, query string) ([]*types.SearchResult, error)
+	// SearchKnowledgeOpen performs retrieval without user login or user-scoped KB permission checks.
+	// Caller must be gated by open_retrieve API key middleware. matchCount<=0 uses tenant retrieval defaults.
+	SearchKnowledgeOpen(ctx context.Context, knowledgeBaseIDs []string, knowledgeIDs []string, query string, matchCount int) ([]*types.SearchResult, error)
 	// AgentQA performs agent-based question answering with conversation history and streaming support.
 	AgentQA(ctx context.Context, req *types.QARequest, eventBus *event.EventBus) error
 	// ClearContext clears the LLM context for a session

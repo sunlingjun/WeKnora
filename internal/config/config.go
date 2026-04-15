@@ -32,6 +32,41 @@ type Config struct {
 	CAS             *CASConfig             `yaml:"cas"              json:"cas"`
 	IM              *IMConfig              `yaml:"im"               json:"im"`
 	Agent           *AgentConfig           `yaml:"agent"            json:"agent"`
+	// OpenRetrieve configures the no-login knowledge retrieve API for model/gateway callers.
+	OpenRetrieve *OpenRetrieveConfig `yaml:"open_retrieve" json:"open_retrieve"`
+}
+
+// OpenRetrieveConfig controls POST /api/v1/open/knowledge/retrieve (no user auth).
+type OpenRetrieveConfig struct {
+	Enabled      bool     `yaml:"enabled" json:"enabled"`
+	APIKey       string   `yaml:"api_key" json:"api_key"`
+	APIKeys      []string `yaml:"api_keys" json:"api_keys"`
+	RateLimitQPS float64  `yaml:"rate_limit_qps" json:"rate_limit_qps"`
+}
+
+// EffectiveAPIKeys returns non-empty configured keys (api_keys plus optional api_key).
+func (c *OpenRetrieveConfig) EffectiveAPIKeys() []string {
+	if c == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	for _, k := range c.APIKeys {
+		add(k)
+	}
+	add(c.APIKey)
+	return out
 }
 
 // AgentConfig represents the global agent settings.

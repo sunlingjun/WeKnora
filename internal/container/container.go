@@ -248,6 +248,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewFAQHandler))
 	must(container.Provide(handler.NewTagHandler))
 	must(container.Provide(session.NewHandler))
+	must(container.Provide(handler.NewOpenRetrieveHandler))
 	must(container.Provide(handler.NewMessageHandler))
 	must(container.Provide(handler.NewModelHandler))
 	must(container.Provide(handler.NewEvaluationHandler))

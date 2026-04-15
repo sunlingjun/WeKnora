@@ -3,12 +3,12 @@ server:
   port: 8080
   host: "0.0.0.0"
   # 前置 Nginx/Ingress 终结 TLS、直连本服务为 HTTP 时设为 true（信任 X-Forwarded-Proto 等）
-  behind_proxy: false
+  behind_proxy: true
   # 可选：需要进程内 HTTPS 时取消注释并填写路径（无默认路径，必须与 enabled 同时配置）
-  https:
-    enabled: true
-    cert_file: "ssl/cert.pem"
-    key_file: "ssl/key.pem"
+#  https:
+#    enabled: true
+#    cert_file: "ssl/cert.pem"
+#    key_file: "ssl/key.pem"
   # 可选：behind_proxy 为 true 且需指定代理网段时填写；省略则使用内置私网默认值
   # trusted_proxies:
   #   - "10.0.0.0/8"
@@ -150,3 +150,10 @@ cas:
     cookie_sid: _cas_t_sid            # Cookie SID 名称（测试环境）
     cookie_uid: _cas_t_uid            # Cookie UID 名称（测试环境）
     image_host: open.t.nxin.com       # 头像图片主机地址（可选）
+
+# 开放检索：POST /api/v1/open/knowledge/retrieve（无用户登录，请求头 X-Open-Retrieve-Api-Key）
+open_retrieve:
+  enabled: true
+  api_key: "1E9FFCFCC2FF244D1A61DF491CD2CD77"
+  api_keys: ["23FB4CC9875E44135AA27D0EAB40A63B","374A42D1D08A46D081AF65A4B29C6F15"]
+  rate_limit_qps: 100

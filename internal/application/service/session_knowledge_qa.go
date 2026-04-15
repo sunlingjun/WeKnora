@@ -849,3 +849,229 @@ func (s *sessionService) resolveWebFetchTopN(req *types.QARequest) int {
 	}
 	return 3
 }
+
+// buildOpenSearchTargets builds retrieval targets from raw IDs without user-scoped permission checks.
+func (s *sessionService) buildOpenSearchTargets(
+	ctx context.Context,
+	knowledgeBaseIDs []string,
+	knowledgeIDs []string,
+) (types.SearchTargets, error) {
+	var targets types.SearchTargets
+	fullKBSet := make(map[string]bool)
+
+	kbIDSet := dedupeStringSliceNonEmpty(knowledgeBaseIDs)
+	for _, kid := range knowledgeIDs {
+		k, err := s.knowledgeService.GetKnowledgeByIDOnly(ctx, kid)
+		if err != nil || k == nil || k.KnowledgeBaseID == "" {
+			continue
+		}
+		kbIDSet = appendUniqueNonEmpty(kbIDSet, k.KnowledgeBaseID)
+	}
+
+	var kbList []*types.KnowledgeBase
+	if len(kbIDSet) > 0 {
+		var err error
+		kbList, err = s.knowledgeBaseService.GetKnowledgeBasesByIDsOnly(ctx, kbIDSet)
+		if err != nil {
+			logger.Warnf(ctx, "buildOpenSearchTargets: batch KB fetch: %v", err)
+		}
+	}
+	kbByID := make(map[string]*types.KnowledgeBase, len(kbList))
+	for _, kb := range kbList {
+		if kb != nil {
+			kbByID[kb.ID] = kb
+		}
+	}
+
+	for _, kbID := range dedupeStringSliceNonEmpty(knowledgeBaseIDs) {
+		kb := kbByID[kbID]
+		if kb == nil {
+			continue
+		}
+		fullKBSet[kbID] = true
+		targets = append(targets, &types.SearchTarget{
+			Type:            types.SearchTargetTypeKnowledgeBase,
+			KnowledgeBaseID: kbID,
+			TenantID:        kb.TenantID,
+		})
+	}
+
+	kbKids := make(map[string][]string)
+	kbTenant := make(map[string]uint64)
+	seenKidPerKB := make(map[string]map[string]struct{})
+	for _, kid := range knowledgeIDs {
+		kid = strings.TrimSpace(kid)
+		if kid == "" {
+			continue
+		}
+		k, err := s.knowledgeService.GetKnowledgeByIDOnly(ctx, kid)
+		if err != nil || k == nil || k.KnowledgeBaseID == "" {
+			continue
+		}
+		if fullKBSet[k.KnowledgeBaseID] {
+			continue
+		}
+		if seenKidPerKB[k.KnowledgeBaseID] == nil {
+			seenKidPerKB[k.KnowledgeBaseID] = make(map[string]struct{})
+		}
+		if _, dup := seenKidPerKB[k.KnowledgeBaseID][kid]; dup {
+			continue
+		}
+		seenKidPerKB[k.KnowledgeBaseID][kid] = struct{}{}
+		kbKids[k.KnowledgeBaseID] = append(kbKids[k.KnowledgeBaseID], kid)
+		if _, ok := kbTenant[k.KnowledgeBaseID]; !ok {
+			if kb := kbByID[k.KnowledgeBaseID]; kb != nil {
+				kbTenant[k.KnowledgeBaseID] = kb.TenantID
+			} else {
+				kbTenant[k.KnowledgeBaseID] = k.TenantID
+			}
+		}
+	}
+	for kbID, kids := range kbKids {
+		tid := kbTenant[kbID]
+		if tid == 0 {
+			continue
+		}
+		targets = append(targets, &types.SearchTarget{
+			Type:            types.SearchTargetTypeKnowledge,
+			KnowledgeBaseID: kbID,
+			TenantID:        tid,
+			KnowledgeIDs:    kids,
+		})
+	}
+	return targets, nil
+}
+
+func dedupeStringSliceNonEmpty(in []string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+func appendUniqueNonEmpty(slice []string, v string) []string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return slice
+	}
+	for _, x := range slice {
+		if x == v {
+			return slice
+		}
+	}
+	return append(slice, v)
+}
+
+// SearchKnowledgeOpen runs the same retrieval pipeline as SearchKnowledge but uses buildOpenSearchTargets
+// (no user KB permission checks). Context tenant is set to the first target tenant for model/rerank listing.
+func (s *sessionService) SearchKnowledgeOpen(
+	ctx context.Context,
+	knowledgeBaseIDs []string,
+	knowledgeIDs []string,
+	query string,
+	matchCount int,
+) ([]*types.SearchResult, error) {
+	logger.Info(ctx, "Start open knowledge base search (no user auth)")
+	searchTargets, err := s.buildOpenSearchTargets(ctx, knowledgeBaseIDs, knowledgeIDs)
+	if err != nil {
+		logger.Warnf(ctx, "buildOpenSearchTargets: %v", err)
+	}
+	if len(searchTargets) == 0 {
+		return []*types.SearchResult{}, nil
+	}
+
+	primaryTenantID := searchTargets[0].TenantID
+	ctx2 := context.WithValue(ctx, types.TenantIDContextKey, primaryTenantID)
+
+	var rc *types.RetrievalConfig
+	tenant, errTenant := s.tenantService.GetTenantByID(ctx2, primaryTenantID)
+	if errTenant != nil || tenant == nil {
+		tenant = &types.Tenant{ID: primaryTenantID}
+	} else {
+		rc = tenant.RetrievalConfig
+	}
+	ctx2 = context.WithValue(ctx2, types.TenantInfoContextKey, tenant)
+
+	embeddingTopK := rc.GetEffectiveEmbeddingTopK()
+	if matchCount > 0 {
+		if matchCount < embeddingTopK {
+			embeddingTopK = matchCount
+		} else {
+			embeddingTopK = matchCount
+		}
+	}
+	if embeddingTopK > 100 {
+		embeddingTopK = 100
+	}
+	if embeddingTopK < 1 {
+		embeddingTopK = 1
+	}
+
+	chatManage := &types.ChatManage{
+		PipelineRequest: types.PipelineRequest{
+			SessionID:        "open-retrieve",
+			Query:            query,
+			KnowledgeBaseIDs: knowledgeBaseIDs,
+			KnowledgeIDs:     knowledgeIDs,
+			SearchTargets:    searchTargets,
+			MaxRounds:        s.cfg.Conversation.MaxRounds,
+			EmbeddingTopK:    embeddingTopK,
+			VectorThreshold:  rc.GetEffectiveVectorThreshold(),
+			KeywordThreshold: rc.GetEffectiveKeywordThreshold(),
+			RerankTopK:       rc.GetEffectiveRerankTopK(),
+			RerankThreshold:  rc.GetEffectiveRerankThreshold(),
+			TenantID:         primaryTenantID,
+		},
+		PipelineState: types.PipelineState{
+			RewriteQuery: query,
+		},
+	}
+
+	models, err := s.modelService.ListModels(ctx2)
+	if err != nil {
+		logger.Errorf(ctx, "SearchKnowledgeOpen: list models: %v", err)
+		return nil, err
+	}
+	if rc != nil && rc.RerankModelID != "" {
+		chatManage.RerankModelID = rc.RerankModelID
+	} else {
+		for _, model := range models {
+			if model == nil {
+				continue
+			}
+			if model.Type == types.ModelTypeRerank {
+				chatManage.RerankModelID = model.ID
+				break
+			}
+		}
+	}
+
+	searchEvents := []types.EventType{
+		types.CHUNK_SEARCH,
+		types.CHUNK_RERANK,
+		types.CHUNK_MERGE,
+		types.FILTER_TOP_K,
+	}
+	for _, event := range searchEvents {
+		err := s.eventManager.Trigger(ctx2, event, chatManage)
+		if err == chatpipeline.ErrSearchNothing {
+			return []*types.SearchResult{}, nil
+		}
+		if err != nil {
+			logger.Errorf(ctx, "SearchKnowledgeOpen event %v failed: %s %s %v",
+				event, err.ErrorType, err.Description, err.Err)
+			return nil, err.Err
+		}
+	}
+	return chatManage.MergeResult, nil
+}

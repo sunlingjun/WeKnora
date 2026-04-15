@@ -70,6 +70,7 @@ WeKnora API 按功能分为以下几类：
 | 智能体管理 | 创建和管理自定义智能体 | [agent.md](./agent.md) |
 | 会话管理 | 创建和管理对话会话 | [session.md](./session.md) |
 | 知识搜索 | 在知识库中搜索内容 | [knowledge-search.md](./knowledge-search.md) |
+| 开放检索 | 无登录态知识分片检索 | [open-knowledge-retrieve.md](./open-knowledge-retrieve.md) |
 | 聊天功能 | 基于知识库和 Agent 进行问答 | [chat.md](./chat.md) |
 | 消息管理 | 获取和管理对话消息 | [message.md](./message.md) |
 | 评估功能 | 评估模型性能 | [evaluation.md](./evaluation.md) |

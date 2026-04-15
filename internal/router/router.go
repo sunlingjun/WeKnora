@@ -66,6 +66,7 @@ type RouterParams struct {
 	CASAuthHandler           *handler.CASAuthHandler
 	CASAuthService           interfaces.CASAuthService
 	RedisClient              redis.UniversalClient
+	OpenRetrieveHandler      *handler.OpenRetrieveHandler
 }
 
 // defaultTrustedPrivateProxies 当 behind_proxy 开启但未配置 trusted_proxies 时的保守默认值（私网 + 本机）。
@@ -135,7 +136,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			return false
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-API-Key", "X-Request-ID", "X-Tenant-ID"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-API-Key", "X-Open-Retrieve-Api-Key", "X-Request-ID", "X-Tenant-ID"},
 		ExposeHeaders:    []string{"Content-Length", "Access-Control-Allow-Origin"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
@@ -211,6 +212,13 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler)
 		RegisterIMChannelRoutes(v1, params.IMHandler)
 		RegisterDataSourceRoutes(v1, params.DataSourceHandler)
+
+		// 开放检索（无用户登录；X-Open-Retrieve-Api-Key，见 config.open_retrieve）
+		if params.OpenRetrieveHandler != nil {
+			openG := v1.Group("/open")
+			openG.Use(middleware.OpenRetrieveApiKey(params.Config))
+			openG.POST("/knowledge/retrieve", params.OpenRetrieveHandler.Retrieve)
+		}
 	}
 
 	return r
