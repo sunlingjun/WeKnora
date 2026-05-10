@@ -17,11 +17,11 @@
                 <h2 class="sidebar-title">{{ mode === 'create' ? $t('knowledgeEditor.titleCreate') : $t('knowledgeEditor.titleEdit') }}</h2>
               </div>
               <div class="settings-nav">
-                <div 
-                  v-for="(item, index) in navItems" 
-                  :key="index"
-                  :class="['nav-item', { 'active': currentSection === item.key }]"
-                  @click="currentSection = item.key"
+                <div
+                    v-for="(item, index) in navItems"
+                    :key="index"
+                    :class="['nav-item', { 'active': currentSection === item.key }]"
+                    @click="currentSection = item.key"
                 >
                   <t-icon :name="item.icon" class="nav-icon" />
                   <span class="nav-label">{{ item.label }}</span>
@@ -44,8 +44,8 @@
                       <div class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.basic.typeLabel') }}</label>
                         <t-radio-group
-                          v-model="formData.type"
-                          :disabled="mode === 'edit'"
+                            v-model="formData.type"
+                            :disabled="mode === 'edit'"
                         >
                           <t-radio-button value="document">{{ $t('knowledgeEditor.basic.typeDocument') }}</t-radio-button>
                           <t-radio-button value="faq">{{ $t('knowledgeEditor.basic.typeFAQ') }}</t-radio-button>
@@ -54,20 +54,36 @@
                       </div>
                       <div class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.basic.nameLabel') }}</label>
-                        <t-input 
-                          v-model="formData.name" 
-                          :placeholder="$t('knowledgeEditor.basic.namePlaceholder')"
-                          :maxlength="50"
+                        <t-input
+                            v-model="formData.name"
+                            :placeholder="$t('knowledgeEditor.basic.namePlaceholder')"
+                            :maxlength="50"
                         />
                       </div>
                       <div class="form-item">
                         <label class="form-label">{{ $t('knowledgeEditor.basic.descriptionLabel') }}</label>
-                        <t-textarea 
-                          v-model="formData.description" 
-                          :placeholder="$t('knowledgeEditor.basic.descriptionPlaceholder')"
-                          :maxlength="200"
-                          :autosize="{ minRows: 3, maxRows: 6 }"
+                        <t-textarea
+                            v-model="formData.description"
+                            :placeholder="$t('knowledgeEditor.basic.descriptionPlaceholder')"
+                            :maxlength="200"
+                            :autosize="{ minRows: 3, maxRows: 6 }"
                         />
+                      </div>
+                      <!-- 可见性选择（仅创建模式） -->
+                      <div v-if="mode === 'create'" class="form-item">
+                        <label class="form-label">{{ $t('knowledgeEditor.basic.visibilityLabel') }}</label>
+                        <t-radio-group v-model="formData.visibility">
+                          <t-radio-button value="private">{{ $t('knowledgeEditor.basic.visibilityPrivate') }}</t-radio-button>
+                          <t-radio-button value="shared">{{ $t('knowledgeEditor.basic.visibilityShared') }}</t-radio-button>
+                        </t-radio-group>
+                        <p class="form-tip">{{ $t('knowledgeEditor.basic.visibilityDescription') }}</p>
+                      </div>
+                      <div v-else class="form-item">
+                        <label class="form-label">{{ $t('knowledgeEditor.basic.visibilityLabel') }}</label>
+                        <t-tag :theme="formData.visibility === 'shared' ? 'success' : 'default'" variant="light" size="medium">
+                          {{ formData.visibility === 'shared' ? $t('knowledgeEditor.basic.visibilityShared') : $t('knowledgeEditor.basic.visibilityPrivate') }}
+                        </t-tag>
+                        <p class="form-tip">{{ $t('knowledgeEditor.basic.visibilityDescription') }}</p>
                       </div>
                     </div>
                   </div>
@@ -76,12 +92,12 @@
                 <!-- 模型配置 -->
                 <div v-show="currentSection === 'models'" class="section">
                   <KBModelConfig
-                    ref="modelConfigRef"
-                    v-if="formData"
-                    :config="formData.modelConfig"
-                    :has-files="hasFiles"
-                    :all-models="allModels"
-                    @update:config="handleModelConfigUpdate"
+                      ref="modelConfigRef"
+                      v-if="formData"
+                      :config="formData.modelConfig"
+                      :has-files="hasFiles"
+                      :all-models="allModels"
+                      @update:config="handleModelConfigUpdate"
                   />
                 </div>
 
@@ -96,7 +112,7 @@
                       <div class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.faq.indexModeLabel') }}</label>
                         <t-radio-group
-                          v-model="formData.faqConfig.indexMode"
+                            v-model="formData.faqConfig.indexMode"
                         >
                           <t-radio-button value="question_only">{{ $t('knowledgeEditor.faq.modes.questionOnly') }}</t-radio-button>
                           <t-radio-button value="question_answer">{{ $t('knowledgeEditor.faq.modes.questionAnswer') }}</t-radio-button>
@@ -106,7 +122,7 @@
                       <div class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.faq.questionIndexModeLabel') }}</label>
                         <t-radio-group
-                          v-model="formData.faqConfig.questionIndexMode"
+                            v-model="formData.faqConfig.questionIndexMode"
                         >
                           <t-radio-button value="combined">{{ $t('knowledgeEditor.faq.modes.combined') }}</t-radio-button>
                           <t-radio-button value="separate">{{ $t('knowledgeEditor.faq.modes.separate') }}</t-radio-button>
@@ -123,37 +139,37 @@
                 <!-- 解析引擎 -->
                 <div v-if="!isFAQ && formData" v-show="currentSection === 'parser'" class="section">
                   <KBParserSettings
-                    :parser-engine-rules="formData.chunkingConfig.parserEngineRules"
-                    @update:parser-engine-rules="handleParserEngineRulesUpdate"
+                      :parser-engine-rules="formData.chunkingConfig.parserEngineRules"
+                      @update:parser-engine-rules="handleParserEngineRulesUpdate"
                   />
                 </div>
 
                 <!-- 存储引擎 -->
                 <div v-if="!isFAQ && formData" v-show="currentSection === 'storage'" class="section">
                   <KBStorageSettings
-                    :storage-provider="formData.storageProvider"
-                    :has-files="mode === 'edit' && hasFiles"
-                    @update:storage-provider="handleStorageProviderUpdate"
+                      :storage-provider="formData.storageProvider"
+                      :has-files="mode === 'edit' && hasFiles"
+                      @update:storage-provider="handleStorageProviderUpdate"
                   />
                 </div>
 
                 <!-- 分块设置 -->
                 <div v-if="!isFAQ" v-show="currentSection === 'chunking'" class="section">
                   <KBChunkingSettings
-                    v-if="formData"
-                    :config="formData.chunkingConfig"
-                    @update:config="handleChunkingConfigUpdate"
+                      v-if="formData"
+                      :config="formData.chunkingConfig"
+                      @update:config="handleChunkingConfigUpdate"
                   />
                 </div>
 
                 <!-- 图谱设置 -->
                 <div v-if="!isFAQ" v-show="currentSection === 'graph'" class="section">
                   <GraphSettings
-                    v-if="formData"
-                    :graph-extract="formData.nodeExtractConfig"
-                    :model-id="formData.modelConfig.llmModelId"
-                    :all-models="allModels"
-                    @update:graphExtract="handleNodeExtractUpdate"
+                      v-if="formData"
+                      :graph-extract="formData.nodeExtractConfig"
+                      :model-id="formData.modelConfig.llmModelId"
+                      :all-models="allModels"
+                      @update:graphExtract="handleNodeExtractUpdate"
                   />
                 </div>
 
@@ -174,9 +190,9 @@
                         </div>
                         <div class="setting-control">
                           <t-switch
-                            v-model="formData.multimodalConfig.enabled"
-                            @change="handleMultimodalToggle"
-                            size="medium"
+                              v-model="formData.multimodalConfig.enabled"
+                              @change="handleMultimodalToggle"
+                              size="medium"
                           />
                         </div>
                       </div>
@@ -189,12 +205,12 @@
                         </div>
                         <div class="setting-control">
                           <ModelSelector
-                            model-type="VLLM"
-                            :selected-model-id="formData.multimodalConfig.vllmModelId"
-                            :all-models="allModels"
-                            @update:selected-model-id="handleMultimodalVLLMChange"
-                            @add-model="handleAddVLLMModel"
-                            :placeholder="$t('knowledgeEditor.advanced.multimodal.vllmPlaceholder')"
+                              model-type="VLLM"
+                              :selected-model-id="formData.multimodalConfig.vllmModelId"
+                              :all-models="allModels"
+                              @update:selected-model-id="handleMultimodalVLLMChange"
+                              @add-model="handleAddVLLMModel"
+                              :placeholder="$t('knowledgeEditor.advanced.multimodal.vllmPlaceholder')"
                           />
                         </div>
                       </div>
@@ -219,8 +235,8 @@
                         </div>
                         <div class="setting-control">
                           <t-switch
-                            v-model="formData.asrConfig.enabled"
-                            size="medium"
+                              v-model="formData.asrConfig.enabled"
+                              size="medium"
                           />
                         </div>
                       </div>
@@ -233,12 +249,12 @@
                         </div>
                         <div class="setting-control">
                           <ModelSelector
-                            model-type="ASR"
-                            :selected-model-id="formData.asrConfig.modelId"
-                            :all-models="allModels"
-                            @update:selected-model-id="(val: string) => { if (formData) formData.asrConfig.modelId = val }"
-                            @add-model="handleAddASRModel"
-                            :placeholder="$t('knowledgeEditor.asr.modelPlaceholder')"
+                              model-type="ASR"
+                              :selected-model-id="formData.asrConfig.modelId"
+                              :all-models="allModels"
+                              @update:selected-model-id="(val: string) => { if (formData) formData.asrConfig.modelId = val }"
+                              @add-model="handleAddASRModel"
+                              :placeholder="$t('knowledgeEditor.asr.modelPlaceholder')"
                           />
                         </div>
                       </div>
@@ -246,14 +262,26 @@
                   </div>
                 </div>
 
+                <!-- 成员管理（仅共享知识库的创建者可见） -->
+                <div
+                    v-if="mode === 'edit' && (kbInfo?.visibility === 'shared' && kbInfo?.is_owner)"
+                    v-show="currentSection === 'members'"
+                    class="section"
+                >
+                  <KnowledgeBaseMembers
+                      :kb-id="props.kbId || ''"
+                      :embedded="true"
+                  />
+                </div>
+
                 <!-- 高级设置 -->
                 <div v-if="!isFAQ" v-show="currentSection === 'advanced'" class="section">
                   <KBAdvancedSettings
-                    ref="advancedSettingsRef"
-                    v-if="formData"
-                    :question-generation="formData.questionGenerationConfig"
-                    :all-models="allModels"
-                    @update:question-generation="handleQuestionGenerationUpdate"
+                      ref="advancedSettingsRef"
+                      v-if="formData"
+                      :question-generation="formData.questionGenerationConfig"
+                      :all-models="allModels"
+                      @update:question-generation="handleQuestionGenerationUpdate"
                   />
                 </div>
 
@@ -288,14 +316,16 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import { createKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase } from '@/api/knowledge-base'
+import { createKnowledgeBase, createSharedKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase } from '@/api/knowledge-base'
 import { updateKBConfig, type KBModelConfigRequest } from '@/api/initialization'
 import { listModels } from '@/api/model'
 import { useUIStore } from '@/stores/ui'
+import { useAuthStore } from '@/stores/auth'
 import KBModelConfig from './settings/KBModelConfig.vue'
 import KBParserSettings from './settings/KBParserSettings.vue'
 import KBStorageSettings from './settings/KBStorageSettings.vue'
 import KBChunkingSettings from './settings/KBChunkingSettings.vue'
+import KnowledgeBaseMembers from './settings/KnowledgeBaseMembers.vue'
 import KBAdvancedSettings from './settings/KBAdvancedSettings.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import GraphSettings from './settings/GraphSettings.vue'
@@ -304,6 +334,7 @@ import DataSourceSettings from './settings/DataSourceSettings.vue'
 import { useI18n } from 'vue-i18n'
 
 const uiStore = useUIStore()
+const authStore = useAuthStore()
 const { t } = useI18n()
 
 // Props
@@ -325,6 +356,7 @@ const saving = ref(false)
 const loading = ref(false)
 const allModels = ref<any[]>([])
 const hasFiles = ref(false)
+const kbInfo = ref<any>(null) // 存储知识库信息（用于权限判断）
 const initialStorageProvider = ref<string>('')
 const dsCount = ref(0)
 
@@ -337,18 +369,23 @@ const navItems = computed(() => {
     items.push({ key: 'faq', icon: 'help-circle', label: t('knowledgeEditor.sidebar.faq') })
   } else {
     items.push(
-      { key: 'parser', icon: 'file-search', label: t('settings.parserEngine') },
-      { key: 'multimodal', icon: 'image', label: t('knowledgeEditor.sidebar.multimodal') },
-      { key: 'asr', icon: 'sound', label: t('knowledgeEditor.sidebar.asr') },
-      { key: 'storage', icon: 'cloud', label: t('knowledgeEditor.sidebar.storage') },
-      { key: 'chunking', icon: 'file-copy', label: t('knowledgeEditor.sidebar.chunking') },
-      { key: 'graph', icon: 'chart-bubble', label: t('knowledgeEditor.sidebar.graph') },
-      { key: 'advanced', icon: 'setting', label: t('knowledgeEditor.sidebar.advanced') }
+        { key: 'parser', icon: 'file-search', label: t('settings.parserEngine') },
+        { key: 'multimodal', icon: 'image', label: t('knowledgeEditor.sidebar.multimodal') },
+        { key: 'asr', icon: 'sound', label: t('knowledgeEditor.sidebar.asr') },
+        { key: 'storage', icon: 'cloud', label: t('knowledgeEditor.sidebar.storage') },
+        { key: 'chunking', icon: 'file-copy', label: t('knowledgeEditor.sidebar.chunking') },
+        { key: 'graph', icon: 'chart-bubble', label: t('knowledgeEditor.sidebar.graph') },
+        { key: 'advanced', icon: 'setting', label: t('knowledgeEditor.sidebar.advanced') }
     )
     if (props.mode === 'edit' && props.kbId) {
       items.push({ key: 'datasource', icon: 'cloud-download', label: t('knowledgeEditor.sidebar.datasource'), badge: dsCount.value || undefined })
     }
   }
+  // 如果是共享知识库且是创建者，添加成员管理菜单（直接共享）
+  if (props.mode === 'edit' && kbInfo.value?.visibility === 'shared' && kbInfo.value?.is_owner) {
+    items.push({ key: 'members', icon: 'usergroup', label: t('knowledgeEditor.sidebar.members') })
+  }
+  // 只在编辑模式下显示共享标签页
   if (props.mode === 'edit' && props.kbId) {
     items.push({ key: 'share', icon: 'share', label: t('knowledgeEditor.sidebar.share') })
   }
@@ -364,20 +401,20 @@ const formData = ref<any>(null)
 const isFAQ = computed(() => formData.value?.type === 'faq')
 
 watch(
-  () => formData.value?.type,
-  (newType, oldType) => {
-    if (!formData.value) return
-    if (newType === 'faq') {
-      if (!formData.value.faqConfig) {
-        formData.value.faqConfig = { indexMode: 'question_only', questionIndexMode: 'separate' }
+    () => formData.value?.type,
+    (newType, oldType) => {
+      if (!formData.value) return
+      if (newType === 'faq') {
+        if (!formData.value.faqConfig) {
+          formData.value.faqConfig = { indexMode: 'question_only', questionIndexMode: 'separate' }
+        }
+        if (!['basic', 'models', 'faq'].includes(currentSection.value)) {
+          currentSection.value = 'faq'
+        }
+      } else if (oldType === 'faq' && currentSection.value === 'faq') {
+        currentSection.value = 'basic'
       }
-      if (!['basic', 'models', 'faq'].includes(currentSection.value)) {
-        currentSection.value = 'faq'
-      }
-    } else if (oldType === 'faq' && currentSection.value === 'faq') {
-      currentSection.value = 'basic'
     }
-  }
 )
 
 // 初始化表单数据
@@ -386,6 +423,7 @@ const initFormData = (type: 'document' | 'faq' = 'document') => {
     type,
     name: '',
     description: '',
+    visibility: 'private' as 'private' | 'shared', // 默认个人知识库
     faqConfig: {
       indexMode: 'question_only',
       questionIndexMode: 'separate'
@@ -449,28 +487,40 @@ const loadAllModels = async () => {
 // 加载知识库数据（编辑模式）
 const loadKBData = async () => {
   if (props.mode !== 'edit' || !props.kbId) return
-  
+
   loading.value = true
   try {
-    const [kbInfo, models, filesResult] = await Promise.all([
+    const [kbRes, models, filesResult] = await Promise.all([
       getKnowledgeBaseById(props.kbId),
       loadAllModels(),
       listKnowledgeFiles(props.kbId, { page: 1, page_size: 1 })
     ])
-    
-    if (!kbInfo || !kbInfo.data) {
+
+    if (!kbRes || !kbRes.data) {
       throw new Error(t('knowledgeEditor.messages.notFound'))
     }
 
-    const kb = kbInfo.data
+    const kb = kbRes.data
+    const resolvedOwner =
+        kb.is_owner === true ||
+        (kb.owner_id && kb.owner_id === authStore.currentUserId)
     hasFiles.value = (filesResult as any)?.total > 0
-    
+
+    // 保存知识库信息（用于权限判断）
+    kbInfo.value = {
+      ...kb,
+      is_owner: resolvedOwner,
+      isOwner: resolvedOwner,
+    }
+    console.log(kbInfo.value)
+
     // 设置表单数据
     const kbType = (kb.type as 'document' | 'faq') || 'document'
     formData.value = {
       type: kbType,
       name: kb.name || '',
       description: kb.description || '',
+      visibility: kb.visibility || 'private', // 加载可见性
       faqConfig: {
         indexMode: kb.faq_config?.index_mode || 'question_only',
         questionIndexMode: kb.faq_config?.question_index_mode || 'separate'
@@ -628,6 +678,7 @@ const buildSubmitData = () => {
     name: formData.value.name,
     description: formData.value.description,
     type: formData.value.type,
+    visibility: formData.value.visibility || 'private', // 添加可见性
     chunking_config: {
       chunk_size: formData.value.chunkingConfig.chunkSize,
       chunk_overlap: formData.value.chunkingConfig.chunkOverlap,
@@ -637,8 +688,8 @@ const buildSubmitData = () => {
       parent_chunk_size: formData.value.chunkingConfig.parentChunkSize,
       child_chunk_size: formData.value.chunkingConfig.childChunkSize,
       ...(formData.value.chunkingConfig.parserEngineRules?.length
-        ? { parser_engine_rules: formData.value.chunkingConfig.parserEngineRules }
-        : {})
+          ? { parser_engine_rules: formData.value.chunkingConfig.parserEngineRules }
+          : {})
     },
     embedding_model_id: formData.value.modelConfig.embeddingModelId,
     summary_model_id: formData.value.modelConfig.llmModelId
@@ -648,16 +699,16 @@ const buildSubmitData = () => {
   data.vlm_config = {
     enabled: formData.value.multimodalConfig.enabled,
     model_id: formData.value.multimodalConfig.enabled
-      ? (formData.value.multimodalConfig.vllmModelId || '')
-      : ''
+        ? (formData.value.multimodalConfig.vllmModelId || '')
+        : ''
   }
 
   // 添加ASR语音识别配置
   data.asr_config = {
     enabled: formData.value.asrConfig?.enabled || false,
     model_id: formData.value.asrConfig?.enabled
-      ? (formData.value.asrConfig?.modelId || '')
-      : '',
+        ? (formData.value.asrConfig?.modelId || '')
+        : '',
     language: formData.value.asrConfig?.language || ''
   }
 
@@ -707,11 +758,11 @@ const handleSubmit = async () => {
 
   // 编辑模式下，若已有文件且存储引擎发生了变化，弹窗确认
   if (
-    props.mode === 'edit' &&
-    hasFiles.value &&
-    formData.value &&
-    initialStorageProvider.value &&
-    formData.value.storageProvider !== initialStorageProvider.value
+      props.mode === 'edit' &&
+      hasFiles.value &&
+      formData.value &&
+      initialStorageProvider.value &&
+      formData.value.storageProvider !== initialStorageProvider.value
   ) {
     const dialog = DialogPlugin.confirm({
       header: t('common.confirm'),
@@ -804,7 +855,7 @@ const doSubmit = async () => {
       MessagePlugin.success(t('knowledgeEditor.messages.updateSuccess'))
       emit('success', props.kbId)
     }
-    
+
     handleClose()
   } catch (error: any) {
     console.error('Knowledge base operation failed:', error)
@@ -818,6 +869,7 @@ const doSubmit = async () => {
 const resetState = () => {
   currentSection.value = 'basic'
   formData.value = null
+  kbInfo.value = null // 重置知识库信息
   hasFiles.value = false
   initialStorageProvider.value = ''
   saving.value = false
@@ -837,15 +889,15 @@ watch(() => props.visible, async (newVal) => {
   if (newVal) {
     // 打开弹窗时，先重置状态
     resetState()
-    
+
     // 检查是否有初始 section，如果有则跳转
     if (uiStore.kbEditorInitialSection) {
       currentSection.value = uiStore.kbEditorInitialSection
     }
-    
+
     // 加载模型列表
     await loadAllModels()
-    
+
     // 根据模式加载数据
     if (props.mode === 'edit' && props.kbId) {
       await loadKBData()
@@ -865,12 +917,12 @@ watch(() => props.visible, async (newVal) => {
 
 // 监听全局设置弹窗关闭后刷新模型列表
 watch(
-  () => uiStore.showSettingsModal,
-  async (visible, previous) => {
-    if (!visible && previous && props.visible) {
-      await loadAllModels()
+    () => uiStore.showSettingsModal,
+    async (visible, previous) => {
+      if (!visible && previous && props.visible) {
+        await loadAllModels()
+      }
     }
-  }
 )
 </script>
 

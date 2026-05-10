@@ -1002,19 +1002,27 @@ func (s *sessionService) SearchKnowledgeOpen(
 	}
 	ctx2 = context.WithValue(ctx2, types.TenantInfoContextKey, tenant)
 
+	// Recall width: tenant embedding_top_k only. Do not tie this to match_count — callers use
+	// match_count as the max final response size; shrinking recall here hurt rerank quality.
+	const openRetrieveMaxTopK = 100
 	embeddingTopK := rc.GetEffectiveEmbeddingTopK()
-	if matchCount > 0 {
-		if matchCount < embeddingTopK {
-			embeddingTopK = matchCount
-		} else {
-			embeddingTopK = matchCount
-		}
-	}
-	if embeddingTopK > 100 {
-		embeddingTopK = 100
+	if embeddingTopK > openRetrieveMaxTopK {
+		embeddingTopK = openRetrieveMaxTopK
 	}
 	if embeddingTopK < 1 {
 		embeddingTopK = 1
+	}
+
+	// Final return cap: explicit match_count overrides tenant rerank_top_k; omit/zero uses tenant default.
+	rerankTopK := rc.GetEffectiveRerankTopK()
+	if matchCount > 0 {
+		rerankTopK = matchCount
+	}
+	if rerankTopK > openRetrieveMaxTopK {
+		rerankTopK = openRetrieveMaxTopK
+	}
+	if rerankTopK < 1 {
+		rerankTopK = 1
 	}
 
 	chatManage := &types.ChatManage{
@@ -1028,7 +1036,7 @@ func (s *sessionService) SearchKnowledgeOpen(
 			EmbeddingTopK:    embeddingTopK,
 			VectorThreshold:  rc.GetEffectiveVectorThreshold(),
 			KeywordThreshold: rc.GetEffectiveKeywordThreshold(),
-			RerankTopK:       rc.GetEffectiveRerankTopK(),
+			RerankTopK:       rerankTopK,
 			RerankThreshold:  rc.GetEffectiveRerankThreshold(),
 			TenantID:         primaryTenantID,
 		},

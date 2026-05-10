@@ -24,7 +24,9 @@ type OpenRetrieveRequest struct {
 	Query            string   `json:"query"`
 	KnowledgeBaseIDs []string `json:"knowledge_base_ids"`
 	KnowledgeIDs     []string `json:"knowledge_ids"`
-	MatchCount       int      `json:"match_count"`
+	// MatchCount is the maximum number of chunks to return after rerank/merge/filter.
+	// Vector/keyword recall volume uses the tenant RetrievalConfig embedding_top_k (not this field).
+	MatchCount int `json:"match_count"`
 }
 
 // Retrieve runs hybrid retrieval without user-scoped permission checks.
