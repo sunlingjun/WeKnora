@@ -1,6 +1,7 @@
-import { reactive, ref, watch } from 'vue'
+import { reactive, ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import i18n from '@/i18n'
+import { useAuthStore } from '@/stores/auth'
 
 type MenuChild = Record<string, any>
 
@@ -39,6 +40,7 @@ export const useMenuStore = defineStore('menuStore', () => {
   const firstMentionedItems = ref<any[]>([])
   const firstModelId = ref('')
   const firstImageFiles = ref<any[]>([])
+  const firstAttachmentFiles = ref<any[]>([])
   const prefillQuery = ref('')
 
   const applyMenuTranslations = () => {
@@ -57,6 +59,16 @@ export const useMenuStore = defineStore('menuStore', () => {
       applyMenuTranslations()
     }
   )
+
+  const liteHiddenPaths = new Set(['logout', 'organizations'])
+
+  const visibleMenuArr = computed(() => {
+    const authStore = useAuthStore()
+    if (authStore.isLiteMode) {
+      return menuArr.filter(item => !liteHiddenPaths.has(item.path))
+    }
+    return menuArr
+  })
 
   const chatMenuIndex = menuArr.findIndex(item => item.path === 'creatChat')
 
@@ -100,11 +112,12 @@ export const useMenuStore = defineStore('menuStore', () => {
     isFirstSession.value = payload
   }
 
-  const changeFirstQuery = (payload: string, mentionedItems: any[] = [], modelId: string = '', imageFiles: any[] = []) => {
+  const changeFirstQuery = (payload: string, mentionedItems: any[] = [], modelId: string = '', imageFiles: any[] = [], attachmentFiles: any[] = []) => {
     firstQuery.value = payload
     firstMentionedItems.value = mentionedItems
     firstModelId.value = modelId
     firstImageFiles.value = imageFiles
+    firstAttachmentFiles.value = attachmentFiles
   }
 
   const setPrefillQuery = (q: string) => {
@@ -119,11 +132,13 @@ export const useMenuStore = defineStore('menuStore', () => {
 
   return {
     menuArr,
+    visibleMenuArr,
     isFirstSession,
     firstQuery,
     firstMentionedItems,
     firstModelId,
     firstImageFiles,
+    firstAttachmentFiles,
     prefillQuery,
     clearMenuArr,
     updatemenuArr,

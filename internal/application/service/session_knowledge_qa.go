@@ -115,12 +115,14 @@ func (s *sessionService) KnowledgeQA(
 			RewritePromptUser:       s.cfg.Conversation.RewritePromptUser,
 			WebSearchEnabled:        req.WebSearchEnabled,
 			WebSearchProviderID:     s.resolveWebSearchProviderID(ctx, req, retrievalTenantID),
+			WebSearchMaxResults:     s.resolveWebSearchMaxResults(ctx, req),
 			WebFetchEnabled:         s.resolveWebFetchEnabled(req),
 			WebFetchTopN:            s.resolveWebFetchTopN(req),
 			TenantID:                retrievalTenantID,
 			Images:                  req.ImageURLs,
 			VLMModelID:              vlmModelID,
 			ChatModelSupportsVision: chatModelSupportsVision,
+			Attachments:             req.Attachments,
 			Language:                types.LanguageNameFromContext(ctx),
 		},
 		PipelineState: types.PipelineState{
@@ -153,6 +155,10 @@ func (s *sessionService) KnowledgeQA(
 		}
 		if req.QuotedContext != "" {
 			userContent += "\n\n" + req.QuotedContext
+		}
+		// Inject attachment content for pure-chat path (RAG path handles this in INTO_CHAT_MESSAGE).
+		if len(req.Attachments) > 0 {
+			userContent += req.Attachments.BuildPrompt()
 		}
 		chatManage.UserContent = userContent
 
@@ -848,6 +854,22 @@ func (s *sessionService) resolveWebFetchTopN(req *types.QARequest) int {
 		return req.CustomAgent.Config.WebFetchTopN
 	}
 	return 3
+}
+
+	return 3
+}
+
+// resolveWebSearchMaxResults returns the max results for web search.
+// Priority: agent config > tenant default > default (10)
+func (s *sessionService) resolveWebSearchMaxResults(ctx context.Context, req *types.QARequest) int {
+	if req.CustomAgent != nil && req.CustomAgent.Config.WebSearchMaxResults > 0 {
+		return req.CustomAgent.Config.WebSearchMaxResults
+	}
+	tenantInfo, _ := types.TenantInfoFromContext(ctx)
+	if tenantInfo != nil && tenantInfo.WebSearchConfig != nil && tenantInfo.WebSearchConfig.MaxResults > 0 {
+		return tenantInfo.WebSearchConfig.MaxResults
+	}
+	return 10
 }
 
 // buildOpenSearchTargets builds retrieval targets from raw IDs without user-scoped permission checks.

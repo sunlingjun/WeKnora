@@ -101,6 +101,8 @@ type Tenant struct {
 	ConversationConfig *ConversationConfig `yaml:"conversation_config" json:"conversation_config" gorm:"type:jsonb"`
 	// Parser engine config overrides (MinerU endpoint, API key, etc.). Used when parsing documents; overrides env.
 	ParserEngineConfig *ParserEngineConfig `yaml:"parser_engine_config" json:"parser_engine_config" gorm:"type:jsonb"`
+	// Credentials config: third-party provider credentials (e.g. WeKnoraCloud AppID/AppSecret)
+	Credentials *CredentialsConfig `yaml:"credentials" json:"credentials" gorm:"type:jsonb"`
 	// Storage engine config: parameters for Local, MinIO, COS. Used for document/file storage and docreader.
 	StorageEngineConfig *StorageEngineConfig `yaml:"storage_engine_config" json:"storage_engine_config" gorm:"type:jsonb"`
 	// Chat history config: knowledge base configuration for indexing and searching chat messages via vector search
@@ -230,10 +232,72 @@ func (c *ConversationConfig) Scan(value interface{}) error {
 	return json.Unmarshal(b, c)
 }
 
+// CredentialsConfig holds third-party provider credentials at the tenant level.
+// Stored as a single JSONB column; each provider is a nested object so new
+// providers can be added without schema changes.
+type CredentialsConfig struct {
+	WeKnoraCloud *WeKnoraCloudCredentials `json:"weknoracloud,omitempty"`
+}
+
+// WeKnoraCloudCredentials stores WeKnoraCloud AppID and AppSecret.
+// AppSecret is AES-256 encrypted before persisting to database.
+type WeKnoraCloudCredentials struct {
+	AppID     string `json:"app_id"`
+	AppSecret string `json:"app_secret"`
+}
+
+// GetWeKnoraCloud returns the WeKnoraCloud credentials, or nil if not configured.
+func (c *CredentialsConfig) GetWeKnoraCloud() *WeKnoraCloudCredentials {
+	if c == nil || c.WeKnoraCloud == nil {
+		return nil
+	}
+	if c.WeKnoraCloud.AppID == "" || c.WeKnoraCloud.AppSecret == "" {
+		return nil
+	}
+	return c.WeKnoraCloud
+}
+
+// Value implements the driver.Valuer interface for CredentialsConfig
+func (c *CredentialsConfig) Value() (driver.Value, error) {
+	if c == nil {
+		return nil, nil
+	}
+	cp := *c
+	if cp.WeKnoraCloud != nil && cp.WeKnoraCloud.AppSecret != "" {
+		if key := utils.GetAESKey(); key != nil {
+			if encrypted, err := utils.EncryptAESGCM(cp.WeKnoraCloud.AppSecret, key); err == nil {
+				cp.WeKnoraCloud = &WeKnoraCloudCredentials{AppID: cp.WeKnoraCloud.AppID, AppSecret: encrypted}
+			}
+		}
+	}
+	return json.Marshal(cp)
+}
+
+// Scan implements the sql.Scanner interface for CredentialsConfig
+func (c *CredentialsConfig) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	b, ok := value.([]byte)
+	if !ok {
+		return nil
+	}
+	if err := json.Unmarshal(b, c); err != nil {
+		return err
+	}
+	if c.WeKnoraCloud != nil && c.WeKnoraCloud.AppSecret != "" {
+		if key := utils.GetAESKey(); key != nil {
+			if decrypted, err := utils.DecryptAESGCM(c.WeKnoraCloud.AppSecret, key); err == nil {
+				c.WeKnoraCloud.AppSecret = decrypted
+			}
+		}
+	}
+	return nil
+}
+
 // ParserEngineConfig holds tenant-level overrides for document parser engines (e.g. MinerU endpoint, API key).
 // These values take precedence over environment variables when parsing documents.
 type ParserEngineConfig struct {
-	DocReaderAddr  string `json:"docreader_addr"`  // 文档解析服务地址
 	MinerUEndpoint string `json:"mineru_endpoint"` // MinerU 自建服务端点
 	MinerUAPIKey   string `json:"mineru_api_key"`  // MinerU 云 API Key
 
@@ -321,15 +385,16 @@ func (c *ParserEngineConfig) Scan(value interface{}) error {
 	return json.Unmarshal(b, c)
 }
 
-// StorageEngineConfig holds tenant-level storage engine parameters for Local, MinIO, COS, TOS, and S3.
+// StorageEngineConfig holds tenant-level storage engine parameters for Local, MinIO, COS, TOS, S3, and OSS.
 // Knowledge bases select which provider to use; parameters are read from here.
 type StorageEngineConfig struct {
-	DefaultProvider string             `json:"default_provider"` // "local", "minio", "cos", "tos", "s3"
+	DefaultProvider string             `json:"default_provider"` // "local", "minio", "cos", "tos", "s3", "oss"
 	Local           *LocalEngineConfig `json:"local,omitempty"`
 	MinIO           *MinIOEngineConfig `json:"minio,omitempty"`
 	COS             *COSEngineConfig   `json:"cos,omitempty"`
 	TOS             *TOSEngineConfig   `json:"tos,omitempty"`
 	S3              *S3EngineConfig    `json:"s3,omitempty"`
+	OSS             *OSSEngineConfig   `json:"oss,omitempty"`
 }
 
 // LocalEngineConfig is for local file system storage (single-machine deployment only).
@@ -377,6 +442,19 @@ type S3EngineConfig struct {
 	SecretKey  string `json:"secret_key"`
 	BucketName string `json:"bucket_name"`
 	PathPrefix string `json:"path_prefix"`
+}
+
+// OSSEngineConfig is for Alibaba Cloud OSS (对象存储服务).
+type OSSEngineConfig struct {
+	Endpoint       string `json:"endpoint"`
+	Region         string `json:"region"`
+	AccessKey      string `json:"access_key"`
+	SecretKey      string `json:"secret_key"`
+	BucketName     string `json:"bucket_name"`
+	PathPrefix     string `json:"path_prefix"`
+	UseTempBucket  bool   `json:"use_temp_bucket"`
+	TempBucketName string `json:"temp_bucket_name"`
+	TempRegion     string `json:"temp_region"`
 }
 
 // Value implements the driver.Valuer interface for StorageEngineConfig

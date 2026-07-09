@@ -8,11 +8,13 @@ import (
 	"github.com/Tencent/WeKnora/internal/models/asr"
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/models/embedding"
+	"github.com/Tencent/WeKnora/internal/models/provider"
 	"github.com/Tencent/WeKnora/internal/models/rerank"
 	"github.com/Tencent/WeKnora/internal/models/utils/ollama"
 	"github.com/Tencent/WeKnora/internal/models/vlm"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/Tencent/WeKnora/internal/utils"
 )
 
 // ErrModelNotFound is returned when a model cannot be found in the repository
@@ -23,15 +25,63 @@ type modelService struct {
 	repo          interfaces.ModelRepository
 	ollamaService *ollama.OllamaService
 	pooler        embedding.EmbedderPooler
+	tenantService interfaces.TenantService
 }
 
 // NewModelService creates a new model service instance
-func NewModelService(repo interfaces.ModelRepository, ollamaService *ollama.OllamaService, pooler embedding.EmbedderPooler) interfaces.ModelService {
+func NewModelService(repo interfaces.ModelRepository,
+	ollamaService *ollama.OllamaService,
+	pooler embedding.EmbedderPooler,
+	tenantService interfaces.TenantService,
+) interfaces.ModelService {
 	return &modelService{
 		repo:          repo,
 		ollamaService: ollamaService,
 		pooler:        pooler,
+		tenantService: tenantService,
 	}
+}
+
+// decryptAppSecret 解密 AppSecret（如果为空或 cryptoSvc 为空则原样返回）
+func (s *modelService) decryptAppSecret(encrypted string) string {
+	if encrypted == "" {
+		return encrypted
+	}
+	if key := utils.GetAESKey(); key != nil {
+		if encrypted, err := utils.DecryptAESGCM(encrypted, key); err == nil {
+			return encrypted
+		}
+	}
+	return encrypted
+}
+
+// resolveWeKnoraCloudCredentials 为 WeKnoraCloud 厂商模型补全 AppID/AppSecret。
+// 当模型自身参数中未存储凭证时，自动从租户配置中获取（SaveCredentials 保存的凭证）。
+func (s *modelService) resolveWeKnoraCloudCredentials(ctx context.Context, params *types.ModelParameters) (appID, appSecret string) {
+	appID = params.AppID
+	appSecret = s.decryptAppSecret(params.AppSecret)
+
+	if provider.ProviderName(params.Provider) != provider.ProviderWeKnoraCloud {
+		return
+	}
+	if appID != "" && appSecret != "" {
+		return
+	}
+
+	if s.tenantService == nil {
+		return
+	}
+	creds := s.tenantService.GetWeKnoraCloudCredentials(ctx)
+	if creds == nil {
+		return
+	}
+	if appID == "" {
+		appID = creds.AppID
+	}
+	if appSecret == "" {
+		appSecret = creds.AppSecret
+	}
+	return
 }
 
 // CreateModel creates a new model in the repository
@@ -246,6 +296,8 @@ func (s *modelService) GetEmbeddingModel(ctx context.Context, modelId string) (e
 
 	logger.Infof(ctx, "Getting embedding model: %s, source: %s", model.Name, model.Source)
 
+	appID, appSecret := s.resolveWeKnoraCloudCredentials(ctx, &model.Parameters)
+
 	// Initialize the embedder with model configuration
 	embedder, err := embedding.NewEmbedder(embedding.Config{
 		Source:               model.Source,
@@ -256,7 +308,9 @@ func (s *modelService) GetEmbeddingModel(ctx context.Context, modelId string) (e
 		Dimensions:           model.Parameters.EmbeddingParameters.Dimension,
 		TruncatePromptTokens: model.Parameters.EmbeddingParameters.TruncatePromptTokens,
 		Provider:             model.Parameters.Provider,
-		Extra:                stringMapToAnyMap(model.Parameters.ExtraConfig),
+		ExtraConfig:          model.Parameters.ExtraConfig,
+		AppID:                appID,
+		AppSecret:            appSecret,
 	}, s.pooler, s.ollamaService)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
@@ -302,6 +356,8 @@ func (s *modelService) GetEmbeddingModelForTenant(ctx context.Context, modelId s
 
 	logger.Infof(ctx, "Getting cross-tenant embedding model: %s, source: %s, tenant: %d", model.Name, model.Source, tenantID)
 
+	appID, appSecret := s.resolveWeKnoraCloudCredentials(ctx, &model.Parameters)
+
 	// Initialize the embedder with model configuration
 	embedder, err := embedding.NewEmbedder(embedding.Config{
 		Source:               model.Source,
@@ -312,7 +368,9 @@ func (s *modelService) GetEmbeddingModelForTenant(ctx context.Context, modelId s
 		Dimensions:           model.Parameters.EmbeddingParameters.Dimension,
 		TruncatePromptTokens: model.Parameters.EmbeddingParameters.TruncatePromptTokens,
 		Provider:             model.Parameters.Provider,
-		Extra:                stringMapToAnyMap(model.Parameters.ExtraConfig),
+		ExtraConfig:          model.Parameters.ExtraConfig,
+		AppID:                appID,
+		AppSecret:            appSecret,
 	}, s.pooler, s.ollamaService)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
@@ -341,13 +399,19 @@ func (s *modelService) GetRerankModel(ctx context.Context, modelId string) (rera
 
 	logger.Infof(ctx, "Getting rerank model: %s, source: %s", model.Name, model.Source)
 
+	appID, appSecret := s.resolveWeKnoraCloudCredentials(ctx, &model.Parameters)
+
 	// Initialize the reranker with model configuration
 	reranker, err := rerank.NewReranker(&rerank.RerankerConfig{
-		ModelID:   model.ID,
-		APIKey:    model.Parameters.APIKey,
-		BaseURL:   model.Parameters.BaseURL,
-		ModelName: model.Name,
-		Source:    model.Source,
+		ModelID:     model.ID,
+		APIKey:      model.Parameters.APIKey,
+		BaseURL:     model.Parameters.BaseURL,
+		ModelName:   model.Name,
+		Source:      model.Source,
+		Provider:    model.Parameters.Provider,
+		ExtraConfig: model.Parameters.ExtraConfig,
+		AppID:       appID,
+		AppSecret:   appSecret,
 	})
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
@@ -389,15 +453,19 @@ func (s *modelService) GetChatModel(ctx context.Context, modelId string) (chat.C
 
 	logger.Infof(ctx, "Getting chat model: %s, source: %s", model.Name, model.Source)
 
+	appID, appSecret := s.resolveWeKnoraCloudCredentials(ctx, &model.Parameters)
+
 	// Initialize the chat model with model configuration
 	chatModel, err := chat.NewChat(&chat.ChatConfig{
-		ModelID:   model.ID,
-		APIKey:    model.Parameters.APIKey,
-		BaseURL:   model.Parameters.BaseURL,
-		ModelName: model.Name,
-		Source:    model.Source,
-		Provider:  model.Parameters.Provider,
-		Extra:     stringMapToAnyMap(model.Parameters.ExtraConfig),
+		ModelID:     model.ID,
+		APIKey:      model.Parameters.APIKey,
+		BaseURL:     model.Parameters.BaseURL,
+		ModelName:   model.Name,
+		Source:      model.Source,
+		Provider:    model.Parameters.Provider,
+		ExtraConfig: model.Parameters.ExtraConfig,
+		AppID:       appID,
+		AppSecret:   appSecret,
 	}, s.ollamaService)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
@@ -442,6 +510,8 @@ func (s *modelService) GetVLMModel(ctx context.Context, modelId string) (vlm.VLM
 		}
 	}
 
+	appID, appSecret := s.resolveWeKnoraCloudCredentials(ctx, &model.Parameters)
+
 	vlmModel, err := vlm.NewVLM(&vlm.Config{
 		ModelID:       model.ID,
 		APIKey:        model.Parameters.APIKey,
@@ -451,6 +521,8 @@ func (s *modelService) GetVLMModel(ctx context.Context, modelId string) (vlm.VLM
 		InterfaceType: ifType,
 		Provider:      model.Parameters.Provider,
 		Extra:         stringMapToAnyMap(model.Parameters.ExtraConfig),
+		AppID:         appID,
+		AppSecret:     appSecret,
 	}, s.ollamaService)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{

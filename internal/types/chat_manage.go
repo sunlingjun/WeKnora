@@ -45,10 +45,14 @@ type PipelineRequest struct {
 	VLMModelID              string   `json:"-"`
 	ChatModelSupportsVision bool     `json:"-"`
 
+	// File attachments support
+	Attachments MessageAttachments `json:"-"`
+
 	// Misc request-scoped config
 	TenantID            uint64 `json:"-"`
 	WebSearchEnabled    bool   `json:"-"`
 	WebSearchProviderID string `json:"-"` // Resolved from agent config or tenant default
+	WebSearchMaxResults int    `json:"-"` // Resolved from agent config or tenant default
 	WebFetchEnabled     bool   `json:"-"` // Auto-fetch full page content for web search results after rerank
 	WebFetchTopN        int    `json:"-"` // Max pages to fetch (default 3)
 	Language            string `json:"-"`
@@ -64,6 +68,7 @@ const (
 	IntentChitchat      QueryIntent = "chitchat"
 	IntentFollowUp      QueryIntent = "follow_up"
 	IntentImageOnly     QueryIntent = "image_only"
+	IntentDocOnly       QueryIntent = "doc_only"
 	IntentSummarize     QueryIntent = "summarize"
 	IntentClarification QueryIntent = "clarification"
 )
@@ -185,9 +190,11 @@ func (c *ChatManage) Clone() *ChatManage {
 			Images:                   append([]string(nil), c.Images...),
 			VLMModelID:               c.VLMModelID,
 			ChatModelSupportsVision:  c.ChatModelSupportsVision,
+			Attachments:              append(MessageAttachments(nil), c.Attachments...),
 			TenantID:                 c.TenantID,
 			WebSearchEnabled:         c.WebSearchEnabled,
 			WebSearchProviderID:      c.WebSearchProviderID,
+			WebSearchMaxResults:      c.WebSearchMaxResults,
 			WebFetchEnabled:          c.WebFetchEnabled,
 			WebFetchTopN:             c.WebFetchTopN,
 			Language:                 c.Language,

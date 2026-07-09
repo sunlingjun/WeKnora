@@ -216,8 +216,8 @@ func (s *WebSearchService) CompressWithRAG(
 	for _, q := range questions {
 		params := types.SearchParams{
 			QueryText:        q,
-			VectorThreshold:  0.5,
-			KeywordThreshold: 0.5,
+			VectorThreshold:  0.2,
+			KeywordThreshold: 0.2,
 			MatchCount:       matchCount,
 		}
 		results, err := kbSvc.HybridSearch(ctx, tempKBID, params)

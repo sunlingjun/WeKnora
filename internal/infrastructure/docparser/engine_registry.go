@@ -27,6 +27,7 @@ func RegisterEngine(e EngineRegistration) {
 func init() {
 	RegisterEngine(&builtinEngine{})
 	RegisterEngine(&simpleEngine{})
+	RegisterEngine(&weKnoraCloudEngine{})
 	RegisterEngine(&mineruEngine{})
 	RegisterEngine(&mineruCloudEngine{})
 }
@@ -42,7 +43,7 @@ func (e *builtinEngine) Description() string {
 	return "DocReader built-in parser engine"
 }
 func (e *builtinEngine) FileTypes(_ bool) []string {
-	return []string{"docx", "doc", "pdf", "md", "markdown", "xlsx", "xls", "jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp", "mp3", "wav", "m4a", "flac", "ogg", "mp4", "mov", "avi", "mkv", "webm", "wmv", "flv"}
+	return []string{"docx", "doc", "pdf", "md", "markdown", "xlsx", "xls", "jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp", "mp3", "wav", "m4a", "flac", "ogg"}
 }
 func (e *builtinEngine) CheckAvailable(docreaderConnected bool, _ map[string]string) (bool, string) {
 	if docreaderConnected {
@@ -53,6 +54,9 @@ func (e *builtinEngine) CheckAvailable(docreaderConnected bool, _ map[string]str
 
 // SimpleEngineName is the engine name for Go-native simple format handling.
 const SimpleEngineName = "simple"
+
+// WeKnoraCloudEngineName is the engine name for WeKnoraCloud-backed document parsing.
+const WeKnoraCloudEngineName = "weknoracloud"
 
 // ---------------------------------------------------------------------------
 // simple — Go handles md/txt/csv natively, no external service needed.
@@ -67,10 +71,28 @@ func (e *simpleEngine) Description() string {
 	return "Simple format & image parsing (no external service required)"
 }
 func (e *simpleEngine) FileTypes(_ bool) []string {
-	return []string{"md", "markdown", "txt", "csv", "json", "jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp", "mp3", "wav", "m4a", "flac", "ogg", "mp4", "mov", "avi", "mkv", "webm", "wmv", "flv"}
+	return []string{"md", "markdown", "txt", "csv", "json", "jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp", "mp3", "wav", "m4a", "flac", "ogg"}
 }
 func (e *simpleEngine) CheckAvailable(_ bool, _ map[string]string) (bool, string) {
 	return true, ""
+}
+
+// ---------------------------------------------------------------------------
+// weknoracloud — Tenant-scoped WeKnoraCloud docreader with signed requests.
+// ---------------------------------------------------------------------------
+
+type weKnoraCloudEngine struct{}
+
+func (e *weKnoraCloudEngine) Name() string        { return WeKnoraCloudEngineName }
+func (e *weKnoraCloudEngine) Description() string { return "WeKnoraCloud document reader" }
+func (e *weKnoraCloudEngine) FileTypes(_ bool) []string {
+	return []string{"docx", "doc", "pdf", "md", "markdown", "xlsx", "xls", "pptx", "ppt"}
+}
+func (e *weKnoraCloudEngine) CheckAvailable(docreaderConnected bool, overrides map[string]string) (bool, string) {
+	if overrides["weknoracloud_app_id"] != "" {
+		return true, ""
+	}
+	return false, "WeKnora Cloud credentials not configured. Go to Settings → WeKnora Cloud to set up."
 }
 
 // ---------------------------------------------------------------------------

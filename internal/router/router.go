@@ -56,6 +56,7 @@ type RouterParams struct {
 	MCPServiceHandler        *handler.MCPServiceHandler
 	WebSearchHandler         *handler.WebSearchHandler
 	WebSearchProviderHandler *handler.WebSearchProviderHandler
+	VectorStoreHandler       *handler.VectorStoreHandler
 	FAQHandler               *handler.FAQHandler
 	TagHandler               *handler.TagHandler
 	CustomAgentHandler       *handler.CustomAgentHandler
@@ -67,6 +68,7 @@ type RouterParams struct {
 	CASAuthService           interfaces.CASAuthService
 	RedisClient              redis.UniversalClient
 	OpenRetrieveHandler      *handler.OpenRetrieveHandler
+	WeKnoraCloudHandler      *handler.WeKnoraCloudHandler
 }
 
 // defaultTrustedPrivateProxies 当 behind_proxy 开启但未配置 trusted_proxies 时的保守默认值（私网 + 本机）。
@@ -207,11 +209,13 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterMCPServiceRoutes(v1, params.MCPServiceHandler)
 		RegisterWebSearchRoutes(v1, params.WebSearchHandler)
 		RegisterWebSearchProviderRoutes(v1, params.WebSearchProviderHandler)
+		RegisterVectorStoreRoutes(v1, params.VectorStoreHandler)
 		RegisterCustomAgentRoutes(v1, params.CustomAgentHandler)
 		RegisterSkillRoutes(v1, params.SkillHandler)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler)
 		RegisterIMChannelRoutes(v1, params.IMHandler)
 		RegisterDataSourceRoutes(v1, params.DataSourceHandler)
+		RegisterWeKnoraCloudRoutes(v1, params.WeKnoraCloudHandler)
 
 		// 开放检索（无用户登录；X-Open-Retrieve-Api-Key，见 config.open_retrieve）
 		if params.OpenRetrieveHandler != nil {
@@ -499,6 +503,7 @@ func RegisterCASRoutes(r *gin.Engine, handler *handler.CASAuthHandler) {
 func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler) {
 	r.POST("/auth/register", handler.Register)
 	r.POST("/auth/login", handler.Login)
+	r.POST("/auth/auto-setup", handler.AutoSetup)
 	r.GET("/auth/oidc/config", handler.GetOIDCConfig)
 	r.GET("/auth/oidc/url", handler.GetOIDCAuthorizationURL)
 	r.GET("/auth/oidc/callback", handler.OIDCRedirectCallback)
@@ -598,6 +603,25 @@ func RegisterWebSearchProviderRoutes(r *gin.RouterGroup, h *handler.WebSearchPro
 		providers.DELETE("/:id", h.DeleteProvider)
 		// Test existing saved provider
 		providers.POST("/:id/test", h.TestProviderByID)
+	}
+}
+
+// RegisterVectorStoreRoutes registers CRUD routes for vector store configurations
+func RegisterVectorStoreRoutes(r *gin.RouterGroup, h *handler.VectorStoreHandler) {
+	stores := r.Group("/vector-stores")
+	{
+		// List available engine types (metadata for UI forms)
+		stores.GET("/types", h.ListStoreTypes)
+		// Test with raw credentials (no persistence)
+		stores.POST("/test", h.TestStoreRaw)
+		// CRUD
+		stores.POST("", h.CreateStore)
+		stores.GET("", h.ListStores)
+		stores.GET("/:id", h.GetStore)
+		stores.PUT("/:id", h.UpdateStore)
+		stores.DELETE("/:id", h.DeleteStore)
+		// Test existing saved or env store
+		stores.POST("/:id/test", h.TestStoreByID)
 	}
 }
 
@@ -741,6 +765,13 @@ func RegisterIMChannelRoutes(r *gin.RouterGroup, imHandler *handler.IMHandler) {
 		channels.PUT("/:id", imHandler.UpdateIMChannel)
 		channels.DELETE("/:id", imHandler.DeleteIMChannel)
 		channels.POST("/:id/toggle", imHandler.ToggleIMChannel)
+	}
+
+	// WeChat QR code login (requires authentication)
+	wechatGroup := r.Group("/wechat")
+	{
+		wechatGroup.POST("/qrcode", imHandler.WeChatGetQRCode)
+		wechatGroup.POST("/qrcode/status", imHandler.WeChatPollQRCodeStatus)
 	}
 }
 
@@ -898,4 +929,10 @@ func RegisterDataSourceRoutes(r *gin.RouterGroup, handler *handler.DataSourceHan
 		ds.GET("/:id/logs", handler.GetSyncLogs)
 		ds.GET("/logs/:log_id", handler.GetSyncLog)
 	}
+}
+
+// RegisterWeKnoraCloudRoutes 注册 WeKnoraCloud 初始化路由
+func RegisterWeKnoraCloudRoutes(r *gin.RouterGroup, handler *handler.WeKnoraCloudHandler) {
+	r.POST("/weknoracloud/credentials", handler.SaveCredentials)
+	r.GET("/models/weknoracloud/status", handler.Status)
 }

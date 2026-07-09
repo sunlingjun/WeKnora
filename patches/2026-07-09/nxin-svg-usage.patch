@@ -1,0 +1,286 @@
+﻿diff --git a/frontend/src/components/AgentSelector.vue b/frontend/src/components/AgentSelector.vue
+index 96e616d2..de86d8f1 100644
+--- a/frontend/src/components/AgentSelector.vue
++++ b/frontend/src/components/AgentSelector.vue
+@@ -247,11 +247,11 @@
+                   </div>
+                   <div v-if="shared.org_name || shared.shared_by_username" class="agent-tooltip-meta-list">
+                     <div v-if="shared.org_name" class="agent-tooltip-meta-row">
+-                      <img src="@/assets/img/organization-green.svg" class="agent-tooltip-meta-icon" alt="" aria-hidden="true" />
++                      <SvgIcon name="organization" variant="green" :size="12" class="agent-tooltip-meta-icon" />
+                       <span class="agent-tooltip-meta-text">{{ shared.org_name }}</span>
+                     </div>
+                     <div v-if="shared.shared_by_username" class="agent-tooltip-meta-row">
+-                      <img src="@/assets/img/user.svg" class="agent-tooltip-meta-icon" alt="" aria-hidden="true" />
++                      <SvgIcon name="user" variant="default" theme="secondary" :size="12" class="agent-tooltip-meta-icon" />
+                       <span class="agent-tooltip-meta-text">{{ shared.shared_by_username }}</span>
+                     </div>
+                   </div>
+@@ -277,6 +277,7 @@ import { useRouter } from 'vue-router';
+ import { Icon as TIcon, Popup as TPopup, Tooltip as TTooltip } from 'tdesign-vue-next';
+ import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
+ import AgentAvatar from '@/components/AgentAvatar.vue';
++import { SvgIcon } from '@/components/icons';
+ import { useOrganizationStore } from '@/stores/organization';
+ import { useSettingsStore } from '@/stores/settings';
+ import type { SharedAgentInfo } from '@/api/organization';
+@@ -646,7 +647,7 @@ watch(() => props.visible, (newVal) => {
+   }
+   
+   &.agent {
+-    background: rgba(124, 77, 255, 0.1);
++    background: rgba(from var(--td-purple-color, #7c4dff) r g b / 0.1);
+     color: var(--td-brand-color);
+   }
+ }
+diff --git a/frontend/src/components/MentionSelector.vue b/frontend/src/components/MentionSelector.vue
+index 035018ff..1639b261 100644
+--- a/frontend/src/components/MentionSelector.vue
++++ b/frontend/src/components/MentionSelector.vue
+@@ -55,9 +55,9 @@
+                   {{ $t('mentionDetail.kbCount', { count: detailCache[item.id].data.knowledge_count ?? detailCache[item.id].data.count ?? 0 }) }}
+                 </span>
+                 <span v-if="detailCache[item.id].data.org_name || item.orgName" class="detail-org">
+-                  <img src="@/assets/img/organization-green.svg" class="detail-icon-img" alt="" aria-hidden="true" />
++                  <SvgIcon name="organization" variant="green" :size="14" class="detail-icon-img" />
+                   <span class="detail-label">{{ $t('mentionDetail.belongsToOrg') }}</span>
+-                  <span 
++                  <span
+                     class="detail-value clickable"
+                     @click.stop="handleOrgClick(detailCache[item.id].data.org_name || item.orgName)"
+                   >
+@@ -119,7 +119,7 @@
+                 <span v-if="detailCache[item.id].data.knowledge_base_name || item.kbName" class="detail-kb">
+                   <t-icon name="folder" class="detail-icon" />
+                   <span class="detail-label">{{ $t('mentionDetail.belongsToKb') }}</span>
+-                  <span 
++                  <span
+                     class="detail-value clickable"
+                     @click.stop="handleKbClick(detailCache[item.id].data.knowledge_base_id || (item as any).kbId)"
+                   >
+@@ -127,9 +127,9 @@
+                   </span>
+                 </span>
+                 <span v-if="item.orgName" class="detail-org">
+-                  <img src="@/assets/img/organization-green.svg" class="detail-icon-img" alt="" aria-hidden="true" />
++                  <SvgIcon name="organization" variant="green" :size="14" class="detail-icon-img" />
+                   <span class="detail-label">{{ $t('mentionDetail.belongsToOrg') }}</span>
+-                  <span 
++                  <span
+                     class="detail-value clickable"
+                     @click.stop="handleOrgClick(item.orgName)"
+                   >
+@@ -160,6 +160,7 @@ import { getKnowledgeBaseById } from '@/api/knowledge-base';
+ import { getKnowledgeDetails } from '@/api/knowledge-base';
+ import { useOrganizationStore } from '@/stores/organization';
+ import { useSettingsStore } from '@/stores/settings';
++import { SvgIcon } from '@/components/icons';
+ 
+ type DetailState = { loading: boolean; error?: string; data?: any };
+ 
+diff --git a/frontend/src/components/menu.vue b/frontend/src/components/menu.vue
+index 5c3220a1..3cded8be 100644
+--- a/frontend/src/components/menu.vue
++++ b/frontend/src/components/menu.vue
+@@ -3,7 +3,7 @@
+         <!-- 灞曞紑鏃讹細Logo + 鎶樺彔鎸夐挳鍚岃 -->
+         <div class="logo_row" v-if="!uiStore.sidebarCollapsed">
+             <div class="logo_box" @click="router.push('/platform/knowledge-bases')" style="cursor: pointer;">
+-                <img class="logo" src="@/assets/img/weknora.png" alt="">
++                <img class="logo" src="@/assets/img/nxin-weknora.svg" alt="">
+             </div>
+             <div class="sidebar-toggle"
+                  @click="uiStore.toggleSidebar"
+@@ -30,7 +30,7 @@
+                 </div>
+             </div>
+         </t-tooltip>
+-        
++
+         <!-- 绉熸埛閫夋嫨鍣細浠呭湪鐢ㄦ埛鍙垏鎹㈢鎴锋椂鏄剧ず -->
+         <TenantSelector v-if="canAccessAllTenants && !uiStore.sidebarCollapsed" />
+ 
+@@ -48,7 +48,13 @@
+                      :class="['menu_item', item.childrenPath && item.childrenPath == currentpath ? 'menu_item_c_active' : isMenuItemActive(item.path) ? 'menu_item_active' : '']">
+                     <div class="menu_item-box">
+                         <div class="menu_icon">
+-                            <img class="icon" :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'search' ? searchIcon : item.icon == 'agent' ? agentIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)" alt="">
++                            <SvgIcon
++                                :name="resolveMenuIcon(item).name"
++                                :variant="resolveMenuIcon(item).variant"
++                                :theme="resolveMenuIcon(item).theme"
++                                :size="20"
++                                class="icon"
++                            />
+                         </div>
+                         <template v-if="!uiStore.sidebarCollapsed">
+                             <span class="menu_title" :title="item.title">{{ item.title }}</span>
+@@ -131,11 +137,13 @@ import { getKnowledgeBaseById } from '@/api/knowledge-base';
+ import { logout as logoutApi } from '@/api/auth';
+ import { useMenuStore } from '@/stores/menu';
+ import { useAuthStore } from '@/stores/auth';
++import { useCASStore } from '@/stores/cas';
+ import { useOrganizationStore } from '@/stores/organization';
+ import { useUIStore } from '@/stores/ui';
+ import { MessagePlugin, DialogPlugin, Icon as TIcon } from "tdesign-vue-next";
+ import UserMenu from '@/components/UserMenu.vue';
+ import TenantSelector from '@/components/TenantSelector.vue';
++import { SvgIcon, type IconName, type IconVariant } from '@/components/icons';
+ import { useI18n } from 'vue-i18n';
+ 
+ const { t } = useI18n();
+@@ -181,6 +189,25 @@ const batchDisplayCount = computed(() =>
+     isAllBatchSelected.value ? total.value : batchSelectedIds.value.length
+ )
+ 
++type MenuIconTheme = 'default' | 'brand' | 'secondary' | 'placeholder' | 'anti';
++const menuIconNameMap: Record<string, IconName> = {
++    'zhishiku': 'zhishiku',
++    'shared-kb': 'zhishiku',
++    'prefixIcon': 'prefixIcon',
++    'agent': 'agent',
++    'organization': 'organization',
++    'setting': 'setting'
++};
++
++const resolveMenuIcon = (item: MenuItem): { name: IconName; variant: IconVariant; theme: MenuIconTheme } => {
++    const isActive = isMenuItemActive(item.path) || (!!item.childrenPath && item.childrenPath === currentpath.value);
++    return {
++        name: menuIconNameMap[item.icon] ?? 'zhishiku',
++        variant: 'default',
++        theme: isActive ? 'brand' : 'secondary'
++    };
++};
++
+ // 鏄惁鍙互璁块棶鎵€鏈夌鎴? const canAccessAllTenants = computed(() => authStore.canAccessAllTenants);
+ 
+@@ -219,6 +246,8 @@ const isMenuItemActive = (itemPath: string): boolean => {
+             return currentRoute === 'knowledgeBaseList' || 
+                    currentRoute === 'knowledgeBaseDetail' || 
+                    currentRoute === 'knowledgeBaseSettings';
++        case 'shared-knowledge-bases':
++            return currentRoute === 'sharedKnowledgeBaseSquare';
+         case 'knowledge-search':
+             return currentRoute === 'knowledgeSearch';
+         case 'agents':
+@@ -234,26 +263,10 @@ const isMenuItemActive = (itemPath: string): boolean => {
+     }
+ };
+ 
+-// 缁熶竴鐨勫浘鏍囨縺娲荤姸鎬佸垽鏂?-const getIconActiveState = (itemPath: string) => {
+-    const currentRoute = route.name;
+-    
+-    return {
+-        isKbActive: itemPath === 'knowledge-bases' && (
+-            currentRoute === 'knowledgeBaseList' || 
+-            currentRoute === 'knowledgeBaseDetail' || 
+-            currentRoute === 'knowledgeBaseSettings'
+-        ),
+-        isCreatChatActive: itemPath === 'creatChat' && (currentRoute === 'kbCreatChat' || currentRoute === 'globalCreatChat'),
+-        isSettingsActive: itemPath === 'settings' && currentRoute === 'settings',
+-        isChatActive: itemPath === 'chat' && currentRoute === 'chat'
+-    };
+-};
+-
+ // 鍒嗙涓婁笅涓ら儴鍒嗚彍鍗? const topMenuItems = computed<MenuItem[]>(() => {
+     return (menuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => 
+-        item.path === 'knowledge-bases' || item.path === 'knowledge-search' || item.path === 'agents' || item.path === 'organizations' || item.path === 'creatChat'
++        item.path === 'knowledge-bases' || item.path === 'knowledge-search' || item.path === 'shared-knowledge-bases' || item.path === 'agents' || item.path === 'organizations' || item.path === 'creatChat'
+     );
+ });
+ 
+@@ -585,7 +598,7 @@ watch([() => route.name, () => route.params], (newvalue, oldvalue) => {
+     }
+     
+     // 璺敱鍙樺寲鏃舵洿鏂板浘鏍囩姸鎬佸拰鐭ヨ瘑搴撲俊鎭紙涓嶆秹鍙婂璇濆垪琛級
+-    getIcon(nameStr);
++    // getIcon(nameStr);
+     
+     // 濡傛灉鍒囨崲浜嗙煡璇嗗簱锛屾洿鏂扮煡璇嗗簱鍚嶇О浣嗕笉閲嶆柊鍔犺浇瀵硅瘽鍒楄〃
+     if (newvalue[1].kbId !== oldvalue?.[1]?.kbId) {
+@@ -605,45 +618,6 @@ watch([() => route.name, () => route.params], (newvalue, oldvalue) => {
+         }
+     }
+ });
+-let knowledgeIcon = ref('zhishiku-green.svg');
+-let searchIcon = ref('search.svg');
+-let prefixIcon = ref('prefixIcon.svg');
+-let logoutIcon = ref('logout.svg');
+-let settingIcon = ref('setting.svg');
+-let agentIcon = ref('agent.svg');
+-let organizationIcon = ref('organization.svg');
+-let pathPrefix = ref(route.name)
+-  const getIcon = (path: string) => {
+-      // 鏍规嵁褰撳墠璺敱鐘舵€佹洿鏂版墍鏈夊浘鏍?-      const kbActiveState = getIconActiveState('knowledge-bases');
+-      const creatChatActiveState = getIconActiveState('creatChat');
+-      const settingsActiveState = getIconActiveState('settings');
+-      const agentsActiveState = route.name === 'agentList';
+-      const organizationsActiveState = route.name === 'organizationList';
+-      const knowledgeSearchActiveState = route.name === 'knowledgeSearch';
+-      
+-      // 鐭ヨ瘑搴撳浘鏍囷細鍙湪鐭ヨ瘑搴撻〉闈㈡樉绀虹豢鑹?-      knowledgeIcon.value = kbActiveState.isKbActive ? 'zhishiku-green.svg' : 'zhishiku.svg';
+-      
+-      // 鐭ヨ瘑鎼滅储鍥炬爣锛氬彧鍦ㄧ煡璇嗘悳绱㈤〉闈㈡樉绀虹豢鑹?-      searchIcon.value = knowledgeSearchActiveState ? 'search-green.svg' : 'search.svg';
+-      
+-      // 鏅鸿兘浣撳浘鏍囷細鍙湪鏅鸿兘浣撻〉闈㈡樉绀虹豢鑹?-      agentIcon.value = agentsActiveState ? 'agent-green.svg' : 'agent.svg';
+-      
+-      // 缁勭粐鍥炬爣锛氬彧鍦ㄧ粍缁囬〉闈㈡樉绀虹豢鑹?-      organizationIcon.value = organizationsActiveState ? 'organization-green.svg' : 'organization.svg';
+-      
+-      // 瀵硅瘽鍥炬爣锛氬彧鍦ㄥ璇濆垱寤洪〉闈㈡樉绀虹豢鑹诧紝鍏朵粬鎯呭喌鏄剧ず榛樿
+-      prefixIcon.value = creatChatActiveState.isCreatChatActive ? 'prefixIcon-green.svg' : 'prefixIcon.svg';
+-      
+-      // 璁剧疆鍥炬爣锛氬彧鍦ㄨ缃〉闈㈡樉绀虹豢鑹?-      settingIcon.value = settingsActiveState.isSettingsActive ? 'setting-green.svg' : 'setting.svg';
+-      
+-      // 閫€鍑哄浘鏍囷細濮嬬粓鏄剧ず榛樿
+-      logoutIcon.value = 'logout.svg';
+-}
+-getIcon(typeof route.name === 'string' ? route.name as string : (route.name ? String(route.name) : ''))
+ const handleMenuClick = async (path: string) => {
+     if (path === 'knowledge-bases') {
+         // 鐭ヨ瘑搴撹彍鍗曢」锛氬鏋滃湪鐭ヨ瘑搴撳唴閮紝璺宠浆鍒板綋鍓嶇煡璇嗗簱鏂囦欢椤碉紱鍚﹀垯璺宠浆鍒扮煡璇嗗簱鍒楄〃
+@@ -653,6 +627,9 @@ const handleMenuClick = async (path: string) => {
+         } else {
+             router.push('/platform/knowledge-bases')
+         }
++    } else if (path === 'shared-knowledge-bases') {
++      // 鐭ヨ瘑搴撳箍鍦?+      router.push('/platform/shared-knowledge-bases')
+     } else if (path === 'knowledge-search') {
+         router.push('/platform/knowledge-search')
+     } else if (path === 'agents') {
+@@ -683,20 +660,26 @@ const getCurrentKbId = async (): Promise<string | null> => {
+ }
+ 
+ const gotopage = async (path: string) => {
+-    pathPrefix.value = path;
++    // pathPrefix.value = path;
+     // 澶勭悊閫€鍑虹櫥褰?     if (path === 'logout') {
+         try {
+-            // 璋冪敤鍚庣API娉ㄩ攢
++            // 1. 鍏堣皟鐢ㄥ悗绔疉PI娉ㄩ攢锛堟竻鐞?WeKnora 鐨?token锛?             await logoutApi();
+         } catch (error) {
+-            // 鍗充娇API璋冪敤澶辫触锛屼篃缁х画鎵ц鏈湴娓呯悊
++            // 鍗充娇API璋冪敤澶辫触锛屼篃缁х画鎵ц鏈湴娓呯悊鍜?CAS 閫€鍑?             console.error('娉ㄩ攢API璋冪敤澶辫触:', error);
+         }
+         // 娓呯悊鎵€鏈夌姸鎬佸拰鏈湴瀛樺偍
+-        authStore.logout();
+-        MessagePlugin.success(t('menu.logoutSuccess'));
+-        router.push('/login');
++        // authStore.logout();
++        // MessagePlugin.success(t('menu.logoutSuccess'));
++        // router.push('/login');
++
++        // 2. 璋冪敤 CAS 閫€鍑洪€昏緫锛堜細娓呯悊鏈湴鐘舵€佸苟璺宠浆鍒?CAS 閫€鍑洪〉闈級
++        // 娉ㄦ剰锛歝asStore.logout() 鍐呴儴浼氳皟鐢?authStore.logout() 娓呯悊鏈湴鐘舵€?+        // 鐒跺悗璺宠浆鍒?CAS 閫€鍑洪〉闈紝鎵€浠ヤ笉闇€瑕?router.push
++        const casStore = useCASStore();
++        casStore.logout();
+         return;
+     } else {
+         if (path === 'creatChat') {
+@@ -711,7 +694,6 @@ const gotopage = async (path: string) => {
+             router.push(`/platform/${path}`);
+         }
+     }
+-    getIcon(path)
+ }
+ 
+ const getImgSrc = (url: string) => {

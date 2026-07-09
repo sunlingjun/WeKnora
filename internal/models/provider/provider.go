@@ -65,6 +65,7 @@ const (
 func AllProviders() []ProviderName {
 	return []ProviderName{
 		ProviderGeneric,
+		ProviderWeKnoraCloud,
 		ProviderAliyun,
 		ProviderZhipu,
 		ProviderVolcengine,
@@ -258,6 +259,8 @@ func DetectProvider(baseURL string) ProviderName {
 		return ProviderNvidia
 	case containsAny(baseURL, "api.novita.ai", "novita.ai"):
 		return ProviderNovita
+	case containsAny(baseURL, "weknora.weixin.qq.com"):
+		return ProviderWeKnoraCloud
 	default:
 		return ProviderGeneric
 	}

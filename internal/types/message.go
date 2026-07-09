@@ -4,6 +4,8 @@ package types
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,6 +66,83 @@ func (m *MessageImages) Scan(value interface{}) error {
 	return json.Unmarshal(b, m)
 }
 
+// MessageAttachment represents a file attachment in a chat message
+type MessageAttachment struct {
+	URL         string `json:"url"`                    // Storage URL (provider://path)
+	FileName    string `json:"file_name"`              // Original filename
+	FileType    string `json:"file_type"`              // File extension (e.g., ".pdf", ".docx")
+	FileSize    int64  `json:"file_size"`              // File size in bytes
+	Content     string `json:"content,omitempty"`      // Extracted text content (for small text files)
+	IsTruncated bool   `json:"is_truncated,omitempty"` // Whether content was truncated
+	LineCount   int    `json:"line_count,omitempty"`   // Total line count (for text files)
+}
+
+// MessageAttachments is a slice of MessageAttachment for database storage
+type MessageAttachments []MessageAttachment
+
+// BuildPrompt returns a formatted prompt section for all attachments,
+// injecting file metadata and extracted content into the LLM context.
+func (attachments MessageAttachments) BuildPrompt() string {
+	if len(attachments) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n\n<attachments>\n")
+
+	for i, att := range attachments {
+		sb.WriteString(fmt.Sprintf("<attachment index=\"%d\" name=\"%s\">\n", i+1, att.FileName))
+		sb.WriteString("<metadata>\n")
+		sb.WriteString(fmt.Sprintf("<type>%s</type>\n", att.FileType))
+		sb.WriteString(fmt.Sprintf("<size_kb>%.2f</size_kb>\n", float64(att.FileSize)/1024))
+		sb.WriteString("</metadata>\n")
+
+		if att.Content != "" {
+			sb.WriteString("<content>\n")
+			sb.WriteString(att.Content)
+			sb.WriteString("\n</content>\n")
+
+			if att.IsTruncated {
+				sb.WriteString(fmt.Sprintf("<note>This file has a total of %d lines, truncated to show only the first 500 lines.</note>\n",
+					att.LineCount))
+			}
+		} else {
+			sb.WriteString("<note>File content extraction failed or is unsupported.</note>\n")
+		}
+		sb.WriteString("</attachment>\n")
+	}
+	sb.WriteString("</attachments>\n\n")
+
+	return sb.String()
+}
+
+// Value implements the driver.Valuer interface for database serialization
+func (m MessageAttachments) Value() (driver.Value, error) {
+	if m == nil {
+		return json.Marshal([]MessageAttachment{})
+	}
+	return json.Marshal(m)
+}
+
+// Scan implements the sql.Scanner interface for database deserialization
+func (m *MessageAttachments) Scan(value interface{}) error {
+	if value == nil {
+		*m = make(MessageAttachments, 0)
+		return nil
+	}
+	var b []byte
+	switch v := value.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	default:
+		*m = make(MessageAttachments, 0)
+		return nil
+	}
+	return json.Unmarshal(b, m)
+}
+
 // MentionedItems is a slice of MentionedItem for database storage
 type MentionedItems []MentionedItem
 
@@ -119,6 +198,8 @@ type Message struct {
 	MentionedItems MentionedItems `json:"mentioned_items,omitempty" gorm:"type:jsonb,column:mentioned_items"`
 	// Attached images with OCR/Caption text (for user messages)
 	Images MessageImages `json:"images,omitempty" gorm:"type:jsonb;column:images"`
+	// Attached files (documents, audio, etc., for user messages)
+	Attachments MessageAttachments `json:"attachments,omitempty" gorm:"type:jsonb;column:attachments"`
 	// Whether message generation is complete
 	IsCompleted bool `json:"is_completed"`
 	// Whether this response is a fallback (no knowledge base match found)
@@ -193,6 +274,9 @@ func (m *Message) BeforeCreate(tx *gorm.DB) (err error) {
 	}
 	if m.Images == nil {
 		m.Images = make(MessageImages, 0)
+	}
+	if m.Attachments == nil {
+		m.Attachments = make(MessageAttachments, 0)
 	}
 	return nil
 }

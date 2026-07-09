@@ -1,0 +1,3891 @@
+﻿diff --git a/config/config.yaml b/config/config.yaml
+index 48209531..c040f421 100644
+--- a/config/config.yaml
++++ b/config/config.yaml
+@@ -2,6 +2,16 @@
+ server:
+   port: 8080
+   host: "0.0.0.0"
++  # 鍓嶇疆 Nginx/Ingress 缁堢粨 TLS銆佺洿杩炴湰鏈嶅姟涓?HTTP 鏃惰涓?true锛堜俊浠?X-Forwarded-Proto 绛夛級
++  behind_proxy: false
++  # 鍙€夛細闇€瑕佽繘绋嬪唴 HTTPS 鏃跺彇娑堟敞閲婂苟濉啓璺緞锛堟棤榛樿璺緞锛屽繀椤讳笌 enabled 鍚屾椂閰嶇疆锛?+#  https:
++#    enabled: true
++#    cert_file: "ssl/cert.pem"
++#    key_file: "ssl/key.pem"
++  # 鍙€夛細behind_proxy 涓?true 涓旈渶鎸囧畾浠ｇ悊缃戞鏃跺～鍐欙紱鐪佺暐鍒欎娇鐢ㄥ唴缃缃戦粯璁ゅ€?+  # trusted_proxies:
++  #   - "10.0.0.0/8"
+ 
+ # Conversation service configuration
+ # NOTE: Prompt content is resolved from prompt_templates/ YAML files via xxx_id fields.
+@@ -110,3 +120,40 @@ extract:
+ tenant:
+   # Enable cross-tenant access (can be enabled for intranet environments)
+   enable_cross_tenant_access: false
++
++auth:
++  nxin_cas_auth:
++    enabled: true
++    cache_ttl_seconds: 600
++    require_https: true
++    allowed_path_globs:
++      - "/api/v1/*"
++
++# CAS 鍗曠偣鐧诲綍閰嶇疆
++cas:
++  # 鐜绫诲瀷锛歱roduction锛堢敓浜х幆澧冿級鎴?test锛堟祴璇曠幆澧冿級
++  # 涔熷彲浠ラ€氳繃鐜鍙橀噺 CAS_ENVIRONMENT 璁剧疆
++  environment: test
++
++  # 鐢熶骇鐜閰嶇疆
++  production:
++    api_host: open.nxin.com          # CAS API 涓绘満鍦板潃
++    login_host: cas.nxin.com          # CAS 鐧诲綍椤甸潰涓绘満鍦板潃
++    cookie_sid: _cas_sid              # Cookie SID 鍚嶇О
++    cookie_uid: _cas_uid              # Cookie UID 鍚嶇О
++    image_host: open.nxin.com         # 澶村儚鍥剧墖涓绘満鍦板潃锛堝彲閫夛級
++
++  # 娴嬭瘯鐜閰嶇疆
++  test:
++    api_host: open.t.nxin.com         # CAS API 涓绘満鍦板潃
++    login_host: cas.t.nxin.com        # CAS 鐧诲綍椤甸潰涓绘満鍦板潃
++    cookie_sid: _cas_t_sid            # Cookie SID 鍚嶇О锛堟祴璇曠幆澧冿級
++    cookie_uid: _cas_t_uid            # Cookie UID 鍚嶇О锛堟祴璇曠幆澧冿級
++    image_host: open.t.nxin.com       # 澶村儚鍥剧墖涓绘満鍦板潃锛堝彲閫夛級
++
++# 寮€鏀炬绱細POST /api/v1/open/knowledge/retrieve锛堟棤鐢ㄦ埛鐧诲綍锛岃姹傚ご X-Open-Retrieve-Api-Key锛?+open_retrieve:
++  enabled: true
++  api_key: "1E9FFCFCC2FF244D1A61DF491CD2CD77"
++  api_keys: ["23FB4CC9875E44135AA27D0EAB40A63B","374A42D1D08A46D081AF65A4B29C6F15"]
++  rate_limit_qps: 100
+\ No newline at end of file
+diff --git a/docker-compose.yml b/docker-compose.yml
+index f10f339b..02fd88f7 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -24,6 +24,8 @@ services:
+     networks:
+       - WeKnora-network
+     restart: unless-stopped
++    profiles:
++      - frontend
+ 
+   app:
+     image: wechatopenai/weknora-app:${WEKNORA_VERSION:-latest}
+@@ -98,10 +100,12 @@ services:
+       - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+       - MINIO_ACCESS_KEY_ID=${MINIO_ACCESS_KEY_ID:-minioadmin}
+       - MINIO_SECRET_ACCESS_KEY=${MINIO_SECRET_ACCESS_KEY:-minioadmin}
+-      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-}
++      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-nxinweknora}
+       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+       - STREAM_MANAGER_TYPE=${STREAM_MANAGER_TYPE:-}
+-      - REDIS_ADDR=redis:6379
++      - REDIS_MODE=${REDIS_MODE:-}
++      - REDIS_ADDR=${REDIS_ADDR:-redis:6379}
++      - REDIS_CLUSTER_ADDRS=${REDIS_CLUSTER_ADDRS:-}
+       - REDIS_USERNAME=${REDIS_USERNAME:-}
+       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+       - REDIS_DB=${REDIS_DB:-}
+@@ -125,18 +129,21 @@ services:
+       # Agent LLM call timeout
+       - WEKNORA_AGENT_LLM_TIMEOUT=${WEKNORA_AGENT_LLM_TIMEOUT:-}
+       - APK_MIRROR_ARG=${APK_MIRROR_ARG:-}
+-    depends_on:
+-      redis:
+-        condition: service_started
+-      postgres:
+-        condition: service_healthy
+-      docreader:
+-        condition: service_healthy
++#    depends_on:
++#      redis:
++#        condition: service_started
++#      postgres:
++#        condition: service_healthy
++#      docreader:
++#        condition: service_healthy
+     networks:
+       - WeKnora-network
+     restart: unless-stopped
+     extra_hosts:
+       - "host.docker.internal:host-gateway"
++    profiles:
++      - app
++      - full
+ 
+   # Sandbox 闀滃儚锛氫粎鐢ㄤ簬 build/pull锛岄潪甯搁┗鏈嶅姟锛沘pp 鎵ц Skills 鏃舵寜闇€ docker run 璇ラ暅鍍忥紝鐢ㄦ瘯鍗抽噴
+   sandbox:
+@@ -174,13 +181,21 @@ services:
+     networks:
+       - WeKnora-network
+     restart: unless-stopped
++    depends_on:
++      minio:
++        condition: service_started
+     extra_hosts:
+       - "host.docker.internal:host-gateway"
++    profiles:
++      - docreader
++      - full
+ 
+   # 淇敼鐨凱ostgreSQL閰嶇疆
+   postgres:
+     image: paradedb/paradedb:v0.22.2-pg17
+     container_name: WeKnora-postgres
++    ports:
++      - "${DB_PORT:-5432}:5432"
+     environment:
+       - POSTGRES_USER=${DB_USER}
+       - POSTGRES_PASSWORD=${DB_PASSWORD}
+@@ -202,10 +217,15 @@ services:
+   redis:
+     image: redis:7.0-alpine
+     container_name: WeKnora-redis
++    ports:
++      - "${REDIS_PORT:-6379}:6379"
+     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+     restart: always
+     networks:
+       - WeKnora-network
++    profiles:
++      - redis
++      - full
+ 
+   minio:
+     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+diff --git a/frontend/src/assets/img/nxin-weknora.svg b/frontend/src/assets/img/nxin-weknora.svg
+new file mode 100644
+index 00000000..b64448b4
+--- /dev/null
++++ b/frontend/src/assets/img/nxin-weknora.svg
+@@ -0,0 +1,18 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<svg width="180px" height="56px" viewBox="0 0 180 56" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
++    <title>logo180+56</title>
++    <g id="椤甸潰-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
++        <g id="logo" transform="translate(0.000000, 4.000000)">
++            <g id="X" transform="translate(26.828903, 0.657950)">
++                <path d="M0,37.4229098 L12.0478294,37.4229098 C18.1534696,29.0121626 24.8536651,21.912792 32.148416,16.1247982 C41.130582,9.40916625 54.517182,4.03423352 72.3082158,0 C53.5470206,1.92363709 39.3014942,5.82336557 29.5716365,11.6991855 C19.8417788,17.5750053 9.98456664,26.1495801 0,37.4229098 Z" id="璺緞-17" fill="#0083C5"></path>
++                <polygon id="璺緞-18" fill="#0083C5" points="7.36846055 11.5570751 17.9366125 11.5570751 20.0262095 14.079013 13.697335 18.7114549"></polygon>
++                <polygon id="璺緞-19" fill="#0083C5" points="30.3028565 26.4161716 25.5295785 34.5668855 27.9162175 37.4229098 38.7376644 37.4229098"></polygon>
++                <path d="M16.528564,37.4229098 L21.5337188,37.4229098 C23.7494644,31.7820146 27.2646997,26.5003174 32.0794247,21.5778181 C36.8941497,16.6553188 42.4155844,12.5812886 48.6437287,9.35572745 C41.5761967,12.5765421 35.5670449,16.3209027 30.6162733,20.5888093 C25.6655017,24.8567158 20.9695986,30.4680827 16.528564,37.4229098 Z" id="璺緞-20" fill="#A0CB2B"></path>
++            </g>
++            <path d="M81.6372105,9.60543465 C89.0652186,6.36451544 99.8378541,4.14822868 113.955117,2.95657437 C128.07238,1.76492006 142.377171,2.3856267 156.86949,4.8186943 C142.085351,0.826536735 127.522069,-0.68507511 113.179645,0.283858762 C98.8372213,1.25279263 88.3230764,4.3599846 81.6372105,9.60543465 Z" id="璺緞-16" fill="#A0CB2B"></path>
++            <g id="NXINZSK" transform="translate(0.000000, 11.252591)" fill="#102030" fill-rule="nonzero">
++                <path d="M0,26.7169224 L3.29859115,26.7169224 L10.6684406,4.00634363 L10.8933446,4.00634363 L16.2680518,26.7169224 L20.7286467,26.7169224 L29.0996378,0.921273186 L25.7260786,0.921273186 L18.7783973,22.3309186 L18.5534933,22.3309186 L13.6562337,0.921273186 L8.37099107,0.921273186 L0,26.7169224 Z M70.8815241,26.8282682 L74.1059802,26.8282682 L82.6829645,0.460636593 L79.4585084,0.460636593 L70.8815241,26.8282682 Z M81.0155291,26.8282682 L84.3141203,26.8282682 L91.889963,3.54570703 L92.1148669,3.54570703 L97.283581,26.8282682 L101.744176,26.8282682 L110.32116,0.460636593 L106.947601,0.460636593 L99.7939264,22.1378843 L99.5690225,22.1378843 L94.8777561,0.460636593 L89.5925134,0.460636593 L81.0155291,26.8282682 Z M107.271815,26.8282682 L127.079188,26.8282682 L128.056206,23.8175368 L111.908481,23.8175368 L111.980852,23.5945196 L133.751094,3.6572156 L134.788421,0.460636593 L116.603366,0.460636593 L115.63841,3.43419846 L129.899719,3.43419846 L129.865076,3.6572156 L108.381514,23.408672 L107.271815,26.8282682 Z M137.9218,26.9845246 C143.954916,26.9845246 148.15551,24.4002102 149.792495,19.3557564 C151.441605,14.2739362 149.827172,12.7419168 144.41912,11.3967291 C140.057396,10.3131057 139.695271,9.45368023 140.483449,7.02486911 C141.574772,3.66189985 143.539684,2.95193968 147.19726,2.95193968 C149.5728,2.95193968 152.054653,3.4377019 153.381045,3.99819678 L154.375361,0.934158126 C153.288667,0.4483959 150.64386,0 148.117493,0 C142.197497,0 138.65538,2.31671215 137.127528,7.02486911 C135.636053,11.6209271 137.172413,12.9287485 142.114526,14.1992035 C146.640533,15.3575596 147.492849,16.2169851 146.462155,19.3931227 C145.419335,22.6066266 142.801265,24.0325849 138.879739,24.0325849 C135.787767,24.0325849 132.852101,23.4347237 131.488002,22.8742289 L130.48156,25.9756338 C131.618087,26.4240297 134.679,26.9845246 137.9218,26.9845246 Z M165.440666,12.4663926 L180,0.460636593 L175.794745,0.460636593 L163.184941,11.2026288 L161.345142,11.2026288 L164.831045,0.460636593 L161.451822,0.460636593 L152.874838,26.8282682 L156.25406,26.8282682 L160.392248,14.1390212 L162.232047,14.1390212 L167.405495,26.8282682 L171.760938,26.8282682 L165.440666,12.4663926 Z" id="褰㈢姸缁撳悎"></path>
++            </g>
++        </g>
++    </g>
++</svg>
+\ No newline at end of file
+diff --git a/frontend/src/assets/theme/theme.css b/frontend/src/assets/theme/theme.css
+index 9cb90a56..354a23aa 100644
+--- a/frontend/src/assets/theme/theme.css
++++ b/frontend/src/assets/theme/theme.css
+@@ -1,5 +1,228 @@
+-:root,:root[theme-mode="light"]{    --brand-main: var(--td-brand-color-4);    --td-brand-color-light: var(--td-brand-color-1);    --td-brand-color-focus: var(--td-brand-color-2);    --td-brand-color-disabled: var(--td-brand-color-3);    --td-brand-color-hover: var(--td-brand-color-3);    --td-brand-color: var(--td-brand-color-4);    --td-brand-color-active:var(--td-brand-color-5);    --td-brand-color-1: #e9f8ec;    --td-brand-color-2: #09f479;    --td-brand-color-3: #08dd6e;    --td-brand-color-4: #07c05f;    --td-brand-color-5: #06b04d;    --td-brand-color-6: #049b38;    --td-brand-color-7: #038626;    --td-brand-color-8: #027218;    --td-brand-color-9: #015e0d;     --td-brand-color-10: #004b05;    --td-warning-color-1: #fef3e6;--td-warning-color-2: #f9e0c7;--td-warning-color-3: #f7c797;--td-warning-color-4: #f2995f;--td-warning-color-5: #ed7b2f;--td-warning-color-6: #d35a21;--td-warning-color-7: #ba431b;--td-warning-color-8: #9e3610;--td-warning-color-9: #842b0b;--td-warning-color-10: #5a1907;--td-warning-color: var(--td-warning-color-5);--td-warning-color-hover: var(--td-warning-color-4);--td-warning-color-focus: var(--td-warning-color-2);--td-warning-color-active: var(--td-warning-color-6);--td-warning-color-disabled: var(--td-warning-color-3);--td-warning-color-light: var(--td-warning-color-1); --td-error-color-1: #fdecee;--td-error-color-2: #f9d7d9;--td-error-color-3: #f8b9be;--td-error-color-4: #f78d94;--td-error-color-5: #f36d78;--td-error-color-6: #e34d59;--td-error-color-7: #c9353f;--td-error-color-8: #b11f26;--td-error-color-9: #951114;--td-error-color-10: #680506;--td-error-color: var(--td-error-color-6);--td-error-color-hover: var(--td-error-color-5);--td-error-color-focus: var(--td-error-color-2);--td-error-color-active: var(--td-error-color-7);--td-error-color-disabled: var(--td-error-color-3);--td-error-color-light: var(--td-error-color-1); --td-success-color-1: #e8f8f2;--td-success-color-2: #bcebdc;--td-success-color-3: #85dbbe;--td-success-color-4: #48c79c;--td-success-color-5: #00a870;--td-success-color-6: #078d5c;--td-success-color-7: #067945;--td-success-color-8: #056334;--td-success-color-9: #044f2a;--td-success-color-10: #033017;--td-success-color: var(--td-success-color-5);--td-success-color-hover: var(--td-success-color-4);--td-success-color-focus: var(--td-success-color-2);--td-success-color-active: var(--td-success-color-6);--td-success-color-disabled: var(--td-success-color-3);--td-success-color-light: var(--td-success-color-1); --td-gray-color-1: #f3f3f3;--td-gray-color-2: #eee;--td-gray-color-3: #e7e7e7;--td-gray-color-4: #dcdcdc;--td-gray-color-5: #c5c5c5;--td-gray-color-6: #a6a6a6;--td-gray-color-7: #8b8b8b;--td-gray-color-8: #777;--td-gray-color-9: #5e5e5e;--td-gray-color-10: #4b4b4b;--td-gray-color-11: #383838;--td-gray-color-12: #2c2c2c;--td-gray-color-13: #242424;--td-gray-color-14: #181818;--td-bg-color-container: #fff;--td-bg-color-container-select: #fff;--td-bg-color-page: var(--td-gray-color-2);--td-bg-color-sidebar: #f9f9f9;--td-bg-color-settings-modal: #f9f9f9;--td-bg-color-container-hover: var(--td-gray-color-1);--td-bg-color-container-active: var(--td-gray-color-3);--td-bg-color-secondarycontainer: var(--td-gray-color-1);--td-bg-color-secondarycontainer-hover: var(--td-gray-color-2);--td-bg-color-secondarycontainer-active: var(--td-gray-color-4);--td-bg-color-component: var(--td-gray-color-3);--td-bg-color-component-hover: var(--td-gray-color-4);--td-bg-color-component-active: var(--td-gray-color-6);--td-bg-color-component-disabled: var(--td-gray-color-2);--td-component-stroke: var(--td-gray-color-3);--td-component-border: var(--td-gray-color-4); --td-font-white-1: #ffffff;--td-font-white-2: rgba(255, 255, 255, 0.55);--td-font-white-3: rgba(255, 255, 255, 0.35);--td-font-white-4: rgba(255, 255, 255, 0.22);--td-font-gray-1: rgba(0, 0, 0, 0.9);--td-font-gray-2: rgba(0, 0, 0, 0.6);--td-font-gray-3: rgba(0, 0, 0, 0.4);--td-font-gray-4: rgba(0, 0, 0, 0.26);--td-text-color-primary: var(--td-font-gray-1);--td-text-color-secondary: var(--td-font-gray-2);--td-text-color-placeholder: var(--td-font-gray-3);--td-text-color-disabled: var(--td-font-gray-4);--td-text-color-anti: #fff;--td-text-color-brand: var(--td-brand-color);--td-text-color-link: var(--td-brand-color);    /* 瀛椾綋閰嶇疆 */  --td-font-family: PingFang SC, Microsoft YaHei, Arial Regular;  --td-font-family-medium: PingFang SC, Microsoft YaHei, Arial Medium;  --td-font-size-link-small: 12px;  --td-font-size-link-medium: 14px;  --td-font-size-link-large: 16px;  --td-font-size-mark-small: 12px;  --td-font-size-mark-medium: 14px;  --td-font-size-body-small: 12px;  --td-font-size-body-medium: 14px;  --td-font-size-body-large: 16px;  --td-font-size-title-small: 14px;  --td-font-size-title-medium: 16px;  --td-font-size-title-large: 20px;  --td-font-size-headline-small: 24px;  --td-font-size-headline-medium: 28px;  --td-font-size-headline-large: 36px;  --td-font-size-display-medium: 48px;  --td-font-size-display-large: 64px;  --td-line-height-common: 8px;  --td-line-height-link-small: calc(    var(--td-font-size-link-small) + var(--td-line-height-common)  );  --td-line-height-link-medium: calc(    var(--td-font-size-link-medium) + var(--td-line-height-common)  );  --td-line-height-link-large: calc(    var(--td-font-size-link-large) + var(--td-line-height-common)  );  --td-line-height-mark-small: calc(    var(--td-font-size-mark-small) + var(--td-line-height-common)  );  --td-line-height-mark-medium: calc(    var(--td-font-size-mark-medium) + var(--td-line-height-common)  );  --td-line-height-body-small: calc(    var(--td-font-size-body-small) + var(--td-line-height-common)  );  --td-line-height-body-medium: calc(    var(--td-font-size-body-medium) + var(--td-line-height-common)  );  --td-line-height-body-large: calc(    var(--td-font-size-body-large) + var(--td-line-height-common)  );  --td-line-height-title-small: calc(    var(--td-font-size-title-small) + var(--td-line-height-common)  );  --td-line-height-title-medium: calc(    var(--td-font-size-title-medium) + var(--td-line-height-common)  );  --td-line-height-title-large: calc(    var(--td-font-size-title-medium) + var(--td-line-height-common)  );  --td-line-height-headline-small: calc(    var(--td-font-size-headline-small) + var(--td-line-height-common)  );  --td-line-height-headline-medium: calc(    var(--td-font-size-headline-medium) + var(--td-line-height-common)  );  --td-line-height-headline-large: calc(    var(--td-font-size-headline-large) + var(--td-line-height-common)  );  --td-line-height-display-medium: calc(    var(--td-font-size-display-medium) + var(--td-line-height-common)  );  --td-line-height-display-large: calc(    var(--td-font-size-display-large) + var(--td-line-height-common)  );  --td-font-link-small: var(--td-font-size-link-small) /    var(--td-line-height-link-small) var(--td-font-family);  --td-font-link-medium: var(--td-font-size-link-medium) /    var(--td-line-height-link-medium) var(--td-font-family);  --td-font-link-large: var(--td-font-size-link-large) /    var(--td-line-height-link-large) var(--td-font-family);  --td-font-mark-small: 600 var(--td-font-size-mark-small) /    var(--td-line-height-mark-small) var(--td-font-family);  --td-font-mark-medium: 600 var(--td-font-size-mark-medium) /    var(--td-line-height-mark-medium) var(--td-font-family);  --td-font-body-small: var(--td-font-size-body-small) /    var(--td-line-height-body-small) var(--td-font-family);  --td-font-body-medium: var(--td-font-size-body-medium) /    var(--td-line-height-body-medium) var(--td-font-family);  --td-font-body-large: var(--td-font-size-body-large) /    var(--td-line-height-body-large) var(--td-font-family);  --td-font-title-small: var(--td-font-size-title-small) /    var(--td-line-height-title-small) var(--td-font-family);  --td-font-title-medium: var(--td-font-size-title-medium) /    var(--td-line-height-title-medium) var(--td-font-family);  --td-font-title-large: var(--td-font-size-title-large) /    var(--td-line-height-title-large) var(--td-font-family);  --td-font-headline-small: var(--td-font-size-headline-small) /    var(--td-line-height-headline-small) var(--td-font-family);  --td-font-headline-medium: var(--td-font-size-headline-medium) /    var(--td-line-height-headline-medium) var(--td-font-family);  --td-font-headline-large: var(--td-font-size-headline-large) /    var(--td-line-height-headline-large) var(--td-font-family);  --td-font-display-medium: var(--td-font-size-display-medium) /    var(--td-line-height-display-medium) var(--td-font-family);  --td-font-display-large: var(--td-font-size-display-large) /    var(--td-line-height-display-large) var(--td-font-family);  /* 瀛椾綋棰滆壊 */  --td-text-color-primary: var(--td-font-gray-1);  --td-text-color-secondary: var(--td-font-gray-2);  --td-text-color-placeholder: var(--td-font-gray-3);  --td-text-color-disabled: var(--td-font-gray-4);  --td-text-color-anti: #fff;  --td-text-color-brand: var(--td-brand-color);  --td-text-color-link: var(--td-brand-color);  /* end 瀛椾綋閰嶇疆 */        /* 鍦嗚閰嶇疆 */  --td-radius-small: 2px;  --td-radius-default: 3px;  --td-radius-medium: 6px;  --td-radius-large: 9px;  --td-radius-extraLarge: 12px;  --td-radius-round: 999px;  --td-radius-circle: 50%;  /* end 鍦嗚閰嶇疆 */    /* 闃村奖閰嶇疆 */  --td-shadow-1: 0px 1px 10px rgba(0, 0, 0, 0.05),    0px 4px 5px rgba(0, 0, 0, 0.08), 0px 2px 4px -1px rgba(0, 0, 0, 0.12);  --td-shadow-2: 0px 3px 14px 2px rgba(0, 0, 0, 0.05),    0px 8px 10px 1px rgba(0, 0, 0, 0.06), 0px 5px 5px -3px rgba(0, 0, 0, 0.1);  --td-shadow-3: 0px 6px 30px 5px rgba(0, 0, 0, 0.05),    0px 16px 24px 2px rgba(0, 0, 0, 0.04), 0px 8px 10px -5px rgba(0, 0, 0, 0.08);  /* end 闃村奖閰嶇疆 */    }
+-:root[theme-mode="dark"]{
++:root,
++:root[theme-mode="light"] {
++    --brand-main: var(--td-brand-color-4);
++    --td-brand-color-light: var(--td-brand-color-1);
++    --td-brand-color-focus: var(--td-brand-color-2);
++    --td-brand-color-disabled: var(--td-brand-color-3);
++    --td-brand-color-hover: var(--td-brand-color-3);
++    --td-brand-color: var(--td-brand-color-5);
++    --td-brand-color-active: var(--td-brand-color-6);
++    --td-brand-color-1: #f2f3ff;
++    --td-brand-color-2: #d9e1ff;
++    --td-brand-color-3: #b5c7ff;
++    --td-brand-color-4: #8eabff;
++    --td-brand-color-5: #618dff;
++    --td-brand-color-6: #366ef4;
++    --td-brand-color-7: #0052d9;
++    --td-brand-color-8: #003cab;
++    --td-brand-color-9: #002a7c;
++    --td-brand-color-10: #001a57;
++    /*--td-brand-color-1: #e9f8ec;*/
++    /*--td-brand-color-2: #09f479;*/
++    /*--td-brand-color-3: #08dd6e;*/
++    /*--td-brand-color-4: #07c05f;*/
++    /*--td-brand-color-5: #06b04d;*/
++    /*--td-brand-color-6: #049b38;*/
++    /*--td-brand-color-7: #038626;*/
++    /*--td-brand-color-8: #027218;*/
++    /*--td-brand-color-9: #015e0d;*/
++    /*--td-brand-color-10: #004b05;*/
++    --td-warning-color-1: #fef3e6;
++    --td-warning-color-2: #f9e0c7;
++    --td-warning-color-3: #f7c797;
++    --td-warning-color-4: #f2995f;
++    --td-warning-color-5: #ed7b2f;
++    --td-warning-color-6: #d35a21;
++    --td-warning-color-7: #ba431b;
++    --td-warning-color-8: #9e3610;
++    --td-warning-color-9: #842b0b;
++    --td-warning-color-10: #5a1907;
++    --td-warning-color: var(--td-warning-color-5);
++    --td-warning-color-hover: var(--td-warning-color-4);
++    --td-warning-color-focus: var(--td-warning-color-2);
++    --td-warning-color-active: var(--td-warning-color-6);
++    --td-warning-color-disabled: var(--td-warning-color-3);
++    --td-warning-color-light: var(--td-warning-color-1);
++    --td-error-color-1: #fdecee;
++    --td-error-color-2: #f9d7d9;
++    --td-error-color-3: #f8b9be;
++    --td-error-color-4: #f78d94;
++    --td-error-color-5: #f36d78;
++    --td-error-color-6: #e34d59;
++    --td-error-color-7: #c9353f;
++    --td-error-color-8: #b11f26;
++    --td-error-color-9: #951114;
++    --td-error-color-10: #680506;
++    --td-error-color: var(--td-error-color-6);
++    --td-error-color-hover: var(--td-error-color-5);
++    --td-error-color-focus: var(--td-error-color-2);
++    --td-error-color-active: var(--td-error-color-7);
++    --td-error-color-disabled: var(--td-error-color-3);
++    --td-error-color-light: var(--td-error-color-1);
++    --td-success-color-1: #f2f3ff;
++    --td-success-color-2: #d9e1ff;
++    --td-success-color-3: #b5c7ff;
++    --td-success-color-4: #8eabff;
++    --td-success-color-5: #618dff;
++    --td-success-color-6: #366ef4;
++    --td-success-color-7: #0052d9;
++    --td-success-color-8: #003cab;
++    --td-success-color-9: #002a7c;
++    --td-success-color-10: #001a57;
++    /*--td-success-color-1: #e8f8f2;*/
++    /*--td-success-color-2: #bcebdc;*/
++    /*--td-success-color-3: #85dbbe;*/
++    /*--td-success-color-4: #48c79c;*/
++    /*--td-success-color-5: #00a870;*/
++    /*--td-success-color-6: #078d5c;*/
++    /*--td-success-color-7: #067945;*/
++    /*--td-success-color-8: #056334;*/
++    /*--td-success-color-9: #044f2a;*/
++    /*--td-success-color-10: #033017;*/
++    --td-success-color: var(--td-success-color-5);
++    --td-success-color-hover: var(--td-success-color-4);
++    --td-success-color-focus: var(--td-success-color-2);
++    --td-success-color-active: var(--td-success-color-6);
++    --td-success-color-disabled: var(--td-success-color-3);
++    --td-success-color-light: var(--td-success-color-1);
++    --td-gray-color-1: #f3f3f3;
++    --td-gray-color-2: #eee;
++    --td-gray-color-3: #e7e7e7;
++    --td-gray-color-4: #dcdcdc;
++    --td-gray-color-5: #c5c5c5;
++    --td-gray-color-6: #a6a6a6;
++    --td-gray-color-7: #8b8b8b;
++    --td-gray-color-8: #777;
++    --td-gray-color-9: #5e5e5e;
++    --td-gray-color-10: #4b4b4b;
++    --td-gray-color-11: #383838;
++    --td-gray-color-12: #2c2c2c;
++    --td-gray-color-13: #242424;
++    --td-gray-color-14: #181818;
++    --td-bg-color-container: #fff;
++    --td-bg-color-container-select: #fff;
++    --td-bg-color-page: var(--td-gray-color-2);
++    --td-bg-color-container-hover: var(--td-gray-color-1);
++    --td-bg-color-container-active: var(--td-gray-color-3);
++    --td-bg-color-secondarycontainer: var(--td-gray-color-1);
++    --td-bg-color-secondarycontainer-hover: var(--td-gray-color-2);
++    --td-bg-color-secondarycontainer-active: var(--td-gray-color-4);
++    --td-bg-color-component: var(--td-gray-color-3);
++    --td-bg-color-component-hover: var(--td-gray-color-4);
++    --td-bg-color-component-active: var(--td-gray-color-6);
++    --td-bg-color-component-disabled: var(--td-gray-color-2);
++    --td-bg-color-specialcomponent: var(--td-gray-color-1);
++    --td-component-stroke: var(--td-gray-color-3);
++    --td-component-border: var(--td-gray-color-4);
++    --td-font-white-1: #ffffff;
++    --td-font-white-2: rgba(255, 255, 255, 0.55);
++    --td-font-white-3: rgba(255, 255, 255, 0.35);
++    --td-font-white-4: rgba(255, 255, 255, 0.22);
++    --td-font-gray-1: rgba(0, 0, 0, 0.9);
++    --td-font-gray-2: rgba(0, 0, 0, 0.6);
++    --td-font-gray-3: rgba(0, 0, 0, 0.4);
++    --td-font-gray-4: rgba(0, 0, 0, 0.26);
++    --td-text-color-primary: var(--td-font-gray-1);
++    --td-text-color-secondary: var(--td-font-gray-2);
++    --td-text-color-placeholder: var(--td-font-gray-3);
++    --td-text-color-disabled: var(--td-font-gray-4);
++    --td-text-color-anti: #fff;
++    --td-text-color-brand: var(--td-brand-color);
++    --td-text-color-link: var(--td-brand-color);
++    /* 瀛椾綋閰嶇疆 */
++    --td-font-family: PingFang SC, Microsoft YaHei, Arial Regular;
++    --td-font-family-medium: PingFang SC, Microsoft YaHei, Arial Medium;
++    --td-font-size-link-small: 12px;
++    --td-font-size-link-medium: 14px;
++    --td-font-size-link-large: 16px;
++    --td-font-size-mark-small: 12px;
++    --td-font-size-mark-medium: 14px;
++    --td-font-size-body-small: 12px;
++    --td-font-size-body-medium: 14px;
++    --td-font-size-body-large: 16px;
++    --td-font-size-title-small: 14px;
++    --td-font-size-title-medium: 16px;
++    --td-font-size-title-large: 20px;
++    --td-font-size-headline-small: 24px;
++    --td-font-size-headline-medium: 28px;
++    --td-font-size-headline-large: 36px;
++    --td-font-size-display-medium: 48px;
++    --td-font-size-display-large: 64px;
++    --td-line-height-common: 8px;
++    --td-line-height-link-small: calc(var(--td-font-size-link-small) + var(--td-line-height-common));
++    --td-line-height-link-medium: calc(var(--td-font-size-link-medium) + var(--td-line-height-common));
++    --td-line-height-link-large: calc(var(--td-font-size-link-large) + var(--td-line-height-common));
++    --td-line-height-mark-small: calc(var(--td-font-size-mark-small) + var(--td-line-height-common));
++    --td-line-height-mark-medium: calc(var(--td-font-size-mark-medium) + var(--td-line-height-common));
++    --td-line-height-body-small: calc(var(--td-font-size-body-small) + var(--td-line-height-common));
++    --td-line-height-body-medium: calc(var(--td-font-size-body-medium) + var(--td-line-height-common));
++    --td-line-height-body-large: calc(var(--td-font-size-body-large) + var(--td-line-height-common));
++    --td-line-height-title-small: calc(var(--td-font-size-title-small) + var(--td-line-height-common));
++    --td-line-height-title-medium: calc(var(--td-font-size-title-medium) + var(--td-line-height-common));
++    --td-line-height-title-large: calc(var(--td-font-size-title-medium) + var(--td-line-height-common));
++    --td-line-height-headline-small: calc(var(--td-font-size-headline-small) + var(--td-line-height-common));
++    --td-line-height-headline-medium: calc(var(--td-font-size-headline-medium) + var(--td-line-height-common));
++    --td-line-height-headline-large: calc(var(--td-font-size-headline-large) + var(--td-line-height-common));
++    --td-line-height-display-medium: calc(var(--td-font-size-display-medium) + var(--td-line-height-common));
++    --td-line-height-display-large: calc(var(--td-font-size-display-large) + var(--td-line-height-common));
++    --td-font-link-small: var(--td-font-size-link-small) /    var(--td-line-height-link-small) var(--td-font-family);
++    --td-font-link-medium: var(--td-font-size-link-medium) /    var(--td-line-height-link-medium) var(--td-font-family);
++    --td-font-link-large: var(--td-font-size-link-large) /    var(--td-line-height-link-large) var(--td-font-family);
++    --td-font-mark-small: 600 var(--td-font-size-mark-small) /    var(--td-line-height-mark-small) var(--td-font-family);
++    --td-font-mark-medium: 600 var(--td-font-size-mark-medium) /    var(--td-line-height-mark-medium) var(--td-font-family);
++    --td-font-body-small: var(--td-font-size-body-small) /    var(--td-line-height-body-small) var(--td-font-family);
++    --td-font-body-medium: var(--td-font-size-body-medium) /    var(--td-line-height-body-medium) var(--td-font-family);
++    --td-font-body-large: var(--td-font-size-body-large) /    var(--td-line-height-body-large) var(--td-font-family);
++    --td-font-title-small: var(--td-font-size-title-small) /    var(--td-line-height-title-small) var(--td-font-family);
++    --td-font-title-medium: var(--td-font-size-title-medium) /    var(--td-line-height-title-medium) var(--td-font-family);
++    --td-font-title-large: var(--td-font-size-title-large) /    var(--td-line-height-title-large) var(--td-font-family);
++    --td-font-headline-small: var(--td-font-size-headline-small) /    var(--td-line-height-headline-small) var(--td-font-family);
++    --td-font-headline-medium: var(--td-font-size-headline-medium) /    var(--td-line-height-headline-medium) var(--td-font-family);
++    --td-font-headline-large: var(--td-font-size-headline-large) /    var(--td-line-height-headline-large) var(--td-font-family);
++    --td-font-display-medium: var(--td-font-size-display-medium) /    var(--td-line-height-display-medium) var(--td-font-family);
++    --td-font-display-large: var(--td-font-size-display-large) /    var(--td-line-height-display-large) var(--td-font-family);
++    /* 瀛椾綋棰滆壊 */
++    --td-text-color-primary: var(--td-font-gray-1);
++    --td-text-color-secondary: var(--td-font-gray-2);
++    --td-text-color-placeholder: var(--td-font-gray-3);
++    --td-text-color-disabled: var(--td-font-gray-4);
++    --td-text-color-anti: #fff;
++    --td-text-color-brand: var(--td-brand-color);
++    --td-text-color-link: var(--td-brand-color);
++    /* end 瀛椾綋閰嶇疆 */
++
++    /* 淇℃伅鑹诧紙鐢ㄤ簬 FAQ 鏍囩銆丮arkdown 寮曠敤绛夛級 */
++    --td-info-color: #0052d9;
++    --td-info-color-light: rgba(0, 82, 217, 0.08);
++    --td-info-color-hover: #003ba8;
++    --td-info-color-active: #002d7a;
++
++    /* 绱壊锛堢敤浜?Agent 妯″紡鏍囪瘑绛夛級 */
++    --td-purple-color: #7c4dff;
++    --td-purple-color-5: #7c4dff;
++
++    /* 鏂囦欢鑹诧紙鐢ㄤ簬鏂囦欢鏍囩銆佹枃妗ｅ浘鏍囩瓑锛?*/
++    --td-file-color: #ed7b2f;
++    --td-file-color-text: #e65100;
++    --td-file-color-hover: #d35a21;
++    --td-file-color-active: #ba431b;
++
++    /* 鍦嗚閰嶇疆 */
++    --td-radius-small: 2px;
++    --td-radius-default: 3px;
++    --td-radius-medium: 6px;
++    --td-radius-large: 9px;
++    --td-radius-extraLarge: 12px;
++    --td-radius-round: 999px;
++    --td-radius-circle: 50%;
++    /* end 鍦嗚閰嶇疆 */
++    /* 闃村奖閰嶇疆 */
++    --td-shadow-1: 0px 1px 10px rgba(0, 0, 0, 0.05), 0px 4px 5px rgba(0, 0, 0, 0.08), 0px 2px 4px -1px rgba(0, 0, 0, 0.12);
++    --td-shadow-2: 0px 3px 14px 2px rgba(0, 0, 0, 0.05), 0px 8px 10px 1px rgba(0, 0, 0, 0.06), 0px 5px 5px -3px rgba(0, 0, 0, 0.1);
++    --td-shadow-3: 0px 6px 30px 5px rgba(0, 0, 0, 0.05), 0px 16px 24px 2px rgba(0, 0, 0, 0.04), 0px 8px 10px -5px rgba(0, 0, 0, 0.08);
++    /* end 闃村奖閰嶇疆 */
++}
++:root[theme-mode="dark"] {
+     --brand-main: var(--td-brand-color-6);
+     --td-brand-color-light: var(--td-brand-color-1);
+     --td-brand-color-focus: var(--td-brand-color-2);
+@@ -15,87 +238,180 @@
+     --td-brand-color-6: #06b04d;
+     --td-brand-color-7: #07c05f;
+     --td-brand-color-8: #08dd6e;
+-    --td-brand-color-9: #09f479; 
++    --td-brand-color-9: #09f479;
+     --td-brand-color-10: #a6fccf;
+     --td-warning-color-1: #4f2a1d;
+---td-warning-color-2: #582f21;
+---td-warning-color-3: #733c23;
+---td-warning-color-4: #a75d2b;
+---td-warning-color-5: #cf6e2d;
+---td-warning-color-6: #dc7633;
+---td-warning-color-7: #e8935c;
+---td-warning-color-8: #ecbf91;
+---td-warning-color-9: #eed7bf;
+---td-warning-color-10: #f3e9dc; --td-error-color-1: #472324;
+---td-error-color-2: #5e2a2d;
+---td-error-color-3: #703439;
+---td-error-color-4: #83383e;
+---td-error-color-5: #a03f46;
+---td-error-color-6: #c64751;
+---td-error-color-7: #de6670;
+---td-error-color-8: #ec888e;
+---td-error-color-9: #edb1b6;
+---td-error-color-10: #eeced0; --td-success-color-1: #193a2a;
+---td-success-color-2: #1a4230;
+---td-success-color-3: #17533d;
+---td-success-color-4: #0d7a55;
+---td-success-color-5: #059465;
+---td-success-color-6: #43af8a;
+---td-success-color-7: #46bf96;
+---td-success-color-8: #80d2b6;
+---td-success-color-9: #b4e1d3;
+---td-success-color-10: #deede8; --td-gray-color-1: #f3f3f3;
+---td-gray-color-2: #eee;
+---td-gray-color-3: #e7e7e7;
+---td-gray-color-4: #dcdcdc;
+---td-gray-color-5: #c5c5c5;
+---td-gray-color-6: #a6a6a6;
+---td-gray-color-7: #8b8b8b;
+---td-gray-color-8: #777;
+---td-gray-color-9: #5e5e5e;
+---td-gray-color-10: #4b4b4b;
+---td-gray-color-11: #383838;
+---td-gray-color-12: #2c2c2c;
+---td-gray-color-13: #242424;
+---td-gray-color-14: #181818;
+---td-bg-color-page: var(--td-gray-color-14);
+---td-bg-color-sidebar: #181818;
+---td-bg-color-settings-modal: #181818;
+---td-bg-color-container: var(--td-gray-color-13);
+---td-bg-color-container-hover: var(--td-gray-color-12);
+---td-bg-color-container-active: var(--td-gray-color-10);
+---td-bg-color-container-select: var(--td-gray-color-9);
+---td-bg-color-secondarycontainer: var(--td-gray-color-12);
+---td-bg-color-secondarycontainer-hover: var(--td-gray-color-11);
+---td-bg-color-secondarycontainer-active: var(--td-gray-color-9);
+---td-bg-color-component: var(--td-gray-color-11);
+---td-bg-color-component-hover: var(--td-gray-color-10);
+---td-bg-color-component-active: var(--td-gray-color-9);
+---td-bg-color-component-disabled: var(--td-gray-color-12);
+---td-component-stroke: var(--td-gray-color-11);
+---td-component-border: var(--td-gray-color-9); --td-font-white-1: rgba(255, 255, 255, 0.9);
+---td-font-white-2: rgba(255, 255, 255, 0.55);
+---td-font-white-3: rgba(255, 255, 255, 0.35);
+---td-font-white-4: rgba(255, 255, 255, 0.22);
+---td-font-gray-1: rgba(255, 255, 255, 0.9);
+---td-font-gray-2: rgba(255, 255, 255, 0.55);
+---td-font-gray-3: rgba(255, 255, 255, 0.35);
+---td-font-gray-4: rgba(255, 255, 255, 0.22);
+---td-text-color-primary: var(--td-font-white-1);
+---td-text-color-secondary: var(--td-font-white-2);
+---td-text-color-placeholder: var(--td-font-white-3);
+---td-text-color-disabled: var(--td-font-white-4);
+---td-text-color-anti: #fff;
+---td-text-color-brand: var(--td-brand-color);
+---td-text-color-link: var(--td-brand-color);
++    --td-warning-color-2: #582f21;
++    --td-warning-color-3: #733c23;
++    --td-warning-color-4: #a75d2b;
++    --td-warning-color-5: #cf6e2d;
++    --td-warning-color-6: #dc7633;
++    --td-warning-color-7: #e8935c;
++    --td-warning-color-8: #ecbf91;
++    --td-warning-color-9: #eed7bf;
++    --td-warning-color-10: #f3e9dc;
++    --td-error-color-1: #472324;
++    --td-error-color-2: #5e2a2d;
++    --td-error-color-3: #703439;
++    --td-error-color-4: #83383e;
++    --td-error-color-5: #a03f46;
++    --td-error-color-6: #c64751;
++    --td-error-color-7: #de6670;
++    --td-error-color-8: #ec888e;
++    --td-error-color-9: #edb1b6;
++    --td-error-color-10: #eeced0;
++    --td-success-color-1: #193a2a;
++    --td-success-color-2: #1a4230;
++    --td-success-color-3: #17533d;
++    --td-success-color-4: #0d7a55;
++    --td-success-color-5: #059465;
++    --td-success-color-6: #43af8a;
++    --td-success-color-7: #46bf96;
++    --td-success-color-8: #80d2b6;
++    --td-success-color-9: #b4e1d3;
++    --td-success-color-10: #deede8;
++    --td-gray-color-1: #f3f3f3;
++    --td-gray-color-2: #eee;
++    --td-gray-color-3: #e7e7e7;
++    --td-gray-color-4: #dcdcdc;
++    --td-gray-color-5: #c5c5c5;
++    --td-gray-color-6: #a6a6a6;
++    --td-gray-color-7: #8b8b8b;
++    --td-gray-color-8: #777;
++    --td-gray-color-9: #5e5e5e;
++    --td-gray-color-10: #4b4b4b;
++    --td-gray-color-11: #383838;
++    --td-gray-color-12: #2c2c2c;
++    --td-gray-color-13: #242424;
++    --td-gray-color-14: #181818;
++    --td-bg-color-page: var(--td-gray-color-14);
++    --td-bg-color-sidebar: #181818;
++    --td-bg-color-settings-modal: #181818;
++    --td-bg-color-container: var(--td-gray-color-13);
++    --td-bg-color-container-hover: var(--td-gray-color-12);
++    --td-bg-color-container-active: var(--td-gray-color-10);
++    --td-bg-color-container-select: var(--td-gray-color-9);
++    --td-bg-color-secondarycontainer: var(--td-gray-color-12);
++    --td-bg-color-secondarycontainer-hover: var(--td-gray-color-11);
++    --td-bg-color-secondarycontainer-active: var(--td-gray-color-9);
++    --td-bg-color-component: var(--td-gray-color-11);
++    --td-bg-color-component-hover: var(--td-gray-color-10);
++    --td-bg-color-component-active: var(--td-gray-color-9);
++    --td-bg-color-component-disabled: var(--td-gray-color-12);
++    --td-bg-color-specialcomponent: var(--td-gray-color-11);
++    --td-component-stroke: var(--td-gray-color-11);
++    --td-component-border: var(--td-gray-color-9);
++    --td-font-white-1: rgba(255, 255, 255, 0.9);
++    --td-font-white-2: rgba(255, 255, 255, 0.55);
++    --td-font-white-3: rgba(255, 255, 255, 0.35);
++    --td-font-white-4: rgba(255, 255, 255, 0.22);
++    /* 鏆楄壊妯″紡涓嬪瓧浣撻鑹插彉閲忔槧灏勫埌鐧借壊 */
++    --td-font-gray-1: var(--td-font-white-1);
++    --td-font-gray-2: var(--td-font-white-2);
++    --td-font-gray-3: var(--td-font-white-3);
++    --td-font-gray-4: var(--td-font-white-4);
++    --td-text-color-primary: var(--td-font-white-1);
++    --td-text-color-secondary: var(--td-font-white-2);
++    --td-text-color-placeholder: var(--td-font-white-3);
++    --td-text-color-disabled: var(--td-font-white-4);
++    --td-text-color-anti: #fff;
++    --td-text-color-brand: var(--td-brand-color);
++    --td-text-color-link: var(--td-brand-color);
+ 
+-    /* 瀛椾綋閰嶇疆 */  --td-font-family: PingFang SC, Microsoft YaHei, Arial Regular;  --td-font-family-medium: PingFang SC, Microsoft YaHei, Arial Medium;  --td-font-size-link-small: 12px;  --td-font-size-link-medium: 14px;  --td-font-size-link-large: 16px;  --td-font-size-mark-small: 12px;  --td-font-size-mark-medium: 14px;  --td-font-size-body-small: 12px;  --td-font-size-body-medium: 14px;  --td-font-size-body-large: 16px;  --td-font-size-title-small: 14px;  --td-font-size-title-medium: 16px;  --td-font-size-title-large: 20px;  --td-font-size-headline-small: 24px;  --td-font-size-headline-medium: 28px;  --td-font-size-headline-large: 36px;  --td-font-size-display-medium: 48px;  --td-font-size-display-large: 64px;  --td-line-height-common: 8px;  --td-line-height-link-small: calc(    var(--td-font-size-link-small) + var(--td-line-height-common)  );  --td-line-height-link-medium: calc(    var(--td-font-size-link-medium) + var(--td-line-height-common)  );  --td-line-height-link-large: calc(    var(--td-font-size-link-large) + var(--td-line-height-common)  );  --td-line-height-mark-small: calc(    var(--td-font-size-mark-small) + var(--td-line-height-common)  );  --td-line-height-mark-medium: calc(    var(--td-font-size-mark-medium) + var(--td-line-height-common)  );  --td-line-height-body-small: calc(    var(--td-font-size-body-small) + var(--td-line-height-common)  );  --td-line-height-body-medium: calc(    var(--td-font-size-body-medium) + var(--td-line-height-common)  );  --td-line-height-body-large: calc(    var(--td-font-size-body-large) + var(--td-line-height-common)  );  --td-line-height-title-small: calc(    var(--td-font-size-title-small) + var(--td-line-height-common)  );  --td-line-height-title-medium: calc(    var(--td-font-size-title-medium) + var(--td-line-height-common)  );  --td-line-height-title-large: calc(    var(--td-font-size-title-medium) + var(--td-line-height-common)  );  --td-line-height-headline-small: calc(    var(--td-font-size-headline-small) + var(--td-line-height-common)  );  --td-line-height-headline-medium: calc(    var(--td-font-size-headline-medium) + var(--td-line-height-common)  );  --td-line-height-headline-large: calc(    var(--td-font-size-headline-large) + var(--td-line-height-common)  );  --td-line-height-display-medium: calc(    var(--td-font-size-display-medium) + var(--td-line-height-common)  );  --td-line-height-display-large: calc(    var(--td-font-size-display-large) + var(--td-line-height-common)  );  --td-font-link-small: var(--td-font-size-link-small) /    var(--td-line-height-link-small) var(--td-font-family);  --td-font-link-medium: var(--td-font-size-link-medium) /    var(--td-line-height-link-medium) var(--td-font-family);  --td-font-link-large: var(--td-font-size-link-large) /    var(--td-line-height-link-large) var(--td-font-family);  --td-font-mark-small: 600 var(--td-font-size-mark-small) /    var(--td-line-height-mark-small) var(--td-font-family);  --td-font-mark-medium: 600 var(--td-font-size-mark-medium) /    var(--td-line-height-mark-medium) var(--td-font-family);  --td-font-body-small: var(--td-font-size-body-small) /    var(--td-line-height-body-small) var(--td-font-family);  --td-font-body-medium: var(--td-font-size-body-medium) /    var(--td-line-height-body-medium) var(--td-font-family);  --td-font-body-large: var(--td-font-size-body-large) /    var(--td-line-height-body-large) var(--td-font-family);  --td-font-title-small: var(--td-font-size-title-small) /    var(--td-line-height-title-small) var(--td-font-family);  --td-font-title-medium: var(--td-font-size-title-medium) /    var(--td-line-height-title-medium) var(--td-font-family);  --td-font-title-large: var(--td-font-size-title-large) /    var(--td-line-height-title-large) var(--td-font-family);  --td-font-headline-small: var(--td-font-size-headline-small) /    var(--td-line-height-headline-small) var(--td-font-family);  --td-font-headline-medium: var(--td-font-size-headline-medium) /    var(--td-line-height-headline-medium) var(--td-font-family);  --td-font-headline-large: var(--td-font-size-headline-large) /    var(--td-line-height-headline-large) var(--td-font-family);  --td-font-display-medium: var(--td-font-size-display-medium) /    var(--td-line-height-display-medium) var(--td-font-family);  --td-font-display-large: var(--td-font-size-display-large) /    var(--td-line-height-display-large) var(--td-font-family);  /* 瀛椾綋棰滆壊 */  --td-text-color-primary: var(--td-font-gray-1);  --td-text-color-secondary: var(--td-font-gray-2);  --td-text-color-placeholder: var(--td-font-gray-3);  --td-text-color-disabled: var(--td-font-gray-4);  --td-text-color-anti: #fff;  --td-text-color-brand: var(--td-brand-color);  --td-text-color-link: var(--td-brand-color);  /* end 瀛椾綋閰嶇疆 */
++    /* 瀛椾綋閰嶇疆 */
++    --td-font-family: PingFang SC, Microsoft YaHei, Arial Regular;
++    --td-font-family-medium: PingFang SC, Microsoft YaHei, Arial Medium;
++    --td-font-size-link-small: 12px;
++    --td-font-size-link-medium: 14px;
++    --td-font-size-link-large: 16px;
++    --td-font-size-mark-small: 12px;
++    --td-font-size-mark-medium: 14px;
++    --td-font-size-body-small: 12px;
++    --td-font-size-body-medium: 14px;
++    --td-font-size-body-large: 16px;
++    --td-font-size-title-small: 14px;
++    --td-font-size-title-medium: 16px;
++    --td-font-size-title-large: 20px;
++    --td-font-size-headline-small: 24px;
++    --td-font-size-headline-medium: 28px;
++    --td-font-size-headline-large: 36px;
++    --td-font-size-display-medium: 48px;
++    --td-font-size-display-large: 64px;
++    --td-line-height-common: 8px;
++    --td-line-height-link-small: calc(var(--td-font-size-link-small) + var(--td-line-height-common));
++    --td-line-height-link-medium: calc(var(--td-font-size-link-medium) + var(--td-line-height-common));
++    --td-line-height-link-large: calc(var(--td-font-size-link-large) + var(--td-line-height-common));
++    --td-line-height-mark-small: calc(var(--td-font-size-mark-small) + var(--td-line-height-common));
++    --td-line-height-mark-medium: calc(var(--td-font-size-mark-medium) + var(--td-line-height-common));
++    --td-line-height-body-small: calc(var(--td-font-size-body-small) + var(--td-line-height-common));
++    --td-line-height-body-medium: calc(var(--td-font-size-body-medium) + var(--td-line-height-common));
++    --td-line-height-body-large: calc(var(--td-font-size-body-large) + var(--td-line-height-common));
++    --td-line-height-title-small: calc(var(--td-font-size-title-small) + var(--td-line-height-common));
++    --td-line-height-title-medium: calc(var(--td-font-size-title-medium) + var(--td-line-height-common));
++    --td-line-height-title-large: calc(var(--td-font-size-title-medium) + var(--td-line-height-common));
++    --td-line-height-headline-small: calc(var(--td-font-size-headline-small) + var(--td-line-height-common));
++    --td-line-height-headline-medium: calc(var(--td-font-size-headline-medium) + var(--td-line-height-common));
++    --td-line-height-headline-large: calc(var(--td-font-size-headline-large) + var(--td-line-height-common));
++    --td-line-height-display-medium: calc(var(--td-font-size-display-medium) + var(--td-line-height-common));
++    --td-line-height-display-large: calc(var(--td-font-size-display-large) + var(--td-line-height-common));
++    --td-font-link-small: var(--td-font-size-link-small) /    var(--td-line-height-link-small) var(--td-font-family);
++    --td-font-link-medium: var(--td-font-size-link-medium) /    var(--td-line-height-link-medium) var(--td-font-family);
++    --td-font-link-large: var(--td-font-size-link-large) /    var(--td-line-height-link-large) var(--td-font-family);
++    --td-font-mark-small: 600 var(--td-font-size-mark-small) /    var(--td-line-height-mark-small) var(--td-font-family);
++    --td-font-mark-medium: 600 var(--td-font-size-mark-medium) /    var(--td-line-height-mark-medium) var(--td-font-family);
++    --td-font-body-small: var(--td-font-size-body-small) /    var(--td-line-height-body-small) var(--td-font-family);
++    --td-font-body-medium: var(--td-font-size-body-medium) /    var(--td-line-height-body-medium) var(--td-font-family);
++    --td-font-body-large: var(--td-font-size-body-large) /    var(--td-line-height-body-large) var(--td-font-family);
++    --td-font-title-small: var(--td-font-size-title-small) /    var(--td-line-height-title-small) var(--td-font-family);
++    --td-font-title-medium: var(--td-font-size-title-medium) /    var(--td-line-height-title-medium) var(--td-font-family);
++    --td-font-title-large: var(--td-font-size-title-large) /    var(--td-line-height-title-large) var(--td-font-family);
++    --td-font-headline-small: var(--td-font-size-headline-small) /    var(--td-line-height-headline-small) var(--td-font-family);
++    --td-font-headline-medium: var(--td-font-size-headline-medium) /    var(--td-line-height-headline-medium) var(--td-font-family);
++    --td-font-headline-large: var(--td-font-size-headline-large) /    var(--td-line-height-headline-large) var(--td-font-family);
++    --td-font-display-medium: var(--td-font-size-display-medium) /    var(--td-line-height-display-medium) var(--td-font-family);
++    --td-font-display-large: var(--td-font-size-display-large) /    var(--td-line-height-display-large) var(--td-font-family);
++    /* 瀛椾綋棰滆壊 */
++    --td-text-color-primary: var(--td-font-gray-1);
++    --td-text-color-secondary: var(--td-font-gray-2);
++    --td-text-color-placeholder: var(--td-font-gray-3);
++    --td-text-color-disabled: var(--td-font-gray-4);
++    --td-text-color-anti: #fff;
++    --td-text-color-brand: var(--td-brand-color);
++    --td-text-color-link: var(--td-brand-color);
++    /* end 瀛椾綋閰嶇疆 */
++    
++    /* 淇℃伅鑹诧紙鐢ㄤ簬 FAQ 鏍囩銆丮arkdown 寮曠敤绛夛級 */
++    --td-info-color: #64b5f6;
++    --td-info-color-light: rgba(100, 181, 246, 0.2);
++    --td-info-color-hover: #42a5f5;
++    --td-info-color-active: #2196f3;
+     
+-    /* 鍦嗚閰嶇疆 */  --td-radius-small: 2px;  --td-radius-default: 3px;  --td-radius-medium: 6px;  --td-radius-large: 9px;  --td-radius-extraLarge: 12px;  --td-radius-round: 999px;  --td-radius-circle: 50%;  /* end 鍦嗚閰嶇疆 */
++    /* 绱壊锛堢敤浜?Agent 妯″紡鏍囪瘑绛夛級 */
++    --td-purple-color: #b388ff;
++    --td-purple-color-5: #b388ff;
+ 
+-    /* 闃村奖閰嶇疆 */  --td-shadow-1: 0px 1px 10px rgba(0, 0, 0, 0.05),    0px 4px 5px rgba(0, 0, 0, 0.08), 0px 2px 4px -1px rgba(0, 0, 0, 0.12);  --td-shadow-2: 0px 3px 14px 2px rgba(0, 0, 0, 0.05),    0px 8px 10px 1px rgba(0, 0, 0, 0.06), 0px 5px 5px -3px rgba(0, 0, 0, 0.1);  --td-shadow-3: 0px 6px 30px 5px rgba(0, 0, 0, 0.05),    0px 16px 24px 2px rgba(0, 0, 0, 0.04), 0px 8px 10px -5px rgba(0, 0, 0, 0.08);  /* end 闃村奖閰嶇疆 */
++    /* 鏂囦欢鑹诧紙鐢ㄤ簬鏂囦欢鏍囩銆佹枃妗ｅ浘鏍囩瓑锛?*/
++    --td-file-color: #ffb74d;
++    --td-file-color-text: #ffa726;
++    --td-file-color-hover: #ff9800;
++    --td-file-color-active: #fb8c00;
+ 
+-    }
++    /* 鍦嗚閰嶇疆 */
++    --td-radius-small: 2px;
++    --td-radius-default: 3px;
++    --td-radius-medium: 6px;
++    --td-radius-large: 9px;
++    --td-radius-extraLarge: 12px;
++    --td-radius-round: 999px;
++    --td-radius-circle: 50%;
++    /* end 鍦嗚閰嶇疆 */
++
++    /* 闃村奖閰嶇疆 */
++    --td-shadow-1: 0px 1px 10px rgba(0, 0, 0, 0.05), 0px 4px 5px rgba(0, 0, 0, 0.08), 0px 2px 4px -1px rgba(0, 0, 0, 0.12);
++    --td-shadow-2: 0px 3px 14px 2px rgba(0, 0, 0, 0.05), 0px 8px 10px 1px rgba(0, 0, 0, 0.06), 0px 5px 5px -3px rgba(0, 0, 0, 0.1);
++    --td-shadow-3: 0px 6px 30px 5px rgba(0, 0, 0, 0.05), 0px 16px 24px 2px rgba(0, 0, 0, 0.04), 0px 8px 10px -5px rgba(0, 0, 0, 0.08);
++    /* end 闃村奖閰嶇疆 */
++}
+ 
+ /* 鍏ㄥ眬娣辫壊妯″紡婊氬姩鏉℃牱寮?*/
+ :root[theme-mode="dark"] *::-webkit-scrollbar-thumb {
+diff --git a/frontend/src/components/UserMenu.vue b/frontend/src/components/UserMenu.vue
+index 70773ff4..943aa1bf 100644
+--- a/frontend/src/components/UserMenu.vue
++++ b/frontend/src/components/UserMenu.vue
+@@ -53,42 +53,42 @@
+           <span>{{ $t('general.allSettings') }}</span>
+         </div>
+         <div class="menu-divider"></div>
+-        <div class="menu-item" @click="openApiDoc">
+-          <t-icon name="book" class="menu-icon" />
+-          <span class="menu-text-with-icon">
+-            <span>{{ $t('tenant.apiDocument') }}</span>
+-            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">
+-              <path
+-                fill="currentColor"
+-                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"
+-              />
+-            </svg>
+-          </span>
+-        </div>
+-        <div class="menu-item" @click="openWebsite">
+-          <t-icon name="home" class="menu-icon" />
+-          <span class="menu-text-with-icon">
+-            <span>{{ $t('common.website') }}</span>
+-            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">
+-              <path
+-                fill="currentColor"
+-                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"
+-              />
+-            </svg>
+-          </span>
+-        </div>
+-        <div class="menu-item" @click="openGithub">
+-          <t-icon name="logo-github" class="menu-icon" />
+-          <span class="menu-text-with-icon">
+-            <span>GitHub</span>
+-            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">
+-              <path
+-                fill="currentColor"
+-                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"
+-              />
+-            </svg>
+-          </span>
+-        </div>
++<!--        <div class="menu-item" @click="openApiDoc">-->
++<!--          <t-icon name="book" class="menu-icon" />-->
++<!--          <span class="menu-text-with-icon">-->
++<!--            <span>{{ $t('tenant.apiDocument') }}</span>-->
++<!--            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">-->
++<!--              <path-->
++<!--                fill="currentColor"-->
++<!--                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"-->
++<!--              />-->
++<!--            </svg>-->
++<!--          </span>-->
++<!--        </div>-->
++<!--        <div class="menu-item" @click="openWebsite">-->
++<!--          <t-icon name="home" class="menu-icon" />-->
++<!--          <span class="menu-text-with-icon">-->
++<!--            <span>{{ $t('common.website') }}</span>-->
++<!--            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">-->
++<!--              <path-->
++<!--                fill="currentColor"-->
++<!--                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"-->
++<!--              />-->
++<!--            </svg>-->
++<!--          </span>-->
++<!--        </div>-->
++<!--        <div class="menu-item" @click="openGithub">-->
++<!--          <t-icon name="logo-github" class="menu-icon" />-->
++<!--          <span class="menu-text-with-icon">-->
++<!--            <span>GitHub</span>-->
++<!--            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">-->
++<!--              <path-->
++<!--                fill="currentColor"-->
++<!--                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"-->
++<!--              />-->
++<!--            </svg>-->
++<!--          </span>-->
++<!--        </div>-->
+         <div class="menu-divider"></div>
+         <div class="menu-item danger" @click="handleLogout">
+           <t-icon name="logout" class="menu-icon" />
+@@ -107,6 +107,7 @@ import { useAuthStore } from '@/stores/auth'
+ import { MessagePlugin } from 'tdesign-vue-next'
+ import { getCurrentUser, logout as logoutApi } from '@/api/auth'
+ import { useI18n } from 'vue-i18n'
++import {useCASStore} from "@/stores/cas.ts";
+ 
+ const { t } = useI18n()
+ 
+@@ -195,7 +196,9 @@ const handleLogout = async () => {
+   MessagePlugin.success(t('auth.logout'))
+   
+   // 璺宠浆鍒扮櫥褰曢〉
+-  router.push('/login')
++  // router.push('/login')
++  const casStore = useCASStore();
++  casStore.logout();
+ }
+ 
+ // 鍔犺浇鐢ㄦ埛淇℃伅
+diff --git a/frontend/src/components/icons/SvgIcon.vue b/frontend/src/components/icons/SvgIcon.vue
+new file mode 100644
+index 00000000..07814990
+--- /dev/null
++++ b/frontend/src/components/icons/SvgIcon.vue
+@@ -0,0 +1,79 @@
++<template>
++  <svg
++    v-if="iconDef"
++    class="svg-icon"
++    :class="customClass"
++    :viewBox="iconDef.viewBox"
++    :width="resolvedSize"
++    :height="resolvedSize"
++    :style="svgStyle"
++    xmlns="http://www.w3.org/2000/svg"
++    fill="none"
++    aria-hidden="true"
++  >
++    <!-- eslint-disable-next-line vue/no-v-html -->
++    <g v-html="iconDef.content" />
++  </svg>
++</template>
++
++<script setup lang="ts">
++import { computed } from 'vue'
++import { getIcon, hasIcon, themeColorMap, type IconName, type IconVariant } from './registry'
++
++const props = withDefaults(
++  defineProps<{
++    /** 鍥炬爣鍚嶇О */
++    name: string
++    /** 灏哄锛屽崟浣?px */
++    size?: number | string
++    /** 鑷畾涔夐鑹诧紝濡?#07c05f 鎴?var(--td-brand-color) */
++    color?: string
++    /** 鍥炬爣鍙樹綋锛歞efault/green/active/thin/grey */
++    variant?: IconVariant
++    /** 涓婚棰勮锛歞efault | brand | secondary | placeholder | anti */
++    theme?: 'default' | 'brand' | 'secondary' | 'placeholder' | 'anti'
++    /** 鑷畾涔夌被鍚?*/
++    class?: string
++  }>(),
++  {
++    size: 20,
++    variant: 'default',
++    theme: 'default',
++  }
++)
++
++const customClass = computed(() => props.class)
++
++const iconDef = computed(() => {
++  if (!hasIcon(props.name)) return null
++  return getIcon(props.name as IconName, props.variant)
++})
++
++const resolvedSize = computed(() => {
++  const s = props.size
++  if (typeof s === 'number') return `${s}px`
++  return s
++})
++
++const svgStyle = computed(() => {
++  const variantColorMap: Partial<Record<IconVariant, string>> = {
++    green: themeColorMap.brand,
++    grey: themeColorMap.placeholder,
++  }
++  const color =
++    props.color ??
++    variantColorMap[props.variant] ??
++    themeColorMap[props.theme] ??
++    themeColorMap.default
++  return { color }
++})
++</script>
++
++<style scoped>
++.svg-icon {
++  display: inline-block;
++  vertical-align: middle;
++  flex-shrink: 0;
++}
++/* 鍥炬爣鍐呭浣跨敤 currentColor锛岀敱鏍?style.color 鎺у埗 */
++</style>
+diff --git a/frontend/src/components/icons/index.ts b/frontend/src/components/icons/index.ts
+new file mode 100644
+index 00000000..d980ba57
+--- /dev/null
++++ b/frontend/src/components/icons/index.ts
+@@ -0,0 +1,9 @@
++export { default as SvgIcon } from './SvgIcon.vue'
++export {
++  getIcon,
++  hasIcon,
++  themeColorMap,
++  type IconName,
++  type IconVariant,
++  type IconDef,
++} from './registry'
+diff --git a/frontend/src/components/icons/registry.ts b/frontend/src/components/icons/registry.ts
+new file mode 100644
+index 00000000..05feb9b9
+--- /dev/null
++++ b/frontend/src/components/icons/registry.ts
+@@ -0,0 +1,118 @@
++/**
++ * 鑷畾涔?SVG 鍥炬爣娉ㄥ唽琛?+ * 鎵€鏈夊浘鏍囧潎浣跨敤 currentColor锛岀敱 SvgIcon 缁勪欢閫氳繃 color/theme 鎺у埗棰滆壊
++ */
++
++export type IconName =
++    | 'zhishiku'
++    | 'zhishikuThin'
++    | 'organization'
++    | 'ziliao'
++    | 'agent'
++    | 'agentGreen'
++    | 'agentActive'
++    | 'user'
++    | 'thinking'
++    | 'websearch'
++    | 'fileAdd'
++    | 'setting'
++    | 'prefixIcon'
++
++export type IconVariant = 'default' | 'green' | 'active' | 'thin' | 'grey'
++
++export interface IconDef {
++    viewBox: string
++    content: string
++}
++
++const icons: Record<IconName, IconDef> = {
++    zhishiku: {
++        viewBox: '0 0 20 20',
++        content: `<path fill-rule="evenodd" clip-rule="evenodd" d="M9.17736 1.28207C9.32257 1.23367 9.4805 1.24024 9.6212 1.30054L18.3713 5.05054C18.5619 5.13222 18.6995 5.30316 18.7388 5.50681C18.778 5.71045 18.7136 5.9203 18.567 6.06694C18.5138 6.12012 18.4366 6.24314 18.3744 6.46076C18.3146 6.66994 18.2812 6.92361 18.2812 7.1875C18.2812 7.45139 18.3146 7.70506 18.3744 7.91424C18.4366 8.13186 18.5138 8.25487 18.567 8.30806C18.811 8.55214 18.811 8.94786 18.567 9.19194C18.5138 9.24512 18.4366 9.36814 18.3744 9.58576C18.3146 9.79494 18.2812 10.0486 18.2812 10.3125C18.2812 10.5764 18.3146 10.8301 18.3744 11.0392C18.4366 11.2569 18.5138 11.3799 18.567 11.4331C18.811 11.6771 18.811 12.0729 18.567 12.3169C18.5138 12.3701 18.4366 12.4931 18.3744 12.7108C18.3146 12.92 18.2812 13.1736 18.2812 13.4375C18.2812 13.7014 18.3146 13.955 18.3744 14.1642C18.4366 14.3819 18.5138 14.5049 18.567 14.558C18.709 14.7001 18.7741 14.9017 18.7419 15.1001C18.7097 15.2984 18.5843 15.4691 18.4045 15.559L12.1545 18.684C11.9886 18.767 11.7944 18.772 11.6245 18.6976L1.62449 14.3226C1.397 14.2231 1.25 13.9983 1.25 13.75V4.375C1.25 4.10599 1.42215 3.86715 1.67736 3.78207L9.17736 1.28207ZM2.5 5.33064L10.9868 9.04362C10.9627 9.10997 10.9413 9.1765 10.9225 9.24236C10.826 9.58006 10.7812 9.95139 10.7812 10.3125C10.7812 10.6736 10.826 11.0449 10.9225 11.3826C10.9694 11.5469 11.0321 11.7153 11.1153 11.875C11.0321 12.0347 10.9694 12.2031 10.9225 12.3674C10.826 12.705 10.7812 13.0764 10.7812 13.4375C10.7812 13.7986 10.826 14.17 10.9225 14.5076C10.9694 14.6719 11.0321 14.8403 11.1153 15C11.0321 15.1597 10.9694 15.3281 10.9225 15.4924C10.826 15.83 10.7812 16.2014 10.7812 16.5625C10.7812 16.6986 10.7876 16.8361 10.8007 16.9728L2.5 13.3413V5.33064ZM12.1275 17.3C12.1265 17.2964 12.1254 17.2929 12.1244 17.2892C12.0646 17.08 12.0312 16.8264 12.0312 16.5625C12.0312 16.2986 12.0646 16.045 12.1244 15.8358C12.1695 15.6779 12.2225 15.5697 12.2686 15.502L17.0432 13.1146C17.0351 13.2224 17.0312 13.3304 17.0312 13.4375C17.0312 13.7986 17.076 14.17 17.1725 14.5076C17.1944 14.5844 17.2198 14.662 17.249 14.7393L12.1275 17.3ZM17.249 11.6142L12.1275 14.175C12.1265 14.1714 12.1254 14.1679 12.1244 14.1642C12.0646 13.955 12.0312 13.7014 12.0312 13.4375C12.0312 13.1736 12.0646 12.92 12.1244 12.7108C12.1695 12.5529 12.2225 12.4447 12.2686 12.377L17.0432 9.98965C17.0351 10.0974 17.0312 10.2054 17.0312 10.3125C17.0312 10.6736 17.076 11.0449 17.1725 11.3826C17.1944 11.4594 17.2198 11.537 17.249 11.6142ZM17.249 8.48921L12.1275 11.05C12.1265 11.0464 12.1254 11.0428 12.1244 11.0392C12.0646 10.8301 12.0312 10.5764 12.0312 10.3125C12.0312 10.0486 12.0646 9.79494 12.1244 9.58576C12.1695 9.42785 12.2225 9.31975 12.2686 9.252L17.0432 6.86465C17.0351 6.9724 17.0312 7.0804 17.0312 7.1875C17.0312 7.54861 17.076 7.91994 17.1725 8.25764C17.1944 8.33437 17.2198 8.412 17.249 8.48921ZM16.6402 5.66864L9.34721 2.54307L3.61469 4.45391L11.8573 8.06006L16.6402 5.66864Z" fill="currentColor"/>`,
++    },
++    zhishikuThin: {
++        viewBox: '0 0 20 20',
++        content: `<path fill-rule="evenodd" clip-rule="evenodd" d="M9.17736 1.28207C9.32257 1.23367 9.4805 1.24024 9.6212 1.30054L18.3713 5.05054C18.5619 5.13222 18.6995 5.30316 18.7388 5.50681C18.778 5.71045 18.7136 5.9203 18.567 6.06694C18.5138 6.12012 18.4366 6.24314 18.3744 6.46076C18.3146 6.66994 18.2812 6.92361 18.2812 7.1875C18.2812 7.45139 18.3146 7.70506 18.3744 7.91424C18.4366 8.13186 18.5138 8.25487 18.567 8.30806C18.811 8.55214 18.811 8.94786 18.567 9.19194C18.5138 9.24512 18.4366 9.36814 18.3744 9.58576C18.3146 9.79494 18.2812 10.0486 18.2812 10.3125C18.2812 10.5764 18.3146 10.8301 18.3744 11.0392C18.4366 11.2569 18.5138 11.3799 18.567 11.4331C18.811 11.6771 18.811 12.0729 18.567 12.3169C18.5138 12.3701 18.4366 12.4931 18.3744 12.7108C18.3146 12.92 18.2812 13.1736 18.2812 13.4375C18.2812 13.7014 18.3146 13.955 18.3744 14.1642C18.4366 14.3819 18.5138 14.5049 18.567 14.558C18.709 14.7001 18.7741 14.9017 18.7419 15.1001C18.7097 15.2984 18.5843 15.4691 18.4045 15.559L12.1545 18.684C11.9886 18.767 11.7944 18.772 11.6245 18.6976L1.62449 14.3226C1.397 14.2231 1.25 13.9983 1.25 13.75V4.375C1.25 4.10599 1.42215 3.86715 1.67736 3.78207L9.17736 1.28207ZM2.5 5.33064L10.9868 9.04362C10.9627 9.10997 10.9413 9.1765 10.9225 9.24236C10.826 9.58006 10.7812 9.95139 10.7812 10.3125C10.7812 10.6736 10.826 11.0449 10.9225 11.3826C10.9694 11.5469 11.0321 11.7153 11.1153 11.875C11.0321 12.0347 10.9694 12.2031 10.9225 12.3674C10.826 12.705 10.7812 13.0764 10.7812 13.4375C10.7812 13.7986 10.826 14.17 10.9225 14.5076C10.9694 14.6719 11.0321 14.8403 11.1153 15C11.0321 15.1597 10.9694 15.3281 10.9225 15.4924C10.826 15.83 10.7812 16.2014 10.7812 16.5625C10.7812 16.6986 10.7876 16.8361 10.8007 16.9728L2.5 13.3413V5.33064ZM12.1275 17.3C12.1265 17.2964 12.1254 17.2929 12.1244 17.2892C12.0646 17.08 12.0312 16.8264 12.0312 16.5625C12.0312 16.2986 12.0646 16.045 12.1244 15.8358C12.1695 15.6779 12.2225 15.5697 12.2686 15.502L17.0432 13.1146C17.0351 13.2224 17.0312 13.3304 17.0312 13.4375C17.0312 13.7986 17.076 14.17 17.1725 14.5076C17.1944 14.5844 17.2198 14.662 17.249 14.7393L12.1275 17.3ZM17.249 11.6142L12.1275 14.175C12.1265 14.1714 12.1254 14.1679 12.1244 14.1642C12.0646 13.955 12.0312 13.7014 12.0312 13.4375C12.0312 13.1736 12.0646 12.92 12.1244 12.7108C12.1695 12.5529 12.2225 12.4447 12.2686 12.377L17.0432 9.98965C17.0351 10.0974 17.0312 10.2054 17.0312 10.3125C17.0312 10.6736 17.076 11.0449 17.1725 11.3826C17.1944 11.4594 17.2198 11.537 17.249 11.6142ZM17.249 8.48921L12.1275 11.05C12.1265 11.0464 12.1254 11.0428 12.1244 11.0392C12.0646 10.8301 12.0312 10.5764 12.0312 10.3125C12.0312 10.0486 12.0646 9.79494 12.1244 9.58576C12.1695 9.42785 12.2225 9.31975 12.2686 9.252L17.0432 6.86465C17.0351 6.9724 17.0312 7.0804 17.0312 7.1875C17.0312 7.54861 17.076 7.91994 17.1725 8.25764C17.1944 8.33437 17.2198 8.412 17.249 8.48921ZM16.6402 5.66864L9.34721 2.54307L3.61469 4.45391L11.8573 8.06006L16.6402 5.66864Z" fill="currentColor" stroke="currentColor" stroke-width="0.3"/>`,
++    },
++    organization: {
++        viewBox: '0 0 20 20',
++        content: `<path d="M10 10C8.8 7.5 7.8 3.8 4.8 3.8C2.2 3.8 0.8 6.8 0.8 10C0.8 13.2 2.2 16.2 4.8 16.2C7.8 16.2 8.8 12.5 10 10C11.2 7.5 12.5 5.5 14.5 5.5C16.5 5.5 18 7.5 18 10C18 12.5 16.5 14.5 14.5 14.5C12.5 14.5 11.2 12.5 10 10Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
++    },
++    ziliao: {
++        viewBox: '0 0 16 16',
++        content: `<path fill-rule="evenodd" clip-rule="evenodd" d="M2 3C2 2.17157 2.67157 1.5 3.5 1.5H12C12.2761 1.5 12.5 1.72386 12.5 2V11C12.5 11.2761 12.2761 11.5 12 11.5H4C3.44772 11.5 3 11.9477 3 12.5C3 13.0523 3.44772 13.5 4 13.5H13V2.5H14V14C14 14.2761 13.7761 14.5 13.5 14.5H4C2.89543 14.5 2 13.6046 2 12.5V3ZM3 10.7676C3.29417 10.5974 3.63571 10.5 4 10.5H11.5V2.5H3.5C3.22386 2.5 3 2.72386 3 3V10.7676ZM12.5 13H3.5V12H12.5V13Z" fill="currentColor" stroke="currentColor" stroke-width="0.3"/>`,
++    },
++    agent: {
++        viewBox: '0 0 20 20',
++        content: `<path d="M10 3L10.8 6.2C10.9 6.7 11.3 7.1 11.8 7.2L15 8L11.8 8.8C11.3 8.9 10.9 9.3 10.8 9.8L10 13L9.2 9.8C9.1 9.3 8.7 8.9 8.2 8.8L5 8L8.2 7.2C8.7 7.1 9.1 6.7 9.2 6.2L10 3Z" fill="currentColor" fill-opacity=".9" stroke="currentColor" stroke-opacity=".9" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 4L15.8 5.2C15.85 5.45 16.05 5.65 16.3 5.7L17.5 6L16.3 6.3C16.05 6.35 15.85 6.55 15.8 6.8L15.5 8L15.2 6.8C15.15 6.55 14.95 6.35 14.7 6.3L13.5 6L14.7 5.7C14.95 5.65 15.15 5.45 15.2 5.2L15.5 4Z" fill="currentColor" fill-opacity=".9" stroke="currentColor" stroke-opacity=".9" stroke-width="0.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 13L4.8 14.2C4.85 14.45 5.05 14.65 5.3 14.7L6.5 15L5.3 15.3C5.05 15.35 4.85 15.55 4.8 15.8L4.5 17L4.2 15.8C4.15 15.55 3.95 15.35 3.7 15.3L2.5 15L3.7 14.7C3.95 14.65 4.15 14.45 4.2 14.2L4.5 13Z" fill="currentColor" fill-opacity=".9" stroke="currentColor" stroke-opacity=".9" stroke-width="0.6" stroke-linecap="round" stroke-linejoin="round"/>`,
++    },
++    agentGreen: {
++        viewBox: '0 0 20 20',
++        content: `<path d="M10 3L10.8 6.2C10.9 6.7 11.3 7.1 11.8 7.2L15 8L11.8 8.8C11.3 8.9 10.9 9.3 10.8 9.8L10 13L9.2 9.8C9.1 9.3 8.7 8.9 8.2 8.8L5 8L8.2 7.2C8.7 7.1 9.1 6.7 9.2 6.2L10 3Z" fill="currentColor" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 4L15.8 5.2C15.85 5.45 16.05 5.65 16.3 5.7L17.5 6L16.3 6.3C16.05 6.35 15.85 6.55 15.8 6.8L15.5 8L15.2 6.8C15.15 6.55 14.95 6.35 14.7 6.3L13.5 6L14.7 5.7C14.95 5.65 15.15 5.45 15.2 5.2L15.5 4Z" fill="currentColor" stroke="currentColor" stroke-width="0.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 13L4.8 14.2C4.85 14.45 5.05 14.65 5.3 14.7L6.5 15L5.3 15.3C5.05 15.35 4.85 15.55 4.8 15.8L4.5 17L4.2 15.8C4.15 15.55 3.95 15.35 3.7 15.3L2.5 15L3.7 14.7C3.95 14.65 4.15 14.45 4.2 14.2L4.5 13Z" fill="currentColor" stroke="currentColor" stroke-width="0.6" stroke-linecap="round" stroke-linejoin="round"/>`,
++    },
++    agentActive: {
++        viewBox: '0 0 20 20',
++        content: `<path d="M10 3L10.8 6.2C10.9 6.7 11.3 7.1 11.8 7.2L15 8L11.8 8.8C11.3 8.9 10.9 9.3 10.8 9.8L10 13L9.2 9.8C9.1 9.3 8.7 8.9 8.2 8.8L5 8L8.2 7.2C8.7 7.1 9.1 6.7 9.2 6.2L10 3Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 4L15.8 5.2C15.85 5.45 16.05 5.65 16.3 5.7L17.5 6L16.3 6.3C16.05 6.35 15.85 6.55 15.8 6.8L15.5 8L15.2 6.8C15.15 6.55 14.95 6.35 14.7 6.3L13.5 6L14.7 5.7C14.95 5.65 15.15 5.45 15.2 5.2L15.5 4Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 13L4.8 14.2C4.85 14.45 5.05 14.65 5.3 14.7L6.5 15L5.3 15.3C5.05 15.35 4.85 15.55 4.8 15.8L4.5 17L4.2 15.8C4.15 15.55 3.95 15.35 3.7 15.3L2.5 15L3.7 14.7C3.95 14.65 4.15 14.45 4.2 14.2L4.5 13Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`,
++    },
++    user: {
++        viewBox: '0 0 20 20',
++        content: `<circle cx="10" cy="6" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M4 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" fill="none"/>`,
++    },
++    thinking: {
++        viewBox: '0 0 16 16',
++        content: `<path fill-rule="evenodd" clip-rule="evenodd" d="M8 2C5.79086 2 4 3.79086 4 6C4 7.56981 4.90422 8.92935 6.22252 9.58448C6.39251 9.66896 6.5 9.84241 6.5 10.0322V11H9.5V10.0322C9.5 9.84241 9.60749 9.66896 9.77748 9.58448C11.0958 8.92935 12 7.56981 12 6C12 3.79086 10.2091 2 8 2ZM3 6C3 3.23858 5.23858 1 8 1C10.7614 1 13 3.23858 13 6C13 7.85144 11.9936 9.46702 10.5 10.331V11.5C10.5 11.7761 10.2761 12 10 12H6C5.72386 12 5.5 11.7761 5.5 11.5V10.331C4.00636 9.46702 3 7.85144 3 6Z" fill="currentColor" stroke="currentColor" stroke-width="0.3"/><path fill-rule="evenodd" clip-rule="evenodd" d="M10 13.5H6V12.5H10V13.5Z" fill="currentColor" stroke="currentColor" stroke-width="0.3"/><path fill-rule="evenodd" clip-rule="evenodd" d="M9 15H7V14H9V15Z" fill="currentColor" stroke="currentColor" stroke-width="0.3"/><path fill-rule="evenodd" clip-rule="evenodd" d="M10.4269 5.11946L7.60516 7.94123L5.7821 6.11819L6.48921 5.41108L7.60516 6.52702L9.71982 4.41235L10.4269 5.11946Z" fill="currentColor" stroke="currentColor" stroke-width="0.3"/>`,
++    },
++    websearch: {
++        viewBox: '0 0 18 18',
++        content: `<circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M 9 2 A 3.5 7 0 0 0 9 16" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M 9 2 A 3.5 7 0 0 1 9 16" stroke="currentColor" stroke-width="1.2" fill="none"/><line x1="2.94" y1="5.5" x2="15.06" y2="5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="2.94" y1="12.5" x2="15.06" y2="12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>`,
++    },
++    fileAdd: {
++        viewBox: '0 0 20 20',
++        content: `<path d="M5 1.25C4.30482 1.25 3.75 1.80482 3.75 2.5V16.25C3.75 16.9451 4.30482 17.5 5 17.5H10.6702V16.25H5V2.5H10V7.5H15V10.6055H16.25V7.13388C16.25 6.80236 16.1183 6.48442 15.8839 6.25L15.7808 6.14692L15.7794 6.14556L11.1419 1.50806C11.036 1.40209 10.9104 1.3443 10.7858 1.32256C10.6523 1.27498 10.5105 1.25 10.3661 1.25H5ZM14.1161 6.25H11.25V3.38388L14.1161 6.25Z" fill="currentColor"/><path d="M15 18.75V16.25H12.5V15H15V12.5H16.25V15H18.75V16.25H16.25V18.75H15Z" fill="currentColor"/>`,
++    },
++    setting: {
++        viewBox: '0 0 20 20',
++        content: `<path d="M10 12.5C11.3807 12.5 12.5 11.3807 12.5 10C12.5 8.61929 11.3807 7.5 10 7.5C8.61929 7.5 7.5 8.61929 7.5 10C7.5 11.3807 8.61929 12.5 10 12.5Z" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.1667 12.5C16.0557 12.7513 16.0227 13.0301 16.0721 13.3006C16.1214 13.5711 16.251 13.8203 16.4417 14.0167L16.4917 14.0667C16.6447 14.2194 16.7658 14.4008 16.8482 14.6006C16.9305 14.8003 16.9725 15.0145 16.9725 15.2308C16.9725 15.4472 16.9305 15.6614 16.8482 15.8611C16.7658 16.0609 16.6447 16.2423 16.4917 16.395C16.339 16.548 16.1576 16.6691 15.9578 16.7514C15.7581 16.8338 15.5439 16.8758 15.3275 16.8758C15.1112 16.8758 14.897 16.8338 14.6972 16.7514C14.4975 16.6691 14.3161 16.548 14.1633 16.395L14.1133 16.345C13.917 16.1543 13.6678 16.0247 13.3973 15.9754C13.1268 15.926 12.848 15.959 12.5967 16.07C12.3503 16.1761 12.1423 16.3521 11.9993 16.5762C11.8563 16.8003 11.7848 17.0625 11.7942 17.3283V17.5C11.7942 17.9421 11.6184 18.3659 11.3059 18.6785C10.9933 18.991 10.5695 19.1667 10.1275 19.1667C9.6854 19.1667 9.26163 18.991 8.94907 18.6785C8.63651 18.3659 8.46083 17.9421 8.46083 17.5V17.425C8.46458 17.1515 8.38642 16.8831 8.23616 16.6542C8.0859 16.4252 7.87016 16.2461 7.61583 16.1383C7.36452 16.0273 7.08571 15.9943 6.81523 16.0437C6.54474 16.093 6.29555 16.2227 6.09917 16.4133L6.04917 16.4633C5.89641 16.6163 5.71499 16.7374 5.51525 16.8198C5.31551 16.9021 5.10132 16.9441 4.88499 16.9441C4.66866 16.9441 4.45447 16.9021 4.25473 16.8198C4.05499 16.7374 3.87357 16.6163 3.72083 16.4633C3.56783 16.3106 3.4467 16.1292 3.36438 15.9294C3.28205 15.7297 3.24005 15.5155 3.24005 15.2992C3.24005 15.0828 3.28205 14.8687 3.36438 14.6689C3.4467 14.4692 3.56783 14.2877 3.72083 14.135L3.77083 14.085C3.96147 13.8886 4.09115 13.6394 4.14049 13.3689C4.18984 13.0985 4.15685 12.8196 4.04583 12.5683C3.93975 12.322 3.76374 12.1139 3.53965 11.9709C3.31556 11.8279 3.05339 11.7564 2.7875 11.7658H2.61583C2.17379 11.7658 1.75001 11.5902 1.43745 11.2776C1.12489 10.965 0.949219 10.5412 0.949219 10.0992C0.949219 9.65712 1.12489 9.23335 1.43745 8.92079C1.75001 8.60823 2.17379 8.43255 2.61583 8.43255H2.69083C2.96438 8.4288 3.23272 8.35065 3.46167 8.20038C3.69063 8.05012 3.86979 7.83438 3.9775 7.58005C4.0885 7.32874 4.12149 7.04993 4.07215 6.77944C4.02281 6.50896 3.89313 6.25977 3.7025 6.06339L3.6525 6.01339C3.4995 5.86063 3.37837 5.67921 3.29604 5.47947C3.21372 5.27973 3.17172 5.06554 3.17172 4.84921C3.17172 4.63288 3.21372 4.41869 3.29604 4.21895C3.37837 4.01921 3.4995 3.83779 3.6525 3.68505C3.80524 3.53205 3.98666 3.41092 4.1864 3.3286C4.38614 3.24627 4.60033 3.20427 4.81666 3.20427C5.03299 3.20427 5.24719 3.24627 5.44693 3.3286C5.64666 3.41092 5.82809 3.53205 5.98083 3.68505L6.03083 3.73505C6.22721 3.92569 6.4764 4.05537 6.74688 4.10472C7.01737 4.15406 7.29618 4.12107 7.5475 4.01005H7.61583C7.86213 3.90397 8.07024 3.72796 8.21324 3.50387C8.35624 3.27978 8.42774 3.01761 8.41833 2.75172V2.58005C8.41833 2.13801 8.59401 1.71424 8.90657 1.40168C9.21913 1.08912 9.6429 0.913452 10.0849 0.913452C10.527 0.913452 10.9507 1.08912 11.2633 1.40168C11.5759 1.71424 11.7515 2.13801 11.7515 2.58005V2.65505C11.7421 2.92094 11.8136 3.18311 11.9566 3.4072C12.0996 3.63129 12.3077 3.8073 12.554 3.91339C12.8053 4.0244 13.0841 4.05739 13.3546 4.00805C13.6251 3.95871 13.8743 3.82903 14.0706 3.63839L14.1206 3.58839C14.2734 3.43539 14.4548 3.31426 14.6545 3.23193C14.8543 3.14961 15.0685 3.10761 15.2848 3.10761C15.5011 3.10761 15.7153 3.14961 15.9151 3.23193C16.1148 3.31426 16.2962 3.43539 16.449 3.58839C16.602 3.74113 16.7231 3.92255 16.8054 4.12229C16.8878 4.32203 16.9298 4.53622 16.9298 4.75255C16.9298 4.96888 16.8878 5.18307 16.8054 5.38281C16.7231 5.58255 16.602 5.76397 16.449 5.91672L16.399 5.96672C16.2084 6.1631 16.0787 6.41229 16.0293 6.68277C15.98 6.95326 16.013 7.23207 16.124 7.48339V7.58005C16.2301 7.82635 16.4061 8.03446 16.6302 8.17746C16.8543 8.32046 17.1164 8.39196 17.3823 8.38255H17.554C17.996 8.38255 18.4198 8.55823 18.7324 8.87079C19.0449 9.18335 19.2206 9.60712 19.2206 10.0492C19.2206 10.4912 19.0449 10.915 18.7324 11.2276C18.4198 11.5401 17.996 11.7158 17.554 11.7158H17.479C17.2131 11.7064 16.951 11.7779 16.7269 11.9209C16.5028 12.0639 16.3268 12.272 16.2206 12.5183V12.5Z" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`,
++    },
++    prefixIcon: {
++        viewBox: '0 0 20 20',
++        content: `<path fill-rule="evenodd" clip-rule="evenodd" d="M1.875 2.5C1.875 2.15483 2.15482 1.875 2.5 1.875H17.5C17.8451 1.875 18.125 2.15483 18.125 2.5V13.75C18.125 14.0951 17.8451 14.375 17.5 14.375H9.04274L6.10514 17.9001C5.93669 18.1023 5.65965 18.1773 5.41224 18.0876C5.16481 17.9981 5 17.7631 5 17.5V14.375H2.5C2.15482 14.375 1.875 14.0951 1.875 13.75V2.5ZM3.125 3.125V13.125H5.625C5.97017 13.125 6.25 13.4049 6.25 13.75V15.7738L8.26986 13.3499C8.38861 13.2074 8.56451 13.125 8.75 13.125H16.875V3.125H3.125Z" fill="currentColor" fill-opacity=".9"/><path fill-rule="evenodd" clip-rule="evenodd" d="M9.375 5H10.625V8.44961L13.5154 10.762L12.7346 11.738L9.375 9.05039V5Z" fill="currentColor" fill-opacity=".9"/>`,
++    },
++}
++
++/** 涓婚鑹叉槧灏勫埌 TDesign CSS 鍙橀噺 */
++export const themeColorMap: Record<string, string> = {
++    default: 'var(--td-text-color-primary, #1d2129)',
++    brand: 'var(--td-brand-color, #07c05f)',
++    secondary: 'var(--td-text-color-secondary, #86909c)',
++    placeholder: 'var(--td-text-color-placeholder, #c9cdd4)',
++    /** 鐢ㄤ簬娣辫壊/鍝佺墝鑹茶儗鏅笂鐨勫浘鏍囷紙濡傜櫧鑹诧級 */
++    anti: 'var(--td-text-color-anti, #fff)',
++}
++
++const variantAlias: Record<IconName, Partial<Record<IconVariant, IconName>>> = {
++    zhishiku: {default: 'zhishiku', green: 'zhishiku', thin: 'zhishikuThin'},
++    zhishikuThin: {default: 'zhishikuThin', green: 'zhishikuThin', thin: 'zhishikuThin'},
++    organization: {default: 'organization', green: 'organization', grey: 'organization'},
++    ziliao: {default: 'ziliao', green: 'ziliao', grey: 'ziliao'},
++    agent: {default: 'agent', green: 'agentGreen', active: 'agentActive'},
++    agentGreen: {default: 'agentGreen', green: 'agentGreen', active: 'agentActive'},
++    agentActive: {default: 'agentActive', active: 'agentActive'},
++    user: {default: 'user', green: 'user', grey: 'user'},
++    thinking: {default: 'thinking', green: 'thinking', active: 'thinking'},
++    websearch: {default: 'websearch', green: 'websearch', active: 'websearch'},
++    fileAdd: {default: 'fileAdd', green: 'fileAdd', active: 'fileAdd'},
++    setting: {default: 'setting', green: 'setting', grey: 'setting'},
++    prefixIcon: {default: 'prefixIcon', green: 'prefixIcon', grey: 'prefixIcon'},
++}
++
++export function getIcon(name: IconName, variant: IconVariant = 'default'): IconDef | undefined {
++    const resolvedName = variantAlias[name]?.[variant] ?? name
++    return icons[resolvedName]
++}
++
++export function hasIcon(name: string): name is IconName {
++    return name in icons
++}
++
++export {icons}
+diff --git a/frontend/src/stores/menu.ts b/frontend/src/stores/menu.ts
+index 6c8c01d6..1b4ffc2b 100644
+--- a/frontend/src/stores/menu.ts
++++ b/frontend/src/stores/menu.ts
+@@ -19,6 +19,7 @@ export const useMenuStore = defineStore('menuStore', () => {
+   const menuArr = reactive<MenuItem[]>([
+     { title: '', titleKey: 'menu.knowledgeBase', icon: 'zhishiku', path: 'knowledge-bases' },
+     { title: '', titleKey: 'menu.knowledgeSearch', icon: 'search', path: 'knowledge-search' },
++    { title: '', titleKey: 'menu.sharedKnowledgeBaseSquare', icon: 'shared-kb', path: 'shared-knowledge-bases' },
+     { title: '', titleKey: 'menu.agents', icon: 'agent', path: 'agents' },
+     { title: '', titleKey: 'menu.organizations', icon: 'organization', path: 'organizations' },
+     {
+diff --git a/frontend/src/utils/kb-permission.ts b/frontend/src/utils/kb-permission.ts
+new file mode 100644
+index 00000000..0ffc9945
+--- /dev/null
++++ b/frontend/src/utils/kb-permission.ts
+@@ -0,0 +1,83 @@
++/**
++ * 鐭ヨ瘑搴撴潈闄愭鏌ュ伐鍏?+ * 缁熶竴澶勭悊鐩存帴鍏变韩鐭ヨ瘑搴撶殑鏉冮檺鍒ゆ柇閫昏緫
++ */
++
++/** 鐭ヨ瘑搴撳熀鏈俊鎭紙鐢ㄤ簬鏉冮檺鍒ゆ柇锛?*/
++export interface KBPermissionInfo {
++  visibility?: 'private' | 'shared'
++  is_owner?: boolean
++  isOwner?: boolean
++  owner_id?: string
++  member_role?: 'owner' | 'editor' | 'viewer'
++  memberRole?: 'owner' | 'editor' | 'viewer'
++}
++
++/**
++ * 鏄惁涓虹煡璇嗗簱鍒涘缓鑰?+ */
++export function isKBOwner(kb: KBPermissionInfo): boolean {
++  return kb.is_owner === true || kb.isOwner === true
++}
++
++/**
++ * 鏄惁涓虹洿鎺ュ叡浜煡璇嗗簱
++ */
++export function isDirectSharedKB(kb: KBPermissionInfo): boolean {
++  return kb.visibility === 'shared'
++}
++
++/**
++ * 鑾峰彇鎴愬憳瑙掕壊锛坥wner/editor/viewer锛?+ */
++export function getKBMemberRole(kb: KBPermissionInfo): 'owner' | 'editor' | 'viewer' | null {
++  const role = kb.member_role ?? kb.memberRole
++  if (role && ['owner', 'editor', 'viewer'].includes(role)) {
++    return role as 'owner' | 'editor' | 'viewer'
++  }
++  return isKBOwner(kb) ? 'owner' : null
++}
++
++/**
++ * 鏄惁鍙紪杈戠煡璇嗗簱锛堝垱寤鸿€呮垨缂栬緫鑰咃級
++ */
++export function canEditKB(kb: KBPermissionInfo): boolean {
++  if (isKBOwner(kb)) return true
++  const role = getKBMemberRole(kb)
++  return role === 'editor'
++}
++
++/**
++ * 鏄惁鍙笂浼?绠＄悊鏂囨。锛堝垱寤鸿€呮垨缂栬緫鑰咃級
++ */
++export function canUploadKB(kb: KBPermissionInfo): boolean {
++  return canEditKB(kb)
++}
++
++/**
++ * 鏄惁鍙垹闄ゆ枃妗ｏ紙鍒涘缓鑰呮垨缂栬緫鑰咃級
++ */
++export function canDeleteKB(kb: KBPermissionInfo): boolean {
++  return canEditKB(kb)
++}
++
++/**
++ * 鏄惁鍙鐞嗙煡璇嗗簱璁剧疆锛堜粎鍒涘缓鑰咃級
++ */
++export function canManageKBSettings(kb: KBPermissionInfo): boolean {
++  return isKBOwner(kb)
++}
++
++/**
++ * 鏄惁鍙鐞嗘垚鍛橈紙浠呭垱寤鸿€咃級
++ */
++export function canManageKBMembers(kb: KBPermissionInfo): boolean {
++  return isKBOwner(kb)
++}
++
++/**
++ * 鏄惁鍙寮€鍏变韩鐭ヨ瘑搴擄紙闈炲垱寤鸿€呯殑鎴愬憳锛?+ */
++export function canLeaveKB(kb: KBPermissionInfo): boolean {
++  return isDirectSharedKB(kb) && !isKBOwner(kb)
++}
+diff --git a/frontend/src/utils/request.ts b/frontend/src/utils/request.ts
+index e5df898d..29cdcb31 100644
+--- a/frontend/src/utils/request.ts
++++ b/frontend/src/utils/request.ts
+@@ -6,7 +6,10 @@ import i18n from '@/i18n'
+ const t = (key: string) => i18n.global.t(key)
+ 
+ // API鍩虹URL
+-const BASE_URL = import.meta.env.VITE_IS_DOCKER ? "" : "http://localhost:8080";
++// 娉ㄦ剰锛氱敓浜х幆澧冨繀椤讳娇鐢?HTTPS锛屽紑鍙戠幆澧冧篃闇€瑕?HTTPS 浠ユ敮鎸?CAS Cookie
++const BASE_URL = import.meta.env.VITE_IS_DOCKER 
++  ? ""  // Docker 鐜浣跨敤鐩稿璺緞锛堝悓婧愶級
++  : (import.meta.env.VITE_API_URL || (window.location.protocol === 'https:' ? "https://zsk.t.nxin.com:8080" : "http://zsk.t.nxin.com:8080"));  // 鏍规嵁褰撳墠鍗忚鑷姩閫夋嫨
+ 
+ 
+ // 鍒涘缓Axios瀹炰緥
+@@ -17,6 +20,7 @@ const instance = axios.create({
+     "Content-Type": "application/json",
+     "X-Request-ID": `${generateRandomString(12)}`,
+   },
++  withCredentials: true, // 鍏佽鎼哄甫 Cookie锛堢敤浜?CAS 璁よ瘉锛? });
+ 
+ // 鑾峰彇褰撳墠鐢ㄦ埛璇█锛堢敤浜?Accept-Language header锛?diff --git a/frontend/src/views/settings/Settings.vue b/frontend/src/views/settings/Settings.vue
+index 86abcb0a..296323fe 100644
+--- a/frontend/src/views/settings/Settings.vue
++++ b/frontend/src/views/settings/Settings.vue
+@@ -119,8 +119,8 @@
+                   <TenantInfo />
+                 </div>
+ 
+-                <!-- API 淇℃伅 -->
+-                <div v-if="currentSection === 'api'" class="section">
++                <!-- API 淇℃伅锛堜粎绉熸埛 ID <= 10001 鏃舵樉绀猴級 -->
++                <div v-if="currentSection === 'api' && showApiInfo" class="section">
+                   <ApiInfo />
+                 </div>
+ 
+@@ -141,6 +141,7 @@
+ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+ import { useRoute, useRouter } from 'vue-router'
+ import { useUIStore } from '@/stores/ui'
++import { useAuthStore } from '@/stores/auth'
+ import { useI18n } from 'vue-i18n'
+ import SystemInfo from './SystemInfo.vue'
+ import TenantInfo from './TenantInfo.vue'
+@@ -157,57 +158,72 @@ import StorageEngineSettings from './StorageEngineSettings.vue'
+ const route = useRoute()
+ const router = useRouter()
+ const uiStore = useUIStore()
++const authStore = useAuthStore()
+ const { t } = useI18n()
+ 
+ const currentSection = ref<string>('general')
+ const currentSubSection = ref<string>('')
+ const expandedMenus = ref<string[]>([])
+ 
+-const navItems = computed(() => [
+-  { key: 'general', icon: 'setting', label: t('general.title') },
+-  { 
+-    key: 'models', 
+-    icon: 'control-platform', 
+-    label: t('settings.modelManagement'),
+-    children: [
+-      { key: 'chat', label: t('model.llmModel') },
+-      { key: 'embedding', label: t('model.embeddingModel') },
+-      { key: 'rerank', label: t('model.rerankModel') },
+-      { key: 'vllm', label: t('model.vlmModel') }
+-    ]
+-  },
+-  { key: 'ollama', icon: 'server', label: 'Ollama' },
+-  { key: 'websearch', icon: 'search', label: t('settings.webSearchConfig')  },
+-  { key: 'chathistory', icon: 'chat', label: t('chatHistorySettings.title') },
+-  {
+-    key: 'parser',
+-    icon: 'file-search',
+-    label: t('settings.parserEngine'),
+-    children: [
+-      { key: 'builtin', label: 'Builtin (DocReader)' },
+-      { key: 'simple', label: 'Simple' },
+-      { key: 'markitdown', label: 'Markitdown' },
+-      { key: 'mineru', label: 'MinerU' },
+-      { key: 'mineru_cloud', label: 'MinerU Cloud' },
+-    ]
+-  },
+-  {
+-    key: 'storage',
+-    icon: 'cloud',
+-    label: t('settings.storageEngine'),
+-    children: [
+-      { key: 'local', label: 'Local' },
+-      { key: 'minio', label: 'MinIO' },
+-      { key: 'cos', label: t('settings.storage.cos') },
+-      { key: 'tos', label: t('settings.storage.tos') },
+-      { key: 's3', label: 'AWS S3' },
+-    ]
+-  },
+-  { key: 'mcp', icon: 'tools', label: t('settings.mcpService') },
+-  { key: 'system', icon: 'info-circle', label: t('settings.systemSettings') },
+-  { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
+-  { key: 'api', icon: 'secured', label: t('settings.apiInfo') }
+-])
++// 妫€鏌ユ槸鍚︽樉绀?API 淇℃伅锛堢鎴?ID <= 10001锛?+const showApiInfo = computed(() => {
++  const tenantId = authStore.effectiveTenantId
++  return tenantId !== null && tenantId <= 10001
++})
++
++const navItems = computed(() => {
++  const items = [
++    { key: 'general', icon: 'setting', label: t('general.title') },
++    {
++      key: 'models',
++      icon: 'control-platform',
++      label: t('settings.modelManagement'),
++      children: [
++        { key: 'chat', label: t('model.llmModel') },
++        { key: 'embedding', label: t('model.embeddingModel') },
++        { key: 'rerank', label: t('model.rerankModel') },
++        { key: 'vllm', label: t('model.vlmModel') }
++      ]
++    },
++    { key: 'ollama', icon: 'server', label: 'Ollama' },
++    { key: 'websearch', icon: 'search', label: t('settings.webSearchConfig')  },
++    { key: 'chathistory', icon: 'chat', label: t('chatHistorySettings.title') },
++    {
++      key: 'parser',
++      icon: 'file-search',
++      label: t('settings.parserEngine'),
++      children: [
++        { key: 'builtin', label: 'Builtin (DocReader)' },
++        { key: 'simple', label: 'Simple' },
++        { key: 'markitdown', label: 'Markitdown' },
++        { key: 'mineru', label: 'MinerU' },
++        { key: 'mineru_cloud', label: 'MinerU Cloud' },
++      ]
++    },
++    {
++      key: 'storage',
++      icon: 'cloud',
++      label: t('settings.storageEngine'),
++      children: [
++        { key: 'local', label: 'Local' },
++        { key: 'minio', label: 'MinIO' },
++        { key: 'cos', label: t('settings.storage.cos') },
++        { key: 'tos', label: t('settings.storage.tos') },
++        { key: 's3', label: 'AWS S3' },
++      ]
++    },
++    { key: 'mcp', icon: 'tools', label: t('settings.mcpService') },
++    { key: 'system', icon: 'info-circle', label: t('settings.systemSettings') },
++    { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
++  ]
++
++  // 鍙湁褰撶鎴?ID <= 10001 鏃舵墠娣诲姞 API 淇℃伅鑿滃崟椤?+  if (showApiInfo.value) {
++    items.push({ key: 'api', icon: 'secured', label: t('settings.apiInfo') })
++  }
++
++  return items
++})
+ 
+ // 瀵艰埅椤圭偣鍑诲鐞? const handleNavClick = (item: any) => {
+@@ -321,7 +337,7 @@ onUnmounted(() => {
+   position: fixed;
+   inset: 0;
+   z-index: 1100;
+-  background: rgba(0, 0, 0, 0.5);
++  background: rgba(from var(--td-text-color-primary) r g b / 0.5);
+   display: flex;
+   align-items: center;
+   justify-content: center;
+@@ -337,7 +353,7 @@ onUnmounted(() => {
+   height: 700px;
+   background: var(--td-bg-color-container);
+   border-radius: 12px;
+-  box-shadow: 0 6px 28px rgba(15, 23, 42, 0.08);
++  box-shadow: var(--td-shadow-2);
+   overflow: hidden;
+   display: flex;
+   flex-direction: column;
+diff --git a/frontend/vite.config.ts b/frontend/vite.config.ts
+index 42d64dbe..2d3fd71f 100644
+--- a/frontend/vite.config.ts
++++ b/frontend/vite.config.ts
+@@ -1,11 +1,13 @@
+ import { fileURLToPath, URL } from 'node:url'
+-import { resolve, dirname } from 'node:path'
++import { readFileSync } from 'node:fs'
++import { join, resolve, dirname } from 'node:path'
+ import { existsSync } from 'node:fs'
+ import { createRequire } from 'node:module'
+ import { defineConfig } from 'vite'
++import type { ServerOptions } from 'vite'
+ import vue from '@vitejs/plugin-vue'
+ import vueJsx from '@vitejs/plugin-vue-jsx'
+-
++// 鑾峰彇褰撳墠鏂囦欢鎵€鍦ㄧ洰褰曪紙ESM 妯″潡鏂瑰紡锛? const __dirname = dirname(fileURLToPath(import.meta.url))
+ const require = createRequire(import.meta.url)
+ 
+@@ -24,6 +26,40 @@ function resolveVueOfficePptxEntry(): string {
+   }
+ }
+ 
++// 鑾峰彇 HTTPS 閰嶇疆
++function getHttpsConfig(): ServerOptions['https'] {
++  // 灏濊瘯浠庣幆澧冨彉閲忚鍙栬瘉涔﹁矾寰勶紝鍚﹀垯浣跨敤榛樿璺緞
++  // 娉ㄦ剰锛歘_dirname 鏄?vite.config.ts 鎵€鍦ㄧ洰褰曪紙frontend/锛夛紝ssl 鍦ㄩ」鐩牴鐩綍
++  const keyPath = process.env.SSL_KEY_PATH || join(__dirname, '../ssl/key.pem')
++  const certPath = process.env.SSL_CERT_PATH || join(__dirname, '../ssl/cert.pem')
++
++  // 杈撳嚭璋冭瘯淇℃伅
++  console.log(`[HTTPS Config] Looking for certificates:`)
++  console.log(`  Key: ${keyPath}`)
++  console.log(`  Cert: ${certPath}`)
++
++  try {
++    // 璇诲彇璇佷功鏂囦欢
++    const key = readFileSync(keyPath)
++    const cert = readFileSync(certPath)
++    console.log(`鉁?Using SSL certificates: ${certPath}`)
++    console.log(`  Key size: ${key.length} bytes`)
++    console.log(`  Cert size: ${cert.length} bytes`)
++    return { key, cert }
++  } catch (error: any) {
++    // 濡傛灉璇佷功鏂囦欢涓嶅瓨鍦紝Vite 浼氳嚜鍔ㄧ敓鎴愯嚜绛惧悕璇佷功
++    console.log('鈿?SSL certificates not found, Vite will generate self-signed certificate')
++    console.log(`  Expected paths: ${keyPath}, ${certPath}`)
++    if (error?.message) {
++      console.log(`  Error: ${error.message}`)
++    }
++    console.log(`  Current working directory: ${process.cwd()}`)
++    console.log(`  Config file directory: ${__dirname}`)
++    // 杩斿洖 true 璁?Vite 鑷姩鐢熸垚鑷鍚嶈瘉涔?+    return true as any // 绫诲瀷鏂█锛孷ite 7 鏀寔 boolean
++  }
++}
++
+ export default defineConfig({
+   plugins: [
+     vue(),
+@@ -36,17 +72,39 @@ export default defineConfig({
+     },
+   },
+   server: {
+-    port: 5173,
+-    host: true,
++    port: 443, // 浣跨敤鏍囧噯 HTTP/HTTPS 绔彛锛堥渶瑕佺鐞嗗憳鏉冮檺锛?+    // 濡傛灉 80 绔彛鏈夐棶棰橈紝鍙互鏀逛负 8081锛堟棤闇€绠＄悊鍛樻潈闄愶級
++    // port: 8081,
++    host: '0.0.0.0', // 鐩戝惉鎵€鏈夌綉缁滄帴鍙ｏ紝鍏佽澶栭儴璁块棶
++    strictPort: false, // 濡傛灉绔彛琚崰鐢紝鑷姩灏濊瘯涓嬩竴涓鍙?+    https: getHttpsConfig(),
++    open: false, // 涓嶈嚜鍔ㄦ墦寮€娴忚鍣?+    // HMR 閰嶇疆
++    hmr: {
++      overlay: true, // 鏄剧ず閿欒瑕嗙洊灞?+      // 涓嶈缃?host锛岃 Vite 鑷姩浣跨敤褰撳墠璁块棶鐨勫煙鍚?+      // 杩欐牱鏃犺閫氳繃 localhost 杩樻槸 zsk.t.nxin.com 璁块棶锛學ebSocket 閮戒細浣跨敤鐩稿悓鐨勫煙鍚?+      port: 80, // 浣跨敤鐩稿悓鐨勭鍙ｏ紙濡傛灉鏀逛负 8081锛岃繖閲屼篃瑕佹敼锛?+      protocol: 'wss', // 浣跨敤 WSS锛圚TTPS 鐜锛?+    },
++    // 鍏佽鐨勪富鏈哄悕锛堢敤浜?CAS 鍗曠偣鐧诲綍寮€鍙戠幆澧冿級
++    allowedHosts: [
++      'zsk.t.nxin.com',      // 娴嬭瘯鐜
++      'zsk.nxin.com',        // 鐢熶骇鐜
++      'localhost',            // 鏈湴寮€鍙?+      '.nxin.com',            // 鎵€鏈?nxin.com 瀛愬煙鍚?+    ],
+     // 浠ｇ悊閰嶇疆锛岀敤浜庡紑鍙戠幆澧?     proxy: {
+       '/api': {
+-        target: 'http://localhost:8080',
++        target: process.env.BACKEND_URL || 'https://zsk.t.nxin.com:8080', // 鏈湴寮€鍙戜娇鐢?HTTP
+         changeOrigin: true,
+-        secure: false,
++        secure: false, // 鏈湴寮€鍙戜娇鐢?secure: false锛堝厑璁歌嚜绛惧悕璇佷功锛?+        // 濡傛灉闇€瑕侀噸鍐欒矾寰勶紝鍙互鍙栨秷娉ㄩ噴涓嬮潰鐨勯厤缃?+        // rewrite: (path) => path.replace(/^\/api/, '')
+       },
+       '/files': {
+-        target: 'http://localhost:8080',
++          target: process.env.BACKEND_URL || 'https://zsk.t.nxin.com:8080', // 鏈湴寮€鍙戜娇鐢?HTTP
+         changeOrigin: true,
+         secure: false,
+       }
+diff --git a/internal/application/service/cas_auth.go b/internal/application/service/cas_auth.go
+new file mode 100644
+index 00000000..06b91363
+--- /dev/null
++++ b/internal/application/service/cas_auth.go
+@@ -0,0 +1,346 @@
++package service
++
++import (
++	"context"
++	"fmt"
++	"strings"
++	"time"
++
++	"github.com/google/uuid"
++	"golang.org/x/crypto/bcrypt"
++
++	"github.com/Tencent/WeKnora/internal/config"
++	"github.com/Tencent/WeKnora/internal/logger"
++	"github.com/Tencent/WeKnora/internal/types"
++	"github.com/Tencent/WeKnora/internal/types/interfaces"
++)
++
++// casAuthService 瀹炵幇 CAS 璁よ瘉鏈嶅姟
++type casAuthService struct {
++	casClient     *CASClient
++	userRepo      interfaces.UserRepository
++	userService   interfaces.UserService
++	tenantService interfaces.TenantService
++	config        *config.CASConfig
++}
++
++// NewCASAuthService 鍒涘缓 CAS 璁よ瘉鏈嶅姟
++func NewCASAuthService(
++	casClient *CASClient,
++	userRepo interfaces.UserRepository,
++	userService interfaces.UserService,
++	tenantService interfaces.TenantService,
++	cfg *config.Config,
++) interfaces.CASAuthService {
++	var casConfig *config.CASConfig
++	if cfg != nil {
++		casConfig = cfg.CAS
++	}
++	return &casAuthService{
++		casClient:     casClient,
++		userRepo:      userRepo,
++		userService:   userService,
++		tenantService: tenantService,
++		config:        casConfig,
++	}
++}
++
++// ValidateCASSession 楠岃瘉 CAS 浼氳瘽锛堥€氳繃 _cas_sid 鍜?_cas_uid锛?+// referer 鍙傛暟鐢ㄤ簬璁剧疆 Referer 澶达紝CAS API 闇€瑕佹澶磋繘琛屾牎楠?+func (s *casAuthService) ValidateCASSession(ctx context.Context, casSid, casUid string, referer string) (*types.CASUserInfo, error) {
++	if casSid == "" || casUid == "" {
++		return nil, fmt.Errorf("CAS session ID and UID are required")
++	}
++
++	// 璋冪敤 CAS 瀹㈡埛绔獙璇佷細璇?+	casUserInfo, err := s.casClient.ValidateSession(ctx, casSid, casUid, referer)
++	if err != nil {
++		return nil, fmt.Errorf("failed to validate CAS session: %w", err)
++	}
++
++	return casUserInfo, nil
++}
++
++// AutoBindUser 鑷姩缁戝畾鎴栧垱寤虹敤鎴凤紙CAS 鐢ㄦ埛淇℃伅 鈫?WeKnora 鐢ㄦ埛锛?+func (s *casAuthService) AutoBindUser(ctx context.Context, casUserInfo *types.CASUserInfo) (*types.User, error) {
++	// 鎻愬墠澹版槑锛岄伩鍏?goto 璺宠繃鍙橀噺澹版槑
++	var user *types.User
++	var err error
++	var hashedPassword []byte
++	var password string
++	var username string
++	var userEmail string
++	var existingUser *types.User
++	var createdTenant *types.Tenant
++	var tenantName string
++	var tenant *types.Tenant
++
++	// 姝ラ1锛氱敤鎴峰瓨鍦ㄦ€ф鏌ワ紙鎸変紭鍏堢骇鏌ユ壘锛?+	// 1.1 浼樺厛閫氳繃 cas_user_id 鏌ユ壘锛堟渶鍙潬锛孋AS 鐢ㄦ埛 ID 鍞竴锛?+	if casUserInfo.ID != "" {
++		user, err = s.userRepo.GetUserByCASUserID(ctx, casUserInfo.ID)
++		if err == nil && user != nil {
++			logger.Infof(ctx, "Found user by cas_user_id: %s", user.ID)
++			goto updateUser
++		}
++	}
++
++	// 1.2 濡傛灉鏈壘鍒帮紝閫氳繃 email 鏌ユ壘锛圕AS 閭涓?WeKnora 閭鍖归厤锛?+	if casUserInfo.Email != "" {
++		user, err = s.userRepo.GetUserByEmail(ctx, casUserInfo.Email)
++		if err == nil && user != nil {
++			logger.Infof(ctx, "Found user by email: %s", user.ID)
++			goto updateUser
++		}
++	}
++
++	// 姝ラ2锛氱敤鎴蜂笉瀛樺湪锛屽垱寤烘柊鐢ㄦ埛
++	logger.Infof(ctx, "User not found, creating new user for CAS user: %s", casUserInfo.ID)
++
++	// 2.1 鐢熸垚鐢ㄦ埛鍚嶏紙妫€鏌ュ敮涓€鎬э級
++	username = casUserInfo.LoginName
++	if username == "" {
++		// 濡傛灉 loginName 涓虹┖锛屼娇鐢?email 鍓嶇紑
++		if casUserInfo.Email != "" {
++			username = strings.Split(casUserInfo.Email, "@")[0]
++		} else {
++			// 濡傛灉 email 涔熶负绌猴紝浣跨敤 CAS ID
++			username = fmt.Sprintf("cas_%s", casUserInfo.ID)
++		}
++	}
++
++	// 2.2 妫€鏌ョ敤鎴峰悕鏄惁宸插瓨鍦紙澶勭悊鍐茬獊锛?+	existingUser, _ = s.userRepo.GetUserByUsername(ctx, username)
++	if existingUser != nil {
++		// 鐢ㄦ埛鍚嶅啿绐侊紝娣诲姞鍚庣紑
++		if len(casUserInfo.ID) >= 8 {
++			username = fmt.Sprintf("%s_%s", username, casUserInfo.ID[:8])
++		} else {
++			username = fmt.Sprintf("%s_%s", username, casUserInfo.ID)
++		}
++		logger.Warnf(ctx, "Username conflict, using: %s", username)
++	}
++
++	// 2.3 妫€鏌ラ偖绠辨槸鍚﹀凡瀛樺湪锛堢悊璁轰笂涓嶅簲璇ュ彂鐢燂紝鍥犱负宸茬粡閫氳繃 email 鏌ユ壘杩囷級
++	if casUserInfo.Email != "" {
++		existingUser, _ = s.userRepo.GetUserByEmail(ctx, casUserInfo.Email)
++		if existingUser != nil {
++			// 閭宸插瓨鍦紝璇存槑鍙兘鏄苟鍙戣姹傦紝杩斿洖鐜版湁鐢ㄦ埛
++			logger.Warnf(ctx, "Email already exists, returning existing user: %s", existingUser.ID)
++			return existingUser, nil
++		}
++	}
++
++	// 2.4 鐢熸垚瀵嗙爜骞跺搱甯岋紙CAS 鐢ㄦ埛涓嶉渶瑕佸瘑鐮侊紝浣嗘暟鎹簱瀛楁瑕佹眰闈炵┖锛?+	// 瀵嗙爜榛樿鍙栨墜鏈哄彿鍚庡洓浣嶏紝濡傛灉鎵嬫満鍙蜂负绌烘垨鏍煎紡涓嶅锛屼娇鐢ㄩ粯璁ゅ瘑鐮?+	password = "1234" // 榛樿瀵嗙爜
++	if casUserInfo.MobilePhone != "" {
++		// 鎻愬彇鎵嬫満鍙峰悗鍥涗綅锛堝鐞嗚劚鏁忔牸寮忥紝濡?"166****8186"锛?+		mobilePhone := casUserInfo.MobilePhone
++		// 绉婚櫎鎵€鏈夐潪鏁板瓧瀛楃
++		digits := ""
++		for _, r := range mobilePhone {
++			if r >= '0' && r <= '9' {
++				digits += string(r)
++			}
++		}
++		// 鍙栨渶鍚庡洓浣?+		if len(digits) >= 4 {
++			password = digits[len(digits)-4:]
++		}
++	}
++	hashedPassword, err = bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
++	if err != nil {
++		return nil, fmt.Errorf("failed to hash password: %w", err)
++	}
++
++	// 2.5 鍏堝垱寤虹鎴凤紙鍥犱负鐢ㄦ埛闇€瑕佺鎴?ID锛屽閿害鏉熻姹傦級
++	// 娉ㄦ剰锛氳繖閲屽厛鍒涘缓绉熸埛锛岀劧鍚庡啀鍒涘缓鐢ㄦ埛骞剁粦瀹氱鎴?+	tenantName = fmt.Sprintf("%s鐨勫伐浣滅┖闂?, casUserInfo.RealName)
++	if tenantName == "鐨勫伐浣滅┖闂? {
++		// 濡傛灉鐪熷疄濮撳悕涓虹┖锛屼娇鐢ㄧ櫥褰曞悕
++		tenantName = fmt.Sprintf("%s鐨勫伐浣滅┖闂?, casUserInfo.LoginName)
++	}
++	if tenantName == "鐨勫伐浣滅┖闂? {
++		// 濡傛灉鐧诲綍鍚嶄篃涓虹┖锛屼娇鐢ㄧ敤鎴峰悕
++		tenantName = fmt.Sprintf("%s鐨勫伐浣滅┖闂?, username)
++	}
++
++	tenant = &types.Tenant{
++		Name:        tenantName,
++		Description: "榛樿宸ヤ綔绌洪棿",
++		Status:      "active",
++		Business:    "default",
++	}
++
++	createdTenant, err = s.tenantService.CreateTenant(ctx, tenant)
++	if err != nil {
++		return nil, fmt.Errorf("failed to create tenant: %w", err)
++	}
++	logger.Infof(ctx, "Created tenant for new user: %d", createdTenant.ID)
++
++	// 2.6 鍒涘缓鐢ㄦ埛瀵硅薄锛堢粦瀹氬埌鍒氬垱寤虹殑绉熸埛锛?+	// 澶勭悊 Email锛氬鏋?CAS Email 涓虹┖锛屼娇鐢?username 鐢熸垚閭鍦板潃
++	userEmail = casUserInfo.Email
++	if userEmail == "" {
++		// Email 涓虹┖鏃讹紝浣跨敤 username 鐢熸垚閭鍦板潃
++		userEmail = fmt.Sprintf("%s@nxin.local", username)
++		logger.Infof(ctx, "CAS Email is empty, using generated email: %s", userEmail)
++	}
++
++	user = &types.User{
++		ID:             uuid.New().String(),
++		Username:       username,
++		Email:          userEmail,
++		PasswordHash:   string(hashedPassword),
++		Avatar:         "",               // 浣跨敤绯荤粺榛樿澶村儚锛堢┖瀛楃涓诧級
++		TenantID:       createdTenant.ID, // 璁剧疆绉熸埛 ID锛岄伩鍏嶅閿害鏉熼敊璇?+		IsActive:       true,
++		CASUserID:      casUserInfo.ID,
++		CASLoginName:   casUserInfo.LoginName,
++		CASRealName:    casUserInfo.RealName,
++		CASMobilePhone: casUserInfo.MobilePhone,
++		CreatedAt:      time.Now(),
++		UpdatedAt:      time.Now(),
++	}
++
++	// 2.7 淇濆瓨鐢ㄦ埛鍒版暟鎹簱
++	if err := s.userRepo.CreateUser(ctx, user); err != nil {
++		// 澶勭悊鍞竴绾︽潫鍐茬獊锛堝苟鍙戝垱寤猴級
++		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "UNIQUE constraint") {
++			// 閲嶆柊鏌ユ壘鐢ㄦ埛锛堟寜浼樺厛绾э細cas_user_id 鈫?email锛?+			if casUserInfo.ID != "" {
++				user, err = s.userRepo.GetUserByCASUserID(ctx, casUserInfo.ID)
++			}
++			if user == nil && userEmail != "" {
++				user, err = s.userRepo.GetUserByEmail(ctx, userEmail)
++			}
++			if user != nil {
++				logger.Warnf(ctx, "Concurrent user creation detected, returning existing user: %s", user.ID)
++				// 骞跺彂鍒涘缓鏃讹紝鐢ㄦ埛宸插瓨鍦紝涓嶉渶瑕佸垹闄ょ鎴凤紙鍙兘鍏朵粬璇锋眰宸茬粦瀹氾級
++				return user, nil
++			}
++		}
++
++		// 鍒涘缓鐢ㄦ埛澶辫触锛屽垹闄や箣鍓嶅垱寤虹殑绉熸埛锛堥伩鍏嶉仐鐣欐湭浣跨敤鐨勭鎴凤級
++		// 娉ㄦ剰锛氬垹闄ょ鎴峰け璐ヤ笉褰卞搷閿欒杩斿洖锛屼絾浼氳褰曟棩蹇?+		if createdTenant != nil && createdTenant.ID > 0 {
++			if deleteErr := s.tenantService.DeleteTenant(ctx, createdTenant.ID); deleteErr != nil {
++				logger.Errorf(ctx, "Failed to delete tenant %d after user creation failed: %v", createdTenant.ID, deleteErr)
++				// 涓嶈繑鍥為敊璇紝鍥犱负涓昏閿欒鏄敤鎴峰垱寤哄け璐?+			} else {
++				logger.Infof(ctx, "Deleted tenant %d after user creation failed", createdTenant.ID)
++			}
++		}
++
++		return nil, fmt.Errorf("failed to create user: %w", err)
++	}
++
++	logger.Infof(ctx, "Created new user: %s (CAS ID: %s)", user.ID, casUserInfo.ID)
++	return user, nil
++
++updateUser:
++	// 姝ラ3锛氱敤鎴峰凡瀛樺湪锛屾洿鏂?CAS 鐩稿叧瀛楁
++	logger.Infof(ctx, "Updating existing user: %s", user.ID)
++
++	// 3.1 鏇存柊 CAS 鐩稿叧瀛楁锛堝鏋滀负绌烘垨闇€瑕佹洿鏂帮級
++	needUpdate := false
++	if user.CASUserID == "" && casUserInfo.ID != "" {
++		user.CASUserID = casUserInfo.ID
++		needUpdate = true
++	}
++	if user.CASLoginName == "" && casUserInfo.LoginName != "" {
++		user.CASLoginName = casUserInfo.LoginName
++		needUpdate = true
++	}
++	if user.CASRealName != casUserInfo.RealName {
++		user.CASRealName = casUserInfo.RealName
++		needUpdate = true
++	}
++	if user.CASMobilePhone != casUserInfo.MobilePhone {
++		user.CASMobilePhone = casUserInfo.MobilePhone
++		needUpdate = true
++	}
++
++	// 3.2 纭繚鐢ㄦ埛鏄縺娲荤姸鎬?+	if !user.IsActive {
++		user.IsActive = true
++		needUpdate = true
++	}
++
++	// 3.3 濡傛灉鏈夋洿鏂帮紝淇濆瓨鍒版暟鎹簱
++	if needUpdate {
++		user.UpdatedAt = time.Now()
++		if err := s.userRepo.UpdateUser(ctx, user); err != nil {
++			logger.Errorf(ctx, "Failed to update user: %v", err)
++			// 涓嶅奖鍝嶄富娴佺▼锛岀户缁繑鍥炵敤鎴?+		} else {
++			logger.Infof(ctx, "Updated user CAS fields: %s", user.ID)
++		}
++	}
++
++	return user, nil
++}
++
++// AutoBindTenant 鑷姩缁戝畾鎴栧垱寤虹鎴凤紙CAS 骞冲彴绉熸埛 鈫?WeKnora 绉熸埛锛?+func (s *casAuthService) AutoBindTenant(ctx context.Context, casUserInfo *types.CASUserInfo, user *types.User) (*types.Tenant, error) {
++	// 姝ラ1锛氭鏌ョ敤鎴锋槸鍚﹀凡鏈夌鎴?+	if user.TenantID > 0 {
++		// 鐢ㄦ埛宸叉湁绉熸埛锛屾煡璇㈠苟杩斿洖
++		tenant, err := s.tenantService.GetTenantByID(ctx, user.TenantID)
++		if err != nil {
++			logger.Errorf(ctx, "Failed to get tenant by ID: %d, error: %v", user.TenantID, err)
++			// 绉熸埛涓嶅瓨鍦ㄦ垨鏌ヨ澶辫触锛岄渶瑕佸垱寤烘柊绉熸埛
++		} else if tenant != nil {
++			logger.Infof(ctx, "User already has tenant: %d", user.TenantID)
++			return tenant, nil
++		}
++		// 濡傛灉绉熸埛涓嶅瓨鍦紝缁х画鍒涘缓鏂扮鎴?+	}
++
++	// 姝ラ2锛氱敤鎴锋病鏈夌鎴锋垨绉熸埛涓嶅瓨鍦紝鍒涘缓鏂扮鎴?+	logger.Infof(ctx, "Creating new tenant for user: %s", user.ID)
++
++	// 2.1 鐢熸垚绉熸埛鍚嶇О
++	tenantName := fmt.Sprintf("%s鐨勫伐浣滅┖闂?, casUserInfo.RealName)
++	if tenantName == "鐨勫伐浣滅┖闂? {
++		// 濡傛灉鐪熷疄濮撳悕涓虹┖锛屼娇鐢ㄧ櫥褰曞悕
++		tenantName = fmt.Sprintf("%s鐨勫伐浣滅┖闂?, casUserInfo.LoginName)
++	}
++	if tenantName == "鐨勫伐浣滅┖闂? {
++		// 濡傛灉鐧诲綍鍚嶄篃涓虹┖锛屼娇鐢ㄧ敤鎴峰悕
++		tenantName = fmt.Sprintf("%s鐨勫伐浣滅┖闂?, user.Username)
++	}
++
++	// 2.2 鍒涘缓绉熸埛瀵硅薄
++	tenant := &types.Tenant{
++		Name:        tenantName,
++		Description: "榛樿宸ヤ綔绌洪棿",
++		Status:      "active",
++		Business:    "default",
++	}
++
++	// 2.3 鍒涘缓绉熸埛锛堜細鑷姩鐢熸垚 API Key 鍜岃缃粯璁ら厤缃級
++	createdTenant, err := s.tenantService.CreateTenant(ctx, tenant)
++	if err != nil {
++		return nil, fmt.Errorf("failed to create tenant: %w", err)
++	}
++
++	// 姝ラ3锛氬皢鐢ㄦ埛缁戝畾鍒扮鎴?+	user.TenantID = createdTenant.ID
++	user.UpdatedAt = time.Now()
++	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
++		logger.Errorf(ctx, "Failed to bind user to tenant: %v", err)
++		// 缁戝畾澶辫触锛屽垹闄ゅ垰鍒涘缓鐨勭鎴凤紙閬垮厤閬楃暀鏈娇鐢ㄧ殑绉熸埛锛?+		if deleteErr := s.tenantService.DeleteTenant(ctx, createdTenant.ID); deleteErr != nil {
++			logger.Errorf(ctx, "Failed to delete tenant %d after user binding failed: %v", createdTenant.ID, deleteErr)
++			// 涓嶈繑鍥為敊璇紝鍥犱负涓昏閿欒鏄敤鎴风粦瀹氬け璐?+		} else {
++			logger.Infof(ctx, "Deleted tenant %d after user binding failed", createdTenant.ID)
++		}
++		return nil, fmt.Errorf("failed to bind user to tenant: %w", err)
++	}
++
++	logger.Infof(ctx, "Bound user %s to tenant %d", user.ID, createdTenant.ID)
++	return createdTenant, nil
++}
+diff --git a/internal/application/service/cas_client.go b/internal/application/service/cas_client.go
+new file mode 100644
+index 00000000..18e7aa71
+--- /dev/null
++++ b/internal/application/service/cas_client.go
+@@ -0,0 +1,168 @@
++package service
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"time"
++
++	"github.com/Tencent/WeKnora/internal/config"
++	"github.com/Tencent/WeKnora/internal/logger"
++	"github.com/Tencent/WeKnora/internal/types"
++)
++
++// CASClient CAS 鎺ュ彛瀹㈡埛绔?+type CASClient struct {
++	config     *config.CASConfig
++	httpClient *http.Client
++}
++
++// NewCASClient 鍒涘缓 CAS 瀹㈡埛绔?+func NewCASClient(cfg *config.Config) *CASClient {
++	var casConfig *config.CASConfig
++	if cfg != nil {
++		casConfig = cfg.CAS
++	}
++	return &CASClient{
++		config: casConfig,
++		httpClient: &http.Client{
++			Timeout: 10 * time.Second,
++		},
++	}
++}
++
++// CASAPIResponse CAS API 鍝嶅簲缁撴瀯
++type CASAPIResponse struct {
++	Code      int                `json:"code"`
++	Data      *types.CASUserInfo `json:"data"`
++	Msg       string             `json:"msg"`
++	Exception string             `json:"exception"`
++}
++
++// ValidateSession 楠岃瘉 CAS 浼氳瘽锛堥€氳繃 _cas_sid 鍜?_cas_uid锛?+// referer 鍙傛暟鐢ㄤ簬璁剧疆 Referer 澶达紝CAS API 闇€瑕佹澶磋繘琛屾牎楠?+func (c *CASClient) ValidateSession(ctx context.Context, casSid, casUid string, referer string) (*types.CASUserInfo, error) {
++	if c.config == nil {
++		return nil, fmt.Errorf("CAS config is not initialized")
++	}
++
++	// 鑾峰彇褰撳墠鐜閰嶇疆
++	envConfig := c.config.GetCurrentConfig()
++	if envConfig == nil {
++		return nil, fmt.Errorf("CAS environment config is not available")
++	}
++
++	// 鏋勫缓 API URL锛堜富鎺ュ彛 3.0锛?+	apiURL := fmt.Sprintf("https://%s/api/nxin.usercenter.user.get/3.0", envConfig.APIHost)
++
++	// 鍒涘缓璇锋眰
++	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
++	if err != nil {
++		return nil, fmt.Errorf("failed to create request: %w", err)
++	}
++
++	// 璁剧疆 Cookie锛堟ā鎷熸祻瑙堝櫒琛屼负锛?+	req.AddCookie(&http.Cookie{
++		Name:  envConfig.CookieSID,
++		Value: casSid,
++	})
++	req.AddCookie(&http.Cookie{
++		Name:  envConfig.CookieUID,
++		Value: casUid,
++	})
++
++	// 璁剧疆 User-Agent
++	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
++
++	// 璁剧疆 Referer 澶达紙CAS API 闇€瑕佹澶磋繘琛屾牎楠岋級
++	if referer != "" {
++		req.Header.Set("Referer", referer)
++	} else {
++		// 濡傛灉娌℃湁鎻愪緵 Referer锛屼娇鐢ㄩ粯璁ゅ€硷紙鏍规嵁鐜閰嶇疆锛?+		defaultReferer := fmt.Sprintf("https://%s/", envConfig.LoginHost)
++		req.Header.Set("Referer", defaultReferer)
++	}
++
++	// 鍙戦€佽姹?+	resp, err := c.httpClient.Do(req)
++	if err != nil {
++		logger.Warnf(ctx, "CAS API request failed: %v, trying fallback API", err)
++		// 濡傛灉涓绘帴鍙ｅけ璐ワ紝灏濊瘯澶囩敤鎺ュ彛锛?.0鐗堟湰锛?+		return c.validateSessionFallback(ctx, casSid, casUid, envConfig, referer)
++	}
++	defer resp.Body.Close()
++
++	// 瑙ｆ瀽鍝嶅簲
++	var result CASAPIResponse
++	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
++		return nil, fmt.Errorf("failed to decode response: %w", err)
++	}
++
++	// 妫€鏌ュ搷搴旂爜
++	if result.Code != 0 {
++		// 濡傛灉涓绘帴鍙ｈ繑鍥炴湭鐧诲綍閿欒锛屽皾璇曞鐢ㄦ帴鍙?+		if result.Code == 10011 {
++			logger.Debugf(ctx, "CAS API returned login required (code: %d), trying fallback API", result.Code)
++			return c.validateSessionFallback(ctx, casSid, casUid, envConfig, referer)
++		}
++		return nil, fmt.Errorf("CAS API error: code=%d, msg=%s, exception=%s", result.Code, result.Msg, result.Exception)
++	}
++
++	if result.Data == nil {
++		return nil, fmt.Errorf("CAS API returned empty data")
++	}
++
++	return result.Data, nil
++}
++
++// validateSessionFallback 浣跨敤澶囩敤鎺ュ彛楠岃瘉浼氳瘽锛?.0鐗堟湰锛岄渶瑕?boId 鍙傛暟锛?+func (c *CASClient) validateSessionFallback(ctx context.Context, casSid, casUid string, envConfig *config.CASEnvConfig, referer string) (*types.CASUserInfo, error) {
++	// 澶囩敤鎺ュ彛闇€瑕佸厛閫氳繃涓绘帴鍙ｈ幏鍙栫敤鎴稩D锛屽鏋滀富鎺ュ彛澶辫触锛屽鐢ㄦ帴鍙ｄ篃鏃犳硶浣跨敤
++	// 杩欓噷鍏堝皾璇曚富鎺ュ彛鑾峰彇鐢ㄦ埛ID锛屽鏋滃け璐ュ垯杩斿洖閿欒
++	// 娉ㄦ剰锛氬鐢ㄦ帴鍙ｄ富瑕佺敤浜庝富鎺ュ彛杩斿洖閮ㄥ垎鏁版嵁鏃朵娇鐢紝濡傛灉涓绘帴鍙ｅ畬鍏ㄥけ璐ワ紝澶囩敤鎺ュ彛涔熸棤娉曞伐浣?+
++	// 鍏堝皾璇曚富鎺ュ彛鑾峰彇鐢ㄦ埛ID锛堝嵆浣胯繑鍥為敊璇紝涔熷彲鑳芥湁閮ㄥ垎鏁版嵁锛?+	apiURL := fmt.Sprintf("https://%s/api/nxin.usercenter.user.get/3.0", envConfig.APIHost)
++	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
++	if err != nil {
++		return nil, fmt.Errorf("failed to create fallback request: %w", err)
++	}
++
++	req.AddCookie(&http.Cookie{
++		Name:  envConfig.CookieSID,
++		Value: casSid,
++	})
++	req.AddCookie(&http.Cookie{
++		Name:  envConfig.CookieUID,
++		Value: casUid,
++	})
++	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
++
++	// 璁剧疆 Referer 澶?+	if referer != "" {
++		req.Header.Set("Referer", referer)
++	} else {
++		defaultReferer := fmt.Sprintf("https://%s/", envConfig.LoginHost)
++		req.Header.Set("Referer", defaultReferer)
++	}
++
++	resp, err := c.httpClient.Do(req)
++	if err != nil {
++		return nil, fmt.Errorf("fallback API request failed: %w", err)
++	}
++	defer resp.Body.Close()
++
++	var result CASAPIResponse
++	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
++		return nil, fmt.Errorf("failed to decode fallback response: %w", err)
++	}
++
++	// 濡傛灉涓绘帴鍙ｈ繑鍥炰簡鐢ㄦ埛鏁版嵁锛堝嵆浣縞ode涓嶄负0锛夛紝浣跨敤涓绘帴鍙ｆ暟鎹?+	if result.Data != nil && result.Data.ID != "" {
++		return result.Data, nil
++	}
++
++	// 濡傛灉涓绘帴鍙ｅ畬鍏ㄥけ璐ワ紝澶囩敤鎺ュ彛涔熸棤娉曚娇鐢紙闇€瑕乥oId鍙傛暟锛?+	return nil, fmt.Errorf("CAS session validation failed: code=%d, msg=%s", result.Code, result.Msg)
++}
+diff --git a/internal/application/service/knowledgebase_search_shared.go b/internal/application/service/knowledgebase_search_shared.go
+index f690d15e..f2aa9285 100644
+--- a/internal/application/service/knowledgebase_search_shared.go
++++ b/internal/application/service/knowledgebase_search_shared.go
+@@ -61,12 +61,7 @@ func (s *knowledgeBaseService) fetchKnowledgeDataWithShared(ctx context.Context,
+ 			logger.Debugf(ctx, "[fetchKnowledgeDataWithShared] Knowledge %s not found or has no KB", id)
+ 			continue
+ 		}
+-		hasPermission, err := s.kbShareService.HasKBPermission(ctx, k.KnowledgeBaseID, userID, types.OrgRoleViewer)
+-		if err != nil {
+-			logger.Debugf(ctx, "[fetchKnowledgeDataWithShared] Permission check error for KB %s: %v", k.KnowledgeBaseID, err)
+-			continue
+-		}
+-		if !hasPermission {
++		if !s.userCanAccessSharedKB(ctx, k.KnowledgeBaseID, userID) {
+ 			logger.Debugf(ctx, "[fetchKnowledgeDataWithShared] No permission for KB %s", k.KnowledgeBaseID)
+ 			continue
+ 		}
+@@ -121,12 +116,7 @@ func (s *knowledgeBaseService) listChunksByIDWithShared(ctx context.Context,
+ 		if c == nil || c.KnowledgeBaseID == "" {
+ 			continue
+ 		}
+-		hasPermission, err := s.kbShareService.HasKBPermission(ctx, c.KnowledgeBaseID, userID, types.OrgRoleViewer)
+-		if err != nil {
+-			logger.Debugf(ctx, "[listChunksByIDWithShared] Permission check error for KB %s: %v", c.KnowledgeBaseID, err)
+-			continue
+-		}
+-		if !hasPermission {
++		if !s.userCanAccessSharedKB(ctx, c.KnowledgeBaseID, userID) {
+ 			logger.Debugf(ctx, "[listChunksByIDWithShared] No permission for KB %s", c.KnowledgeBaseID)
+ 			continue
+ 		}
+@@ -137,6 +127,24 @@ func (s *knowledgeBaseService) listChunksByIDWithShared(ctx context.Context,
+ 	return chunks, nil
+ }
+ 
++// userCanAccessSharedKB: org-shared KB or square/member-based shared KB.
++func (s *knowledgeBaseService) userCanAccessSharedKB(ctx context.Context, kbID, userID string) bool {
++	if kbID == "" || userID == "" {
++		return false
++	}
++	if s.kbShareService != nil {
++		if ok, _ := s.kbShareService.HasKBPermission(ctx, kbID, userID, types.OrgRoleViewer); ok {
++			return true
++		}
++	}
++	if s.sharedKBService != nil {
++		if role, _ := s.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID); role != "" {
++			return true
++		}
++	}
++	return false
++}
++
+ // findMissingIDs returns IDs from the input slice that are not found by the exists predicate.
+ func (s *knowledgeBaseService) findMissingIDs(ids []string, exists func(string) bool) []string {
+ 	var missing []string
+diff --git a/internal/application/service/llmcontext/redis_storage.go b/internal/application/service/llmcontext/redis_storage.go
+index b09efb93..22068df2 100644
+--- a/internal/application/service/llmcontext/redis_storage.go
++++ b/internal/application/service/llmcontext/redis_storage.go
+@@ -11,15 +11,15 @@ import (
+ 	"github.com/redis/go-redis/v9"
+ )
+ 
+-// redisStorage implements ContextStorage using Redis
++// redisStorage implements ContextStorage using Redis锛堟敮鎸佸崟鏈?Client 鎴栭泦缇?ClusterClient锛? type redisStorage struct {
+-	client *redis.Client
++	client redis.UniversalClient
+ 	ttl    time.Duration
+ 	prefix string
+ }
+ 
+ // NewRedisStorage creates a new Redis-based storage
+-func NewRedisStorage(client *redis.Client, ttl time.Duration, prefix string) (ContextStorage, error) {
++func NewRedisStorage(client redis.UniversalClient, ttl time.Duration, prefix string) (ContextStorage, error) {
+ 	// Validate connection
+ 	_, err := client.Ping(context.Background()).Result()
+ 	if err != nil {
+diff --git a/internal/application/service/session_knowledge_qa.go b/internal/application/service/session_knowledge_qa.go
+index 49ca2e7a..5d8dd66d 100644
+--- a/internal/application/service/session_knowledge_qa.go
++++ b/internal/application/service/session_knowledge_qa.go
+@@ -415,8 +415,16 @@ func (s *sessionService) buildSearchTargets(
+ 				kbTenantMap[kbID] = tenantID
+ 			} else if kb.TenantID == tenantID {
+ 				kbTenantMap[kbID] = tenantID
+-			} else if s.kbShareService != nil && userID != "" {
+-				hasAccess, _ := s.kbShareService.HasKBPermission(ctx, kbID, userID, types.OrgRoleViewer)
++			} else if userID != "" {
++				// Cross-tenant KB: org share OR square/member-based shared KB (joined via /join).
++				hasAccess := false
++				if s.kbShareService != nil {
++					hasAccess, _ = s.kbShareService.HasKBPermission(ctx, kbID, userID, types.OrgRoleViewer)
++				}
++				if !hasAccess && s.sharedKBService != nil {
++					role, _ := s.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID)
++					hasAccess = role != ""
++				}
+ 				if hasAccess {
+ 					kbTenantMap[kbID] = kb.TenantID
+ 				} else {
+@@ -841,3 +849,237 @@ func (s *sessionService) resolveWebFetchTopN(req *types.QARequest) int {
+ 	}
+ 	return 3
+ }
++
++// buildOpenSearchTargets builds retrieval targets from raw IDs without user-scoped permission checks.
++func (s *sessionService) buildOpenSearchTargets(
++	ctx context.Context,
++	knowledgeBaseIDs []string,
++	knowledgeIDs []string,
++) (types.SearchTargets, error) {
++	var targets types.SearchTargets
++	fullKBSet := make(map[string]bool)
++
++	kbIDSet := dedupeStringSliceNonEmpty(knowledgeBaseIDs)
++	for _, kid := range knowledgeIDs {
++		k, err := s.knowledgeService.GetKnowledgeByIDOnly(ctx, kid)
++		if err != nil || k == nil || k.KnowledgeBaseID == "" {
++			continue
++		}
++		kbIDSet = appendUniqueNonEmpty(kbIDSet, k.KnowledgeBaseID)
++	}
++
++	var kbList []*types.KnowledgeBase
++	if len(kbIDSet) > 0 {
++		var err error
++		kbList, err = s.knowledgeBaseService.GetKnowledgeBasesByIDsOnly(ctx, kbIDSet)
++		if err != nil {
++			logger.Warnf(ctx, "buildOpenSearchTargets: batch KB fetch: %v", err)
++		}
++	}
++	kbByID := make(map[string]*types.KnowledgeBase, len(kbList))
++	for _, kb := range kbList {
++		if kb != nil {
++			kbByID[kb.ID] = kb
++		}
++	}
++
++	for _, kbID := range dedupeStringSliceNonEmpty(knowledgeBaseIDs) {
++		kb := kbByID[kbID]
++		if kb == nil {
++			continue
++		}
++		fullKBSet[kbID] = true
++		targets = append(targets, &types.SearchTarget{
++			Type:            types.SearchTargetTypeKnowledgeBase,
++			KnowledgeBaseID: kbID,
++			TenantID:        kb.TenantID,
++		})
++	}
++
++	kbKids := make(map[string][]string)
++	kbTenant := make(map[string]uint64)
++	seenKidPerKB := make(map[string]map[string]struct{})
++	for _, kid := range knowledgeIDs {
++		kid = strings.TrimSpace(kid)
++		if kid == "" {
++			continue
++		}
++		k, err := s.knowledgeService.GetKnowledgeByIDOnly(ctx, kid)
++		if err != nil || k == nil || k.KnowledgeBaseID == "" {
++			continue
++		}
++		if fullKBSet[k.KnowledgeBaseID] {
++			continue
++		}
++		if seenKidPerKB[k.KnowledgeBaseID] == nil {
++			seenKidPerKB[k.KnowledgeBaseID] = make(map[string]struct{})
++		}
++		if _, dup := seenKidPerKB[k.KnowledgeBaseID][kid]; dup {
++			continue
++		}
++		seenKidPerKB[k.KnowledgeBaseID][kid] = struct{}{}
++		kbKids[k.KnowledgeBaseID] = append(kbKids[k.KnowledgeBaseID], kid)
++		if _, ok := kbTenant[k.KnowledgeBaseID]; !ok {
++			if kb := kbByID[k.KnowledgeBaseID]; kb != nil {
++				kbTenant[k.KnowledgeBaseID] = kb.TenantID
++			} else {
++				kbTenant[k.KnowledgeBaseID] = k.TenantID
++			}
++		}
++	}
++	for kbID, kids := range kbKids {
++		tid := kbTenant[kbID]
++		if tid == 0 {
++			continue
++		}
++		targets = append(targets, &types.SearchTarget{
++			Type:            types.SearchTargetTypeKnowledge,
++			KnowledgeBaseID: kbID,
++			TenantID:        tid,
++			KnowledgeIDs:    kids,
++		})
++	}
++	return targets, nil
++}
++
++func dedupeStringSliceNonEmpty(in []string) []string {
++	seen := make(map[string]struct{})
++	out := make([]string, 0, len(in))
++	for _, s := range in {
++		s = strings.TrimSpace(s)
++		if s == "" {
++			continue
++		}
++		if _, ok := seen[s]; ok {
++			continue
++		}
++		seen[s] = struct{}{}
++		out = append(out, s)
++	}
++	return out
++}
++
++func appendUniqueNonEmpty(slice []string, v string) []string {
++	v = strings.TrimSpace(v)
++	if v == "" {
++		return slice
++	}
++	for _, x := range slice {
++		if x == v {
++			return slice
++		}
++	}
++	return append(slice, v)
++}
++
++// SearchKnowledgeOpen runs the same retrieval pipeline as SearchKnowledge but uses buildOpenSearchTargets
++// (no user KB permission checks). Context tenant is set to the first target tenant for model/rerank listing.
++func (s *sessionService) SearchKnowledgeOpen(
++	ctx context.Context,
++	knowledgeBaseIDs []string,
++	knowledgeIDs []string,
++	query string,
++	matchCount int,
++) ([]*types.SearchResult, error) {
++	logger.Info(ctx, "Start open knowledge base search (no user auth)")
++	searchTargets, err := s.buildOpenSearchTargets(ctx, knowledgeBaseIDs, knowledgeIDs)
++	if err != nil {
++		logger.Warnf(ctx, "buildOpenSearchTargets: %v", err)
++	}
++	if len(searchTargets) == 0 {
++		return []*types.SearchResult{}, nil
++	}
++
++	primaryTenantID := searchTargets[0].TenantID
++	ctx2 := context.WithValue(ctx, types.TenantIDContextKey, primaryTenantID)
++
++	var rc *types.RetrievalConfig
++	tenant, errTenant := s.tenantService.GetTenantByID(ctx2, primaryTenantID)
++	if errTenant != nil || tenant == nil {
++		tenant = &types.Tenant{ID: primaryTenantID}
++	} else {
++		rc = tenant.RetrievalConfig
++	}
++	ctx2 = context.WithValue(ctx2, types.TenantInfoContextKey, tenant)
++
++	// Recall width: tenant embedding_top_k only. Do not tie this to match_count 鈥?callers use
++	// match_count as the max final response size; shrinking recall here hurt rerank quality.
++	const openRetrieveMaxTopK = 100
++	embeddingTopK := rc.GetEffectiveEmbeddingTopK()
++	if embeddingTopK > openRetrieveMaxTopK {
++		embeddingTopK = openRetrieveMaxTopK
++	}
++	if embeddingTopK < 1 {
++		embeddingTopK = 1
++	}
++
++	// Final return cap: explicit match_count overrides tenant rerank_top_k; omit/zero uses tenant default.
++	rerankTopK := rc.GetEffectiveRerankTopK()
++	if matchCount > 0 {
++		rerankTopK = matchCount
++	}
++	if rerankTopK > openRetrieveMaxTopK {
++		rerankTopK = openRetrieveMaxTopK
++	}
++	if rerankTopK < 1 {
++		rerankTopK = 1
++	}
++
++	chatManage := &types.ChatManage{
++		PipelineRequest: types.PipelineRequest{
++			SessionID:        "open-retrieve",
++			Query:            query,
++			KnowledgeBaseIDs: knowledgeBaseIDs,
++			KnowledgeIDs:     knowledgeIDs,
++			SearchTargets:    searchTargets,
++			MaxRounds:        s.cfg.Conversation.MaxRounds,
++			EmbeddingTopK:    embeddingTopK,
++			VectorThreshold:  rc.GetEffectiveVectorThreshold(),
++			KeywordThreshold: rc.GetEffectiveKeywordThreshold(),
++			RerankTopK:       rerankTopK,
++			RerankThreshold:  rc.GetEffectiveRerankThreshold(),
++			TenantID:         primaryTenantID,
++		},
++		PipelineState: types.PipelineState{
++			RewriteQuery: query,
++		},
++	}
++
++	models, err := s.modelService.ListModels(ctx2)
++	if err != nil {
++		logger.Errorf(ctx, "SearchKnowledgeOpen: list models: %v", err)
++		return nil, err
++	}
++	if rc != nil && rc.RerankModelID != "" {
++		chatManage.RerankModelID = rc.RerankModelID
++	} else {
++		for _, model := range models {
++			if model == nil {
++				continue
++			}
++			if model.Type == types.ModelTypeRerank {
++				chatManage.RerankModelID = model.ID
++				break
++			}
++		}
++	}
++
++	searchEvents := []types.EventType{
++		types.CHUNK_SEARCH,
++		types.CHUNK_RERANK,
++		types.CHUNK_MERGE,
++		types.FILTER_TOP_K,
++	}
++	for _, event := range searchEvents {
++		err := s.eventManager.Trigger(ctx2, event, chatManage)
++		if err == chatpipeline.ErrSearchNothing {
++			return []*types.SearchResult{}, nil
++		}
++		if err != nil {
++			logger.Errorf(ctx, "SearchKnowledgeOpen event %v failed: %s %s %v",
++				event, err.ErrorType, err.Description, err.Err)
++			return nil, err.Err
++		}
++	}
++	return chatManage.MergeResult, nil
++}
+diff --git a/internal/application/service/shared_kb.go b/internal/application/service/shared_kb.go
+new file mode 100644
+index 00000000..15c4fe7c
+--- /dev/null
++++ b/internal/application/service/shared_kb.go
+@@ -0,0 +1,393 @@
++package service
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"strings"
++	"time"
++
++	"github.com/Tencent/WeKnora/internal/logger"
++	"github.com/Tencent/WeKnora/internal/types"
++	"github.com/Tencent/WeKnora/internal/types/interfaces"
++	"github.com/google/uuid"
++)
++
++// sharedKnowledgeBaseService 瀹炵幇鍏变韩鐭ヨ瘑搴撴湇鍔?+type sharedKnowledgeBaseService struct {
++	kbRepo     interfaces.KnowledgeBaseRepository
++	memberRepo interfaces.KnowledgeBaseMemberRepository
++	tenantRepo interfaces.TenantRepository
++}
++
++// NewSharedKnowledgeBaseService 鍒涘缓鍏变韩鐭ヨ瘑搴撴湇鍔?+func NewSharedKnowledgeBaseService(
++	kbRepo interfaces.KnowledgeBaseRepository,
++	memberRepo interfaces.KnowledgeBaseMemberRepository,
++	tenantRepo interfaces.TenantRepository,
++) interfaces.SharedKnowledgeBaseService {
++	return &sharedKnowledgeBaseService{
++		kbRepo:     kbRepo,
++		memberRepo: memberRepo,
++		tenantRepo: tenantRepo,
++	}
++}
++
++// CreateSharedKnowledgeBase 鍒涘缓鍏变韩鐭ヨ瘑搴?+func (s *sharedKnowledgeBaseService) CreateSharedKnowledgeBase(ctx context.Context, kb *types.KnowledgeBase) (*types.KnowledgeBase, error) {
++	userID := ctx.Value(types.UserIDContextKey).(string)
++	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
++
++	// 璁剧疆鍏变韩鐭ヨ瘑搴撳睘鎬?+	kb.Visibility = types.KnowledgeBaseVisibilityShared
++	kb.OwnerID = userID
++	now := time.Now()
++	kb.SharedAt = &now
++	kb.MemberCount = 1 // 鍒涘缓鑰呰嚜宸?+
++	// 鍒涘缓鐭ヨ瘑搴?+	if err := s.kbRepo.CreateKnowledgeBase(ctx, kb); err != nil {
++		return nil, fmt.Errorf("failed to create shared knowledge base: %w", err)
++	}
++
++	// 鍒涘缓 owner 鎴愬憳璁板綍
++	member := &types.KnowledgeBaseMember{
++		ID:              uuid.New().String(),
++		KnowledgeBaseID: kb.ID,
++		UserID:          userID,
++		TenantID:        tenantID,
++		Role:            types.KBMemberRoleOwner,
++		JoinedAt:        now,
++		CreatedAt:       now,
++		UpdatedAt:       now,
++	}
++
++	if err := s.memberRepo.CreateMember(ctx, member); err != nil {
++		// 濡傛灉鍒涘缓鎴愬憳澶辫触锛屽垹闄ょ煡璇嗗簱锛堝洖婊氾級
++		if delErr := s.kbRepo.DeleteKnowledgeBase(ctx, kb.ID); delErr != nil {
++			logger.Errorf(ctx, "Failed to rollback knowledge base after member creation failed: %v", delErr)
++		}
++		return nil, fmt.Errorf("failed to create owner member: %w", err)
++	}
++
++	logger.Infof(ctx, "Created shared knowledge base: %s (owner: %s)", kb.ID, userID)
++	return kb, nil
++}
++
++// ListSharedKnowledgeBases 鍒楀嚭鍏变韩鐭ヨ瘑搴撳箍鍦猴紙鏀寔鎼滅储銆佸垎椤碉級
++func (s *sharedKnowledgeBaseService) ListSharedKnowledgeBases(ctx context.Context, keyword string, page, pageSize int) ([]*types.KnowledgeBase, int64, error) {
++	// 鏌ヨ鎵€鏈夌煡璇嗗簱锛堝悗缁彲浠ヤ紭鍖栦负鐩存帴鏌ヨ鍏变韩鐭ヨ瘑搴擄級
++	allKBs, err := s.kbRepo.ListKnowledgeBases(ctx)
++	if err != nil {
++		return nil, 0, err
++	}
++
++	// 杩囨护鍏变韩鐭ヨ瘑搴?+	var sharedKBs []*types.KnowledgeBase
++	for _, kb := range allKBs {
++		if kb.Visibility == types.KnowledgeBaseVisibilityShared {
++			// 鍏抽敭璇嶆悳绱?+			if keyword == "" ||
++				containsIgnoreCase(kb.Name, keyword) ||
++				containsIgnoreCase(kb.Description, keyword) {
++				sharedKBs = append(sharedKBs, kb)
++			}
++		}
++	}
++
++	// 鍒嗛〉澶勭悊
++	total := int64(len(sharedKBs))
++	start := (page - 1) * pageSize
++	end := start + pageSize
++	if start >= len(sharedKBs) {
++		return []*types.KnowledgeBase{}, total, nil
++	}
++	if end > len(sharedKBs) {
++		end = len(sharedKBs)
++	}
++
++	return sharedKBs[start:end], total, nil
++}
++
++// JoinSharedKnowledgeBase 鍔犲叆鍏变韩鐭ヨ瘑搴?+func (s *sharedKnowledgeBaseService) JoinSharedKnowledgeBase(ctx context.Context, kbID string) error {
++	userID := ctx.Value(types.UserIDContextKey).(string)
++	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
++
++	// 妫€鏌ョ煡璇嗗簱鏄惁瀛樺湪涓斾负鍏变韩鐭ヨ瘑搴?+	kb, err := s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
++	if err != nil {
++		return fmt.Errorf("knowledge base not found: %w", err)
++	}
++	if kb.Visibility != types.KnowledgeBaseVisibilityShared {
++		return errors.New("knowledge base is not shared")
++	}
++
++	// 妫€鏌ユ槸鍚﹀凡缁忔槸鎴愬憳
++	existingMember, err := s.memberRepo.GetMemberByKBAndUser(ctx, kbID, userID)
++	if err == nil && existingMember != nil {
++		return errors.New("already a member of this knowledge base")
++	}
++
++	// 鍒涘缓鎴愬憳璁板綍
++	member := &types.KnowledgeBaseMember{
++		ID:              uuid.New().String(),
++		KnowledgeBaseID: kbID,
++		UserID:          userID,
++		TenantID:        tenantID,
++		Role:            types.KBMemberRoleViewer, // 榛樿瑙掕壊涓?viewer
++		JoinedAt:        time.Now(),
++		CreatedAt:       time.Now(),
++		UpdatedAt:       time.Now(),
++	}
++
++	if err := s.memberRepo.CreateMember(ctx, member); err != nil {
++		return fmt.Errorf("failed to join knowledge base: %w", err)
++	}
++
++	// 鏇存柊鎴愬憳鏁伴噺
++	count, err := s.memberRepo.CountMembersByKB(ctx, kbID)
++	if err == nil {
++		kb.MemberCount = int(count)
++		s.kbRepo.UpdateKnowledgeBase(ctx, kb)
++	}
++
++	logger.Infof(ctx, "User %s joined shared knowledge base %s", userID, kbID)
++	return nil
++}
++
++// LeaveSharedKnowledgeBase 绂诲紑鍏变韩鐭ヨ瘑搴?+func (s *sharedKnowledgeBaseService) LeaveSharedKnowledgeBase(ctx context.Context, kbID string) error {
++	userID := ctx.Value(types.UserIDContextKey).(string)
++
++	// 妫€鏌ョ煡璇嗗簱鏄惁瀛樺湪涓斾负鍏变韩鐭ヨ瘑搴?+	kb, err := s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
++	if err != nil {
++		return fmt.Errorf("knowledge base not found: %w", err)
++	}
++	if kb.Visibility != types.KnowledgeBaseVisibilityShared {
++		return errors.New("knowledge base is not shared")
++	}
++
++	// 妫€鏌ユ槸鍚︽槸鍒涘缓鑰咃紙鍒涘缓鑰呬笉鑳界寮€锛?+	if kb.OwnerID == userID {
++		return errors.New("owner cannot leave the knowledge base")
++	}
++
++	// 妫€鏌ユ槸鍚︽槸鎴愬憳
++	member, err := s.memberRepo.GetMemberByKBAndUser(ctx, kbID, userID)
++	if err != nil {
++		return fmt.Errorf("not a member of this knowledge base: %w", err)
++	}
++
++	// 鍙岄噸妫€鏌ワ細濡傛灉鎴愬憳瑙掕壊鏄?owner锛屼篃涓嶈兘绂诲紑
++	if member.Role == types.KBMemberRoleOwner {
++		return errors.New("owner cannot leave the knowledge base")
++	}
++
++	// 鍒犻櫎鎴愬憳璁板綍
++	if err := s.memberRepo.DeleteMember(ctx, kbID, userID); err != nil {
++		return fmt.Errorf("failed to leave knowledge base: %w", err)
++	}
++
++	// 鏇存柊鎴愬憳鏁伴噺
++	kb, err = s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
++	if err == nil {
++		count, err := s.memberRepo.CountMembersByKB(ctx, kbID)
++		if err == nil {
++			kb.MemberCount = int(count)
++			s.kbRepo.UpdateKnowledgeBase(ctx, kb)
++		}
++	}
++
++	logger.Infof(ctx, "User %s left shared knowledge base %s", userID, kbID)
++	return nil
++}
++
++// ListKnowledgeBaseMembers 鍒楀嚭鐭ヨ瘑搴撴垚鍛?+func (s *sharedKnowledgeBaseService) ListKnowledgeBaseMembers(ctx context.Context, kbID string, keyword string, page, pageSize int) ([]*types.KnowledgeBaseMember, int64, error) {
++	return s.memberRepo.ListMembersByKB(ctx, kbID, keyword, page, pageSize)
++}
++
++// UpdateMemberRole 鏇存柊鎴愬憳鏉冮檺锛堜粎鍒涘缓鑰呭彲鎿嶄綔锛?+func (s *sharedKnowledgeBaseService) UpdateMemberRole(ctx context.Context, kbID string, userID string, role string) error {
++	// 楠岃瘉瑙掕壊
++	if role != types.KBMemberRoleViewer && role != types.KBMemberRoleEditor {
++		return errors.New("invalid role")
++	}
++
++	// 妫€鏌ュ綋鍓嶇敤鎴锋槸鍚︽槸鍒涘缓鑰?+	currentUserID := ctx.Value(types.UserIDContextKey).(string)
++	kb, err := s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
++	if err != nil {
++		return fmt.Errorf("knowledge base not found: %w", err)
++	}
++	if kb.OwnerID != currentUserID {
++		return errors.New("only owner can update member role")
++	}
++
++	// 涓嶈兘淇敼鍒涘缓鑰呯殑瑙掕壊
++	if userID == kb.OwnerID {
++		return errors.New("cannot update owner role")
++	}
++
++	// 鏇存柊鎴愬憳瑙掕壊
++	return s.memberRepo.UpdateMemberRole(ctx, kbID, userID, role)
++}
++
++// RemoveMember 绉婚櫎鎴愬憳锛堜粎鍒涘缓鑰呭彲鎿嶄綔锛?+func (s *sharedKnowledgeBaseService) RemoveMember(ctx context.Context, kbID string, userID string) error {
++	// 妫€鏌ュ綋鍓嶇敤鎴锋槸鍚︽槸鍒涘缓鑰?+	currentUserID := ctx.Value(types.UserIDContextKey).(string)
++	kb, err := s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
++	if err != nil {
++		return fmt.Errorf("knowledge base not found: %w", err)
++	}
++	if kb.OwnerID != currentUserID {
++		return errors.New("only owner can remove members")
++	}
++
++	// 涓嶈兘绉婚櫎鍒涘缓鑰?+	if userID == kb.OwnerID {
++		return errors.New("cannot remove owner")
++	}
++
++	// 鍒犻櫎鎴愬憳
++	if err := s.memberRepo.DeleteMember(ctx, kbID, userID); err != nil {
++		return fmt.Errorf("failed to remove member: %w", err)
++	}
++
++	// 鏇存柊鎴愬憳鏁伴噺
++	count, err := s.memberRepo.CountMembersByKB(ctx, kbID)
++	if err == nil {
++		kb.MemberCount = int(count)
++		s.kbRepo.UpdateKnowledgeBase(ctx, kb)
++	}
++
++	logger.Infof(ctx, "Removed member %s from knowledge base %s", userID, kbID)
++	return nil
++}
++
++// CheckMemberPermission 妫€鏌ユ垚鍛樻潈闄?+func (s *sharedKnowledgeBaseService) CheckMemberPermission(ctx context.Context, kbID string, permission string) (bool, error) {
++	userID := ctx.Value(types.UserIDContextKey).(string)
++
++	// 鑾峰彇鐭ヨ瘑搴撲俊鎭?+	kb, err := s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
++	if err != nil {
++		return false, fmt.Errorf("knowledge base not found: %w", err)
++	}
++
++	// 濡傛灉鏄釜浜虹煡璇嗗簱锛屾鏌ユ槸鍚︽槸鍒涘缓鑰?+	if kb.Visibility == types.KnowledgeBaseVisibilityPrivate {
++		return kb.OwnerID == userID, nil
++	}
++
++	// 濡傛灉鏄叡浜煡璇嗗簱锛屾鏌ユ垚鍛樻潈闄?+	member, err := s.memberRepo.GetMemberByKBAndUser(ctx, kbID, userID)
++	if err != nil {
++		return false, nil // 涓嶆槸鎴愬憳锛屾棤鏉冮檺
++	}
++
++	switch permission {
++	case "read":
++		return member != nil, nil
++	case "write":
++		return member != nil && (member.Role == types.KBMemberRoleOwner || member.Role == types.KBMemberRoleEditor), nil
++	case "delete":
++		return member != nil && member.Role == types.KBMemberRoleOwner, nil
++	default:
++		return false, errors.New("invalid permission")
++	}
++}
++
++// ListUserKnowledgeBases 鍒楀嚭鐢ㄦ埛鐨勭煡璇嗗簱锛堜釜浜?+ 鍒涘缓鐨勫叡浜煡璇嗗簱 + 鍔犲叆鐨勫叡浜煡璇嗗簱锛?+func (s *sharedKnowledgeBaseService) ListUserKnowledgeBases(ctx context.Context, includeShared bool) ([]*types.KnowledgeBase, error) {
++	userID := ctx.Value(types.UserIDContextKey).(string)
++	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
++
++	var result []*types.KnowledgeBase
++	kbIDMap := make(map[string]bool) // 鐢ㄤ簬鍘婚噸锛堢煡璇嗗簱ID -> 鏄惁宸叉坊鍔狅級
++
++	// 1. 鏌ヨ涓汉鐭ヨ瘑搴擄紙visibility = 'private' AND owner_id = 褰撳墠鐢ㄦ埛ID锛?+	personalKBs, err := s.kbRepo.ListKnowledgeBasesByTenantID(ctx, tenantID)
++	if err != nil {
++		return nil, err
++	}
++	for _, kb := range personalKBs {
++		if kb.Visibility == types.KnowledgeBaseVisibilityPrivate && kb.OwnerID == userID {
++			result = append(result, kb)
++			kbIDMap[kb.ID] = true
++		}
++	}
++
++	// 2. 鏌ヨ鍏变韩鐭ヨ瘑搴擄紙鍖呮嫭鍒涘缓鐨?+ 鍔犲叆鐨勶級
++	if includeShared {
++		// 2.1 鏌ヨ鐢ㄦ埛鍒涘缓鐨勫叡浜煡璇嗗簱锛堥€氳繃 owner_id锛?+		allKBs, err := s.kbRepo.ListKnowledgeBasesByTenantID(ctx, tenantID)
++		if err != nil {
++			return nil, err
++		}
++		for _, kb := range allKBs {
++			if kb.Visibility == types.KnowledgeBaseVisibilityShared && kb.OwnerID == userID {
++				// 閬垮厤閲嶅娣诲姞
++				if !kbIDMap[kb.ID] {
++					result = append(result, kb)
++					kbIDMap[kb.ID] = true
++				}
++			}
++		}
++
++		// 2.2 鏌ヨ鐢ㄦ埛鍔犲叆鐨勫叡浜煡璇嗗簱锛堥€氳繃鎴愬憳琛紝涓嶅寘鎷嚜宸卞垱寤虹殑锛?+		members, err := s.memberRepo.ListMembersByUser(ctx, userID)
++		if err != nil {
++			return nil, err
++		}
++
++		// 鎵归噺鏌ヨ鐭ヨ瘑搴擄紙閬垮厤澶氭鍗曠嫭鏌ヨ锛?+		kbIDs := make([]string, 0)
++		for _, member := range members {
++			// 鍙煡璇笉鏄嚜宸卞垱寤虹殑鐭ヨ瘑搴擄紙閬垮厤閲嶅锛?+			if !kbIDMap[member.KnowledgeBaseID] {
++				kbIDs = append(kbIDs, member.KnowledgeBaseID)
++			}
++		}
++
++		if len(kbIDs) > 0 {
++			sharedKBs, err := s.kbRepo.GetKnowledgeBaseByIDs(ctx, kbIDs)
++			if err == nil {
++				for _, kb := range sharedKBs {
++					if kb.Visibility == types.KnowledgeBaseVisibilityShared {
++						result = append(result, kb)
++						kbIDMap[kb.ID] = true
++					}
++				}
++			}
++		}
++	}
++
++	return result, nil
++}
++
++// GetMemberRoleByKBAndUser 鑾峰彇鐢ㄦ埛鍦ㄦ寚瀹氱煡璇嗗簱涓殑瑙掕壊
++func (s *sharedKnowledgeBaseService) GetMemberRoleByKBAndUser(ctx context.Context, kbID string, userID string) (string, error) {
++	member, err := s.memberRepo.GetMemberByKBAndUser(ctx, kbID, userID)
++	if err != nil {
++		// 鎴愬憳涓嶅瓨鍦紝妫€鏌ユ槸鍚︿负鍒涘缓鑰?+		kb, err := s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
++		if err != nil {
++			return "", err
++		}
++		if kb.OwnerID == userID {
++			return types.KBMemberRoleOwner, nil
++		}
++		return "", nil // 涓嶆槸鎴愬憳涔熶笉鏄垱寤鸿€?+	}
++	return member.Role, nil
++}
++
++// containsIgnoreCase 妫€鏌ュ瓧绗︿覆鏄惁鍖呭惈瀛愬瓧绗︿覆锛堝拷鐣ュぇ灏忓啓锛?+func containsIgnoreCase(s, substr string) bool {
++	return len(s) >= len(substr) &&
++		(strings.Contains(strings.ToLower(s), strings.ToLower(substr)))
++}
+diff --git a/internal/config/config.go b/internal/config/config.go
+index 72039387..be6d40a4 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -20,6 +20,7 @@ type Config struct {
+ 	Server          *ServerConfig          `yaml:"server"           json:"server"`
+ 	KnowledgeBase   *KnowledgeBaseConfig   `yaml:"knowledge_base"   json:"knowledge_base"`
+ 	Tenant          *TenantConfig          `yaml:"tenant"           json:"tenant"`
++	Auth            *AuthConfig            `yaml:"auth"             json:"auth"`
+ 	OIDCAuth        *OIDCAuthConfig        `yaml:"oidc_auth"        json:"oidc_auth"`
+ 	Models          []ModelConfig          `yaml:"models"           json:"models"`
+ 	VectorDatabase  *VectorDatabaseConfig  `yaml:"vector_database"  json:"vector_database"`
+@@ -28,8 +29,44 @@ type Config struct {
+ 	ExtractManager  *ExtractManagerConfig  `yaml:"extract"          json:"extract"`
+ 	WebSearch       *WebSearchConfig       `yaml:"web_search"       json:"web_search"`
+ 	PromptTemplates *PromptTemplatesConfig `yaml:"prompt_templates" json:"prompt_templates"`
++	CAS             *CASConfig             `yaml:"cas"              json:"cas"`
+ 	IM              *IMConfig              `yaml:"im"               json:"im"`
+ 	Agent           *AgentConfig           `yaml:"agent"            json:"agent"`
++	// OpenRetrieve configures the no-login knowledge retrieve API for model/gateway callers.
++	OpenRetrieve *OpenRetrieveConfig `yaml:"open_retrieve" json:"open_retrieve"`
++}
++
++// OpenRetrieveConfig controls POST /api/v1/open/knowledge/retrieve (no user auth).
++type OpenRetrieveConfig struct {
++	Enabled      bool     `yaml:"enabled" json:"enabled"`
++	APIKey       string   `yaml:"api_key" json:"api_key"`
++	APIKeys      []string `yaml:"api_keys" json:"api_keys"`
++	RateLimitQPS float64  `yaml:"rate_limit_qps" json:"rate_limit_qps"`
++}
++
++// EffectiveAPIKeys returns non-empty configured keys (api_keys plus optional api_key).
++func (c *OpenRetrieveConfig) EffectiveAPIKeys() []string {
++	if c == nil {
++		return nil
++	}
++	seen := make(map[string]struct{})
++	var out []string
++	add := func(s string) {
++		s = strings.TrimSpace(s)
++		if s == "" {
++			return
++		}
++		if _, ok := seen[s]; ok {
++			return
++		}
++		seen[s] = struct{}{}
++		out = append(out, s)
++	}
++	for _, k := range c.APIKeys {
++		add(k)
++	}
++	add(c.APIKey)
++	return out
+ }
+ 
+ // AgentConfig represents the global agent settings.
+@@ -141,12 +178,27 @@ type SummaryConfig struct {
+ 	ContextTemplate string `yaml:"-" json:"context_template"`
+ }
+ 
++// HTTPSConfig 杩涚▼鍐?TLS锛堜笌鍓嶇疆 Nginx/Ingress 缁堢粨 TLS 浜岄€変竴锛涙湭鍚敤鏃跺彲鐪佺暐鏁翠釜 https 鍧楋級銆?+type HTTPSConfig struct {
++	Enabled  bool   `yaml:"enabled" json:"enabled"`
++	CertFile string `yaml:"cert_file" json:"cert_file"`
++	KeyFile  string `yaml:"key_file" json:"key_file"`
++}
++
+ // ServerConfig 鏈嶅姟鍣ㄩ厤缃? type ServerConfig struct {
+ 	Port            int           `yaml:"port"             json:"port"`
+ 	Host            string        `yaml:"host"             json:"host"`
+ 	LogPath         string        `yaml:"log_path"         json:"log_path"`
+ 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" json:"shutdown_timeout" default:"30s"`
++	// BehindProxy: Gin 浠呭湪鏉ヨ嚜 TrustedProxies 鐨勮姹備笂淇′换 X-Forwarded-Proto / X-Forwarded-For 绛夊ご銆?+	// 鐢熶骇鐜鐢?Nginx銆両ngress銆佽礋杞藉潎琛＄粓缁?TLS 涓旂洿杩炰负 HTTP 鏃跺簲寮€鍚€?+	BehindProxy bool `yaml:"behind_proxy" json:"behind_proxy"`
++	// TrustedProxies: 鍙嶅悜浠ｇ悊鐨?IP 鎴?CIDR 鍒楄〃锛汢ehindProxy 涓?true 涓旀湰椤逛负绌烘椂浣跨敤甯歌绉佺綉娈甸粯璁ゅ€笺€?+	TrustedProxies []string `yaml:"trusted_proxies" json:"trusted_proxies"`
++
++	// HTTPS: 鍙€夛紱enabled 涓?true 鏃跺繀椤诲悓鏃堕厤缃?cert_file 涓?key_file锛堟棤鍐呯疆榛樿璺緞锛夈€?+	HTTPS *HTTPSConfig `yaml:"https" json:"https"`
+ }
+ 
+ // KnowledgeBaseConfig 鐭ヨ瘑搴撻厤缃?@@ -172,6 +224,19 @@ type TenantConfig struct {
+ 	EnableCrossTenantAccess bool `yaml:"enable_cross_tenant_access" json:"enable_cross_tenant_access"`
+ }
+ 
++// AuthConfig 璁よ瘉閰嶇疆
++type AuthConfig struct {
++	NXINCASAuth *NXINCASAuthConfig `yaml:"nxin_cas_auth" json:"nxin_cas_auth"`
++}
++
++// NXINCASAuthConfig NXIN CAS閴存潈閰嶇疆
++type NXINCASAuthConfig struct {
++	Enabled          bool     `yaml:"enabled" json:"enabled"`
++	CacheTTLSeconds  int      `yaml:"cache_ttl_seconds" json:"cache_ttl_seconds"`
++	RequireHTTPS     bool     `yaml:"require_https" json:"require_https"`
++	AllowedPathGlobs []string `yaml:"allowed_path_globs" json:"allowed_path_globs"`
++}
++
+ type OIDCUserInfoMapping struct {
+ 	Username string `yaml:"username" json:"username"`
+ 	Email    string `yaml:"email"    json:"email"`
+@@ -269,7 +334,9 @@ func DefaultTemplateByMode(templates []PromptTemplate, mode string) *PromptTempl
+ 
+ // LocalizeTemplates returns a deep copy of the template list with Name and
+ // Description replaced according to the given locale.  Fallback chain:
+-//   locale 鈫?primary language (e.g. "zh" from "zh-CN") 鈫?original Name/Description.
++//
++//	locale 鈫?primary language (e.g. "zh" from "zh-CN") 鈫?original Name/Description.
++//
+ // The returned slice is safe to serialise directly; it never mutates the original.
+ func LocalizeTemplates(templates []PromptTemplate, locale string) []PromptTemplate {
+ 	if len(templates) == 0 {
+@@ -385,6 +452,7 @@ func LoadConfig() (*Config, error) {
+ 	}); err != nil {
+ 		return nil, fmt.Errorf("unable to decode config into struct: %w", err)
+ 	}
++	applyAuthDefaults(&cfg)
+ 	fmt.Printf("Using configuration file: %s\n", viper.ConfigFileUsed())
+ 
+ 	// 鍔犺浇鎻愮ず璇嶆ā鏉匡紙浠庣洰褰曟垨閰嶇疆鏂囦欢锛?@@ -474,6 +542,11 @@ func ValidateConfig(cfg *Config) error {
+ 		if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
+ 			errs = append(errs, "server.port must be between 1 and 65535")
+ 		}
++		if h := cfg.Server.HTTPS; h != nil && h.Enabled {
++			if strings.TrimSpace(h.CertFile) == "" || strings.TrimSpace(h.KeyFile) == "" {
++				errs = append(errs, "server.https.enabled requires non-empty server.https.cert_file and server.https.key_file")
++			}
++		}
+ 	}
+ 
+ 	if len(errs) > 0 {
+@@ -558,6 +631,21 @@ func applyAgentEnvOverrides(cfg *Config) {
+ 	}
+ }
+ 
++func applyAuthDefaults(cfg *Config) {
++	if cfg.Auth == nil {
++		cfg.Auth = &AuthConfig{}
++	}
++	if cfg.Auth.NXINCASAuth == nil {
++		cfg.Auth.NXINCASAuth = &NXINCASAuthConfig{}
++	}
++	if cfg.Auth.NXINCASAuth.CacheTTLSeconds <= 0 {
++		cfg.Auth.NXINCASAuth.CacheTTLSeconds = 600
++	}
++	if len(cfg.Auth.NXINCASAuth.AllowedPathGlobs) == 0 {
++		cfg.Auth.NXINCASAuth.AllowedPathGlobs = []string{"/api/v1/*"}
++	}
++}
++
+ // backfillConversationDefaults resolves prompt template ID references
+ // into actual prompt text content. Only xxx_id fields are used;
+ // no fallback to default templates.
+@@ -743,3 +831,43 @@ func loadPromptTemplates(configDir string) (*PromptTemplatesConfig, error) {
+ type WebSearchConfig struct {
+ 	Timeout int `yaml:"timeout" json:"timeout"` // 瓒呮椂鏃堕棿锛堢锛? }
++
++// CASConfig CAS 鍗曠偣鐧诲綍閰嶇疆
++type CASConfig struct {
++	Environment string        `yaml:"environment" json:"environment"` // production 鎴?test
++	Production  *CASEnvConfig `yaml:"production"  json:"production"`
++	Test        *CASEnvConfig `yaml:"test"        json:"test"`
++}
++
++// CASEnvConfig CAS 鐜閰嶇疆
++type CASEnvConfig struct {
++	APIHost   string `yaml:"api_host"   json:"api_host"`   // API 涓绘満鍦板潃锛堝锛歰pen.nxin.com锛?+	LoginHost string `yaml:"login_host" json:"login_host"` // 鐧诲綍椤甸潰涓绘満鍦板潃锛堝锛歝as.nxin.com锛?+	CookieSID string `yaml:"cookie_sid" json:"cookie_sid"` // Cookie SID 鍚嶇О锛堝锛歘cas_sid锛?+	CookieUID string `yaml:"cookie_uid" json:"cookie_uid"` // Cookie UID 鍚嶇О锛堝锛歘cas_uid锛?+	ImageHost string `yaml:"image_host" json:"image_host"` // 澶村儚鍥剧墖涓绘満鍦板潃锛堝彲閫夛級
++}
++
++// GetCurrentConfig 鑾峰彇褰撳墠鐜鐨勯厤缃?+func (c *CASConfig) GetCurrentConfig() *CASEnvConfig {
++	if c == nil {
++		return nil
++	}
++
++	// 浠庣幆澧冨彉閲忚幏鍙栫幆澧冪被鍨嬶紝濡傛灉娌℃湁鍒欎娇鐢ㄩ厤缃腑鐨勫€?+	env := os.Getenv("CAS_ENVIRONMENT")
++	if env == "" {
++		env = c.Environment
++	}
++
++	if env == "test" && c.Test != nil {
++		return c.Test
++	}
++
++	// 榛樿杩斿洖鐢熶骇鐜閰嶇疆
++	if c.Production != nil {
++		return c.Production
++	}
++
++	return c.Test // 濡傛灉鐢熶骇鐜閰嶇疆涓嶅瓨鍦紝杩斿洖娴嬭瘯鐜閰嶇疆
++}
+diff --git a/internal/container/container.go b/internal/container/container.go
+index 30a019e9..4228d9b1 100644
+--- a/internal/container/container.go
++++ b/internal/container/container.go
+@@ -20,13 +20,10 @@ import (
+ 	_ "github.com/duckdb/duckdb-go/v2"
+ 	esv7 "github.com/elastic/go-elasticsearch/v7"
+ 	"github.com/elastic/go-elasticsearch/v8"
+-	"github.com/milvus-io/milvus/client/v2/milvusclient"
+ 	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
+ 	"github.com/panjf2000/ants/v2"
+-	"github.com/qdrant/go-client/qdrant"
+ 	"github.com/redis/go-redis/v9"
+ 	"go.uber.org/dig"
+-	"google.golang.org/grpc"
+ 	"gorm.io/driver/postgres"
+ 	"gorm.io/driver/sqlite"
+ 	"gorm.io/gorm"
+@@ -35,10 +32,8 @@ import (
+ 	memoryRepo "github.com/Tencent/WeKnora/internal/application/repository/memory/neo4j"
+ 	elasticsearchRepoV7 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v7"
+ 	elasticsearchRepoV8 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v8"
+-	milvusRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/milvus"
+ 	neo4jRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/neo4j"
+ 	postgresRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/postgres"
+-	qdrantRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/qdrant"
+ 	sqliteRetrieverRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/sqlite"
+ 	weaviateRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/weaviate"
+ 	"github.com/Tencent/WeKnora/internal/application/service"
+@@ -121,6 +116,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
+ 	must(container.Provide(initOllamaService))
+ 	must(container.Provide(initNeo4jClient))
+ 	must(container.Provide(stream.NewStreamManager))
++	must(container.Provide(service.NewCASClient))
+ 	logger.Debugf(ctx, "[Container] Initializing DuckDB...")
+ 	must(container.Provide(NewDuckDB))
+ 	logger.Debugf(ctx, "[Container] DuckDB registered")
+@@ -129,6 +125,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
+ 	logger.Debugf(ctx, "[Container] Registering repositories...")
+ 	must(container.Provide(repository.NewTenantRepository))
+ 	must(container.Provide(repository.NewKnowledgeBaseRepository))
++	must(container.Provide(repository.NewKnowledgeBaseMemberRepository))
+ 	must(container.Provide(repository.NewKnowledgeRepository))
+ 	must(container.Provide(repository.NewChunkRepository))
+ 	must(container.Provide(repository.NewKnowledgeTagRepository))
+@@ -158,7 +155,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
+ 	must(container.Provide(service.NewTenantService))
+ 	must(container.Provide(service.NewKnowledgeBaseService))
+ 	must(container.Provide(service.NewOrganizationService))
+-	must(container.Provide(service.NewKBShareService)) // KBShareService must be registered before KnowledgeService and KnowledgeTagService
++	must(container.Provide(service.NewKBShareService))             // KBShareService must be registered before KnowledgeService and KnowledgeTagService
++	must(container.Provide(service.NewSharedKnowledgeBaseService)) // KnowledgeService 渚濊禆 SharedKnowledgeBaseService锛岄』鍏堟敞鍐? 	must(container.Provide(service.NewAgentShareService))
+ 	must(container.Provide(service.NewKnowledgeService))
+ 	must(container.Provide(service.NewChunkService))
+@@ -168,6 +166,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
+ 	must(container.Provide(service.NewDatasetService))
+ 	must(container.Provide(service.NewEvaluationService))
+ 	must(container.Provide(service.NewUserService))
++	must(container.Provide(service.NewCASAuthService))
+ 
+ 	// Extract services - register individual extracters with names
+ 	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
+@@ -241,17 +240,21 @@ func BuildContainer(container *dig.Container) *dig.Container {
+ 	// HTTP handlers layer
+ 	logger.Debugf(ctx, "[Container] Registering HTTP handlers...")
+ 	must(container.Provide(handler.NewTenantHandler))
++	// 鍏变韩鐭ヨ瘑搴撶浉鍏筹紙MemberRepository / SharedKnowledgeBaseService 宸插湪涓婃柟涓?repos/services 涓€璧锋敞鍐岋級
++	logger.Debugf(ctx, "[Container] Registering shared knowledge base handlers...")
+ 	must(container.Provide(handler.NewKnowledgeBaseHandler))
+ 	must(container.Provide(handler.NewKnowledgeHandler))
+ 	must(container.Provide(handler.NewChunkHandler))
+ 	must(container.Provide(handler.NewFAQHandler))
+ 	must(container.Provide(handler.NewTagHandler))
+ 	must(container.Provide(session.NewHandler))
++	must(container.Provide(handler.NewOpenRetrieveHandler))
+ 	must(container.Provide(handler.NewMessageHandler))
+ 	must(container.Provide(handler.NewModelHandler))
+ 	must(container.Provide(handler.NewEvaluationHandler))
+ 	must(container.Provide(handler.NewInitializationHandler))
+ 	must(container.Provide(handler.NewAuthHandler))
++	must(container.Provide(handler.NewCASAuthHandler))
+ 	must(container.Provide(handler.NewSystemHandler))
+ 	must(container.Provide(handler.NewMCPServiceHandler))
+ 	must(container.Provide(handler.NewWebSearchHandler))
+@@ -305,37 +308,64 @@ func initTracer() (*tracing.Tracer, error) {
+ 	return tracing.InitTracer()
+ }
+ 
+-func initRedisClient() (*redis.Client, error) {
+-	redisAddr := os.Getenv("REDIS_ADDR")
+-	if redisAddr == "" {
+-		logger.Infof(context.Background(), "[Redis] No REDIS_ADDR configured, Redis disabled (Lite mode)")
+-		return nil, nil
+-	}
+-	db, err := strconv.Atoi(os.Getenv("REDIS_DB"))
+-	if err != nil {
+-		db = 0
++// initRedisClient 鏍规嵁 REDIS_MODE 鍒濆鍖栵細鍗曟満鐢?*redis.Client锛岄泦缇ょ敤 *redis.ClusterClient锛堝鍦板潃锛夈€?+// 杩斿洖 redis.UniversalClient 渚?dig 缁熶竴娉ㄥ叆鍚勬湇鍔★紙涓?go-redis 鎺ュ彛涓€鑷达級銆?+func initRedisClient() (redis.UniversalClient, error) {
++	mode := strings.ToLower(os.Getenv("REDIS_MODE"))
++	username := os.Getenv("REDIS_USERNAME")
++	password := os.Getenv("REDIS_PASSWORD")
++
++	if mode == "cluster" {
++		raw := os.Getenv("REDIS_CLUSTER_ADDRS")
++		parts := strings.Split(raw, ",")
++		addrs := make([]string, 0, len(parts))
++		for _, s := range parts {
++			s = strings.TrimSpace(s)
++			if s != "" {
++				addrs = append(addrs, s)
++			}
++		}
++		if len(addrs) == 0 {
++			return nil, fmt.Errorf("REDIS_MODE=cluster 鏃?REDIS_CLUSTER_ADDRS 涓嶈兘涓虹┖")
++		}
++		client := redis.NewClusterClient(&redis.ClusterOptions{
++			Addrs:        addrs,
++			Username:     username,
++			Password:     password,
++			ReadTimeout:  100 * time.Millisecond,
++			WriteTimeout: 200 * time.Millisecond,
++		})
++		_, err := client.Ping(context.Background()).Result()
++		if err != nil {
++			return nil, fmt.Errorf("杩炴帴Redis闆嗙兢澶辫触: %w", err)
++		}
++		return client, nil
+ 	}
+ 
++	addr := os.Getenv("REDIS_ADDR")
++	if addr == "" {
++		addr = "redis:6379"
++	}
++	db := 0
++	if dbStr := os.Getenv("REDIS_DB"); dbStr != "" {
++		if parsed, err := strconv.Atoi(dbStr); err == nil {
++			db = parsed
++		}
++	}
+ 	client := redis.NewClient(&redis.Options{
+-		Addr:     redisAddr,
+-		Username: os.Getenv("REDIS_USERNAME"),
+-		Password: os.Getenv("REDIS_PASSWORD"),
++		Addr:     addr,
++		Username: username,
++		Password: password,
+ 		DB:       db,
+ 	})
+-
+-	_, err = client.Ping(context.Background()).Result()
++	_, err := client.Ping(context.Background()).Result()
+ 	if err != nil {
+ 		return nil, fmt.Errorf("杩炴帴Redis澶辫触: %w", err)
+ 	}
+-
+ 	return client, nil
+ }
+ 
+-func initContextStorage(redisClient *redis.Client) (llmcontext.ContextStorage, error) {
+-	if redisClient == nil {
+-		logger.Infof(context.Background(), "[ContextStorage] Redis not available, using in-memory storage")
+-		return llmcontext.NewMemoryStorage(), nil
+-	}
++func initContextStorage(redisClient redis.UniversalClient) (llmcontext.ContextStorage, error) {
+ 	storage, err := llmcontext.NewRedisStorage(redisClient, 24*time.Hour, "context:")
+ 	if err != nil {
+ 		return nil, err
+@@ -683,53 +713,7 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
+ 		}
+ 	}
+ 
+-	if slices.Contains(retrieveDriver, "qdrant") {
+-		qdrantHost := os.Getenv("QDRANT_HOST")
+-		if qdrantHost == "" {
+-			qdrantHost = "localhost"
+-		}
+-
+-		qdrantPort := 6334 // Default port
+-		if portStr := os.Getenv("QDRANT_PORT"); portStr != "" {
+-			if port, err := strconv.Atoi(portStr); err == nil {
+-				qdrantPort = port
+-			}
+-		}
+-
+-		// API key for authentication (optional)
+-		qdrantAPIKey := os.Getenv("QDRANT_API_KEY")
+-
+-		// TLS configuration (optional, defaults to false)
+-		// Enable TLS unless explicitly set to "false" or "0" (case insensitive)
+-		qdrantUseTLS := false
+-		if useTLSStr := os.Getenv("QDRANT_USE_TLS"); useTLSStr != "" {
+-			useTLSLower := strings.ToLower(strings.TrimSpace(useTLSStr))
+-			qdrantUseTLS = useTLSLower != "false" && useTLSLower != "0"
+-		}
+-
+-		log.Infof("Connecting to Qdrant at %s:%d (TLS: %v)", qdrantHost, qdrantPort, qdrantUseTLS)
+-
+-		client, err := qdrant.NewClient(&qdrant.Config{
+-			Host:   qdrantHost,
+-			Port:   qdrantPort,
+-			APIKey: qdrantAPIKey,
+-			UseTLS: qdrantUseTLS,
+-		})
+-		if err != nil {
+-			log.Errorf("Create qdrant client failed: %v", err)
+-		} else {
+-			qdrantRepository := qdrantRepo.NewQdrantRetrieveEngineRepository(client)
+-			if err := registry.Register(
+-				retriever.NewKVHybridRetrieveEngine(
+-					qdrantRepository, types.QdrantRetrieverEngineType,
+-				),
+-			); err != nil {
+-				log.Errorf("Register qdrant retrieve engine failed: %v", err)
+-			} else {
+-				log.Infof("Register qdrant retrieve engine success")
+-			}
+-		}
+-	}
++	registerQdrantRetrieverEngine(retrieveDriver, registry, log)
+ 	if slices.Contains(retrieveDriver, "weaviate") {
+ 		weaviateHost := os.Getenv("WEAVIATE_HOST")
+ 		if weaviateHost == "" {
+@@ -773,43 +757,7 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
+ 			}
+ 		}
+ 	}
+-	if slices.Contains(retrieveDriver, "milvus") {
+-		milvusCfg := milvusclient.ClientConfig{
+-			DialOptions: []grpc.DialOption{grpc.WithTimeout(5 * time.Second)},
+-		}
+-		milvusAddress := os.Getenv("MILVUS_ADDRESS")
+-		if milvusAddress == "" {
+-			milvusAddress = "localhost:19530"
+-		}
+-		milvusCfg.Address = milvusAddress
+-		milvusUsername := os.Getenv("MILVUS_USERNAME")
+-		if milvusUsername != "" {
+-			milvusCfg.Username = milvusUsername
+-		}
+-		milvusPassword := os.Getenv("MILVUS_PASSWORD")
+-		if milvusPassword != "" {
+-			milvusCfg.Password = milvusPassword
+-		}
+-		milvusDBName := os.Getenv("MILVUS_DB_NAME")
+-		if milvusDBName != "" {
+-			milvusCfg.DBName = milvusDBName
+-		}
+-		milvusCli, err := milvusclient.New(context.Background(), &milvusCfg)
+-		if err != nil {
+-			log.Errorf("Create milvus client failed: %v", err)
+-		} else {
+-			milvusRepository := milvusRepo.NewMilvusRetrieveEngineRepository(milvusCli)
+-			if err := registry.Register(
+-				retriever.NewKVHybridRetrieveEngine(
+-					milvusRepository, types.MilvusRetrieverEngineType,
+-				),
+-			); err != nil {
+-				log.Errorf("Register milvus retrieve engine failed: %v", err)
+-			} else {
+-				log.Infof("Register milvus retrieve engine success")
+-			}
+-		}
+-	}
++	registerMilvusRetrieverEngine(retrieveDriver, registry, log)
+ 	return registry, nil
+ }
+ 
+@@ -942,16 +890,14 @@ func NewDuckDB() (*sql.DB, error) {
+ 		return nil, fmt.Errorf("failed to open duckdb: %w", err)
+ 	}
+ 
+-	// Try to install and load spatial extension
+-	installSQL := "INSTALL spatial;"
+-	if _, err := sqlDB.ExecContext(context.Background(), installSQL); err != nil {
+-		logger.Warnf(context.Background(), "[DuckDB] Failed to install spatial extension: %v", err)
+-	}
+-
+-	// Try to load spatial extension
+-	loadSQL := "LOAD spatial;"
+-	if _, err := sqlDB.ExecContext(context.Background(), loadSQL); err != nil {
+-		logger.Warnf(context.Background(), "[DuckDB] Failed to load spatial extension: %v", err)
++	// 棰勫姞杞芥墿灞曪細httpfs锛坮ead_csv 浠?URL锛夈€乻patial锛圗xcel/st_read锛?+	for _, ext := range []string{"httpfs", "spatial"} {
++		if _, err := sqlDB.ExecContext(context.Background(), "INSTALL "+ext+";"); err != nil {
++			logger.Warnf(context.Background(), "[DuckDB] Failed to install %s extension: %v", ext, err)
++		}
++		if _, err := sqlDB.ExecContext(context.Background(), "LOAD "+ext+";"); err != nil {
++			logger.Warnf(context.Background(), "[DuckDB] Failed to load %s extension: %v", ext, err)
++		}
+ 	}
+ 
+ 	return sqlDB, nil
+diff --git a/internal/handler/cas_auth.go b/internal/handler/cas_auth.go
+new file mode 100644
+index 00000000..5cd55416
+--- /dev/null
++++ b/internal/handler/cas_auth.go
+@@ -0,0 +1,157 @@
++package handler
++
++import (
++	"fmt"
++	"net/http"
++
++	"github.com/gin-gonic/gin"
++
++	"github.com/Tencent/WeKnora/internal/config"
++	"github.com/Tencent/WeKnora/internal/errors"
++	"github.com/Tencent/WeKnora/internal/logger"
++	"github.com/Tencent/WeKnora/internal/types/interfaces"
++)
++
++// CASAuthHandler CAS 璁よ瘉 Handler
++type CASAuthHandler struct {
++	casAuthService interfaces.CASAuthService
++	userService    interfaces.UserService
++	tenantService  interfaces.TenantService
++	config         *config.Config
++}
++
++// NewCASAuthHandler 鍒涘缓 CAS 璁よ瘉 Handler
++func NewCASAuthHandler(
++	casAuthService interfaces.CASAuthService,
++	userService interfaces.UserService,
++	tenantService interfaces.TenantService,
++	cfg *config.Config,
++) *CASAuthHandler {
++	return &CASAuthHandler{
++		casAuthService: casAuthService,
++		userService:    userService,
++		tenantService:  tenantService,
++		config:         cfg,
++	}
++}
++
++// ValidateCASSession 楠岃瘉 CAS 浼氳瘽
++// @Summary      楠岃瘉 CAS 浼氳瘽
++// @Description  閫氳繃 Cookie 涓殑 _cas_sid 鍜?_cas_uid 楠岃瘉 CAS 鐧诲綍鐘舵€?+// @Tags         CAS璁よ瘉
++// @Accept       json
++// @Produce      json
++// @Success      200      {object}  map[string]interface{}  "楠岃瘉鎴愬姛锛岃繑鍥炵敤鎴峰拰绉熸埛淇℃伅"
++// @Failure      401      {object}  errors.AppError  "鏈櫥褰曟垨浼氳瘽杩囨湡"
++// @Router       /api/v1/cas/validate [get]
++func (h *CASAuthHandler) ValidateCASSession(c *gin.Context) {
++	ctx := c.Request.Context()
++
++	// 1. 浠庨厤缃幏鍙栧綋鍓嶇幆澧冪殑 Cookie 鍚嶇О
++	if h.config == nil || h.config.CAS == nil {
++		logger.Errorf(ctx, "CAS config is not initialized")
++		c.Error(errors.NewInternalServerError("CAS 閰嶇疆鏈垵濮嬪寲"))
++		return
++	}
++	casConfig := h.config.CAS.GetCurrentConfig()
++	if casConfig == nil {
++		logger.Errorf(ctx, "CAS environment config is not available")
++		c.Error(errors.NewInternalServerError("CAS 鐜閰嶇疆涓嶅彲鐢?))
++		return
++	}
++	cookieSID := casConfig.CookieSID
++	cookieUID := casConfig.CookieUID
++
++	// 2. 浠?Cookie 鑾峰彇 CAS 浼氳瘽淇℃伅锛堟牴鎹幆澧冭鍙栧搴旂殑 Cookie锛?+	casSid, err := c.Cookie(cookieSID)
++	if err != nil {
++		casSid = ""
++	}
++	casUid, err := c.Cookie(cookieUID)
++	if err != nil {
++		casUid = ""
++	}
++
++	if casSid == "" || casUid == "" {
++		logger.Warn(ctx, "Missing CAS session cookies")
++		c.JSON(http.StatusUnauthorized, gin.H{
++			"code":      10011,
++			"exception": "please to login",
++			"msg":       "鏈幏鍙栧埌鐧诲綍淇℃伅",
++		})
++		return
++	}
++
++	// 3. 鑾峰彇 Referer 澶达紙CAS API 闇€瑕佹澶磋繘琛屾牎楠岋級
++	referer := c.GetHeader("Referer")
++	if referer == "" {
++		// 濡傛灉娌℃湁 Referer锛屽皾璇曚粠 Origin 鏋勫缓
++		origin := c.GetHeader("Origin")
++		if origin != "" {
++			referer = origin + "/"
++		} else {
++			// 浣跨敤閰嶇疆涓殑鐧诲綍椤甸潰鍦板潃浣滀负榛樿 Referer
++			referer = fmt.Sprintf("https://%s/", casConfig.LoginHost)
++		}
++	}
++	logger.Debugf(ctx, "Using Referer: %s", referer)
++
++	// 4. 楠岃瘉 CAS 浼氳瘽锛堣皟鐢?CAS 鎺ュ彛锛?+	casUserInfo, err := h.casAuthService.ValidateCASSession(ctx, casSid, casUid, referer)
++	if err != nil {
++		logger.Errorf(ctx, "Failed to validate CAS session: %v", err)
++		c.JSON(http.StatusUnauthorized, gin.H{
++			"code":      10011,
++			"exception": "please to login",
++			"msg":       "CAS 浼氳瘽楠岃瘉澶辫触",
++		})
++		return
++	}
++
++	// 4. 鑷姩缁戝畾鎴栧垱寤虹敤鎴凤紙鍖呭惈鐢ㄦ埛瀛樺湪鎬ф鏌ワ級
++	// AutoBindUser 鍐呴儴閫昏緫锛?+	// - 鎸変紭鍏堢骇鏌ユ壘鐢ㄦ埛锛歝as_user_id 鈫?email
++	// - 濡傛灉鐢ㄦ埛涓嶅瓨鍦紝鍒涘缓鏂扮敤鎴凤紙澶勭悊鐢ㄦ埛鍚?閭鍐茬獊锛?+	// - 濡傛灉鐢ㄦ埛瀛樺湪锛屾洿鏂?CAS 鐩稿叧瀛楁
++	// - 娉ㄦ剰锛氱櫥褰曞悕锛坈as_login_name锛変粎鐢ㄤ簬瀛樺偍锛屼笉浣滀负鏌ユ壘鏉′欢
++	user, err := h.casAuthService.AutoBindUser(ctx, casUserInfo)
++	if err != nil {
++		logger.Errorf(ctx, "Failed to bind user: %v", err)
++		c.Error(errors.NewInternalServerError("鐢ㄦ埛缁戝畾澶辫触"))
++		return
++	}
++
++	// 5. 鑷姩缁戝畾鎴栧垱寤虹鎴凤紙鍖呭惈绉熸埛瀛樺湪鎬ф鏌ワ級
++	// AutoBindTenant 鍐呴儴閫昏緫锛?+	// - 妫€鏌ョ敤鎴锋槸鍚﹀凡鏈夌鎴凤紙user.TenantID > 0锛?+	// - 濡傛灉鐢ㄦ埛宸叉湁绉熸埛锛岄獙璇佺鎴锋槸鍚﹀瓨鍦紝瀛樺湪鍒欒繑鍥?+	// - 濡傛灉鐢ㄦ埛娌℃湁绉熸埛鎴栫鎴蜂笉瀛樺湪锛屽垱寤烘柊绉熸埛骞剁粦瀹氱敤鎴?+	tenant, err := h.casAuthService.AutoBindTenant(ctx, casUserInfo, user)
++	if err != nil {
++		logger.Errorf(ctx, "Failed to bind tenant: %v", err)
++		c.Error(errors.NewInternalServerError("绉熸埛缁戝畾澶辫触"))
++		return
++	}
++
++	// 6. 鐢熸垚 JWT Token锛堢敤浜庡悗缁?API 璋冪敤锛?+	// 娉ㄦ剰锛氫笉闇€瑕佸垱寤?CAS 浼氳瘽璁板綍锛孋AS 浼氳瘽淇℃伅宸插湪 Cookie 涓?+	// JWT Token 瀛樺偍鍦?auth_tokens 琛ㄤ腑锛岀敤浜庣鐞嗙敤鎴疯璇佺姸鎬?+	token, refreshToken, err := h.userService.GenerateTokens(ctx, user)
++	if err != nil {
++		logger.Errorf(ctx, "Failed to generate tokens: %v", err)
++		c.Error(errors.NewInternalServerError("Token 鐢熸垚澶辫触"))
++		return
++	}
++
++	// 7. 杩斿洖鎴愬姛鍝嶅簲
++	c.JSON(http.StatusOK, gin.H{
++		"code": 0,
++		"data": gin.H{
++			"user":          user.ToUserInfo(),
++			"tenant":        tenant,
++			"token":         token,
++			"refresh_token": refreshToken,
++		},
++		"msg": "",
++	})
++}
+diff --git a/internal/handler/chunk.go b/internal/handler/chunk.go
+index 551548e2..27566609 100644
+--- a/internal/handler/chunk.go
++++ b/internal/handler/chunk.go
+@@ -19,14 +19,27 @@ type ChunkHandler struct {
+ 	kgService         interfaces.KnowledgeService
+ 	kbShareService    interfaces.KBShareService
+ 	agentShareService interfaces.AgentShareService
++	sharedKBService   interfaces.SharedKnowledgeBaseService
+ }
+ 
+ // NewChunkHandler creates a new chunk handler
+-func NewChunkHandler(service interfaces.ChunkService, kgService interfaces.KnowledgeService, kbShareService interfaces.KBShareService, agentShareService interfaces.AgentShareService) *ChunkHandler {
+-	return &ChunkHandler{service: service, kgService: kgService, kbShareService: kbShareService, agentShareService: agentShareService}
++func NewChunkHandler(
++	service interfaces.ChunkService,
++	kgService interfaces.KnowledgeService,
++	kbShareService interfaces.KBShareService,
++	agentShareService interfaces.AgentShareService,
++	sharedKBService interfaces.SharedKnowledgeBaseService,
++) *ChunkHandler {
++	return &ChunkHandler{
++		service:           service,
++		kgService:         kgService,
++		kbShareService:    kbShareService,
++		agentShareService: agentShareService,
++		sharedKBService:   sharedKBService,
++	}
+ }
+ 
+-// effectiveCtxForKnowledge resolves knowledge by ID, validates KB access (owner or shared with required role), and returns context with effectiveTenantID for downstream service calls.
++// effectiveCtxForKnowledge resolves knowledge by ID, validates KB access (owner, org shared, agent shared, or direct shared), and returns context with effectiveTenantID.
+ func (h *ChunkHandler) effectiveCtxForKnowledge(c *gin.Context, knowledgeID string, requiredPermission types.OrgMemberRole) (context.Context, error) {
+ 	ctx := c.Request.Context()
+ 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
+@@ -54,6 +67,14 @@ func (h *ChunkHandler) effectiveCtxForKnowledge(c *gin.Context, knowledgeID stri
+ 			return context.WithValue(ctx, types.TenantIDContextKey, knowledge.TenantID), nil
+ 		}
+ 	}
++	// Check direct shared KB access
++	if h.sharedKBService != nil {
++		role, err := h.sharedKBService.GetMemberRoleByKBAndUser(ctx, knowledge.KnowledgeBaseID, userID.(string))
++		if err == nil && role != "" && requiredPermission == types.OrgRoleViewer {
++			return context.WithValue(ctx, types.TenantIDContextKey, knowledge.TenantID), nil
++		}
++	}
++	// Check agent shared access
+ 	if requiredPermission == types.OrgRoleViewer && h.agentShareService != nil {
+ 		kbRef := &types.KnowledgeBase{ID: knowledge.KnowledgeBaseID, TenantID: knowledge.TenantID}
+ 		can, err := h.agentShareService.UserCanAccessKBViaSomeSharedAgent(ctx, userID.(string), tenantID, kbRef)
+@@ -120,7 +141,7 @@ func (h *ChunkHandler) GetChunkByIDOnly(c *gin.Context) {
+ 
+ // ListKnowledgeChunks godoc
+ // @Summary      鑾峰彇鐭ヨ瘑鍒嗗潡鍒楄〃
+-// @Description  鑾峰彇鎸囧畾鐭ヨ瘑涓嬬殑鎵€鏈夊垎鍧楀垪琛紝鏀寔鍒嗛〉
++// @Description  鑾峰彇鎸囧畾鐭ヨ瘑涓嬬殑鎵€鏈夊垎鍧楀垪琛紝鏀寔鍒嗛〉锛堟敮鎸佸叡浜煡璇嗗簱锛? // @Tags         鍒嗗潡绠＄悊
+ // @Accept       json
+ // @Produce      json
+diff --git a/internal/handler/knowledge.go b/internal/handler/knowledge.go
+index 517abfbf..ae4b9ee3 100644
+--- a/internal/handler/knowledge.go
++++ b/internal/handler/knowledge.go
+@@ -32,6 +32,7 @@ type KnowledgeHandler struct {
+ 	kbShareService    interfaces.KBShareService
+ 	agentShareService interfaces.AgentShareService
+ 	asynqClient       interfaces.TaskEnqueuer
++	sharedKBService   interfaces.SharedKnowledgeBaseService
+ }
+ 
+ // NewKnowledgeHandler creates a new knowledge handler instance
+@@ -41,6 +42,7 @@ func NewKnowledgeHandler(
+ 	kbShareService interfaces.KBShareService,
+ 	agentShareService interfaces.AgentShareService,
+ 	asynqClient interfaces.TaskEnqueuer,
++	sharedKBService interfaces.SharedKnowledgeBaseService,
+ ) *KnowledgeHandler {
+ 	return &KnowledgeHandler{
+ 		kgService:         kgService,
+@@ -48,6 +50,7 @@ func NewKnowledgeHandler(
+ 		kbShareService:    kbShareService,
+ 		agentShareService: agentShareService,
+ 		asynqClient:       asynqClient,
++		sharedKBService:   sharedKBService,
+ 	}
+ }
+ 
+@@ -91,6 +94,13 @@ func (h *KnowledgeHandler) validateKnowledgeBaseAccessWithKBID(c *gin.Context, k
+ 			}
+ 		}
+ 	}
++	if userExists && h.sharedKBService != nil {
++		role, err := h.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID.(string))
++		if err == nil && role != "" {
++			logger.Infof(ctx, "User %s accessing direct shared KB %s with role %s", userID.(string), kbID, role)
++			return kb, kbID, kb.TenantID, types.OrgRoleViewer, nil
++		}
++	}
+ 	if userExists && h.agentShareService != nil {
+ 		can, err := h.agentShareService.UserCanAccessKBViaSomeSharedAgent(ctx, userID.(string), tenantID, kb)
+ 		if err == nil && can {
+@@ -130,6 +140,13 @@ func (h *KnowledgeHandler) resolveKnowledgeAndValidateKBAccess(c *gin.Context, k
+ 			return knowledge, context.WithValue(ctx, types.TenantIDContextKey, effectiveTenantID), nil
+ 		}
+ 	}
++	// Direct shared KB: check if user is member
++	if userExists && h.sharedKBService != nil && requiredPermission == types.OrgRoleViewer {
++		role, err := h.sharedKBService.GetMemberRoleByKBAndUser(ctx, knowledge.KnowledgeBaseID, userID.(string))
++		if err == nil && role != "" {
++			return knowledge, context.WithValue(ctx, types.TenantIDContextKey, knowledge.TenantID), nil
++		}
++	}
+ 	// Shared agent: request passes agent_id, or user has any shared agent that can access this KB
+ 	if userExists && h.agentShareService != nil && requiredPermission == types.OrgRoleViewer {
+ 		agentID := c.Query("agent_id")
+diff --git a/internal/handler/open_retrieve.go b/internal/handler/open_retrieve.go
+new file mode 100644
+index 00000000..24efc18a
+--- /dev/null
++++ b/internal/handler/open_retrieve.go
+@@ -0,0 +1,64 @@
++package handler
++
++import (
++	"net/http"
++
++	"github.com/Tencent/WeKnora/internal/errors"
++	"github.com/Tencent/WeKnora/internal/logger"
++	"github.com/Tencent/WeKnora/internal/types/interfaces"
++	"github.com/gin-gonic/gin"
++)
++
++// OpenRetrieveHandler serves POST /api/v1/open/knowledge/retrieve (no user login).
++type OpenRetrieveHandler struct {
++	sessionService interfaces.SessionService
++}
++
++// NewOpenRetrieveHandler constructs OpenRetrieveHandler.
++func NewOpenRetrieveHandler(sessionService interfaces.SessionService) *OpenRetrieveHandler {
++	return &OpenRetrieveHandler{sessionService: sessionService}
++}
++
++// OpenRetrieveRequest is the JSON body for open knowledge retrieve.
++type OpenRetrieveRequest struct {
++	Query            string   `json:"query"`
++	KnowledgeBaseIDs []string `json:"knowledge_base_ids"`
++	KnowledgeIDs     []string `json:"knowledge_ids"`
++	// MatchCount is the maximum number of chunks to return after rerank/merge/filter.
++	// Vector/keyword recall volume uses the tenant RetrievalConfig embedding_top_k (not this field).
++	MatchCount int `json:"match_count"`
++}
++
++// Retrieve runs hybrid retrieval without user-scoped permission checks.
++func (h *OpenRetrieveHandler) Retrieve(c *gin.Context) {
++	ctx := logger.CloneContext(c.Request.Context())
++
++	var req OpenRetrieveRequest
++	if err := c.ShouldBindJSON(&req); err != nil {
++		c.Error(errors.NewBadRequestError(err.Error()))
++		return
++	}
++	if req.Query == "" {
++		c.Error(errors.NewBadRequestError("query is required"))
++		return
++	}
++	if len(req.KnowledgeBaseIDs) == 0 && len(req.KnowledgeIDs) == 0 {
++		c.Error(errors.NewBadRequestError("at least one of knowledge_base_ids or knowledge_ids is required"))
++		return
++	}
++
++	logger.Infof(ctx, "open knowledge retrieve, kb_count=%d, knowledge_count=%d",
++		len(req.KnowledgeBaseIDs), len(req.KnowledgeIDs))
++
++	results, err := h.sessionService.SearchKnowledgeOpen(ctx, req.KnowledgeBaseIDs, req.KnowledgeIDs, req.Query, req.MatchCount)
++	if err != nil {
++		logger.ErrorWithFields(ctx, err, nil)
++		c.Error(errors.NewInternalServerError(err.Error()))
++		return
++	}
++
++	c.JSON(http.StatusOK, gin.H{
++		"success": true,
++		"data":    results,
++	})
++}
+diff --git a/internal/middleware/open_retrieve.go b/internal/middleware/open_retrieve.go
+new file mode 100644
+index 00000000..965cd73a
+--- /dev/null
++++ b/internal/middleware/open_retrieve.go
+@@ -0,0 +1,91 @@
++package middleware
++
++import (
++	"crypto/subtle"
++	"net/http"
++	"strings"
++
++	"github.com/Tencent/WeKnora/internal/config"
++	"github.com/gin-gonic/gin"
++	"golang.org/x/time/rate"
++)
++
++const headerOpenRetrieveAPIKey = "X-Open-Retrieve-Api-Key"
++
++// OpenRetrieveApiKey enforces open_retrieve.enabled and X-Open-Retrieve-Api-Key before the handler runs.
++// The route must be registered under noAuthAPI so global user Auth does not run.
++func OpenRetrieveApiKey(cfg *config.Config) gin.HandlerFunc {
++	var lim *rate.Limiter
++	if cfg != nil && cfg.OpenRetrieve != nil && cfg.OpenRetrieve.RateLimitQPS > 0 {
++		burst := int(cfg.OpenRetrieve.RateLimitQPS)
++		if burst < 1 {
++			burst = 1
++		}
++		lim = rate.NewLimiter(rate.Limit(cfg.OpenRetrieve.RateLimitQPS), burst)
++	}
++
++	return func(c *gin.Context) {
++		or := cfg.OpenRetrieve
++		if or == nil || !or.Enabled {
++			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
++				"success": false,
++				"error": gin.H{
++					"code":    "OPEN_RETRIEVE_DISABLED",
++					"message": "open retrieve is disabled",
++				},
++			})
++			return
++		}
++		keys := or.EffectiveAPIKeys()
++		if len(keys) == 0 {
++			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
++				"success": false,
++				"error": gin.H{
++					"code":    "OPEN_RETRIEVE_DISABLED",
++					"message": "open retrieve has no api_key configured",
++				},
++			})
++			return
++		}
++		provided := strings.TrimSpace(c.GetHeader(headerOpenRetrieveAPIKey))
++		if !openRetrieveConstantTimeKeyMatch(provided, keys) {
++			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
++				"success": false,
++				"error": gin.H{
++					"code":    "OPEN_RETRIEVE_UNAUTHORIZED",
++					"message": "invalid or missing X-Open-Retrieve-Api-Key",
++				},
++			})
++			return
++		}
++		if lim != nil && !lim.Allow() {
++			c.Header("Retry-After", "1")
++			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
++				"success": false,
++				"error": gin.H{
++					"code":    "OPEN_RETRIEVE_RATE_LIMITED",
++					"message": "rate limit exceeded",
++				},
++			})
++			return
++		}
++		c.Next()
++	}
++}
++
++func openRetrieveConstantTimeKeyMatch(provided string, allowed []string) bool {
++	if provided == "" {
++		return false
++	}
++	p := []byte(provided)
++	for _, a := range allowed {
++		ak := []byte(a)
++		if len(p) != len(ak) {
++			continue
++		}
++		if subtle.ConstantTimeCompare(p, ak) == 1 {
++			return true
++		}
++	}
++	return false
++}
+diff --git a/internal/router/router.go b/internal/router/router.go
+index 18b5453e..faf32244 100644
+--- a/internal/router/router.go
++++ b/internal/router/router.go
+@@ -12,6 +12,7 @@ import (
+ 	filesvc "github.com/Tencent/WeKnora/internal/application/service/file"
+ 	"github.com/gin-contrib/cors"
+ 	"github.com/gin-gonic/gin"
++	"github.com/redis/go-redis/v9"
+ 	swaggerFiles "github.com/swaggo/files"
+ 	ginSwagger "github.com/swaggo/gin-swagger"
+ 	"go.uber.org/dig"
+@@ -31,49 +32,111 @@ import (
+ type RouterParams struct {
+ 	dig.In
+ 
+-	Config                *config.Config
+-	UserService           interfaces.UserService
+-	KBService             interfaces.KnowledgeBaseService
+-	KnowledgeService      interfaces.KnowledgeService
+-	ChunkService          interfaces.ChunkService
+-	SessionService        interfaces.SessionService
+-	MessageService        interfaces.MessageService
+-	ModelService          interfaces.ModelService
+-	EvaluationService     interfaces.EvaluationService
+-	KBHandler             *handler.KnowledgeBaseHandler
+-	KnowledgeHandler      *handler.KnowledgeHandler
+-	TenantHandler         *handler.TenantHandler
+-	TenantService         interfaces.TenantService
+-	ChunkHandler          *handler.ChunkHandler
+-	SessionHandler        *session.Handler
+-	MessageHandler        *handler.MessageHandler
+-	ModelHandler          *handler.ModelHandler
+-	EvaluationHandler     *handler.EvaluationHandler
+-	AuthHandler           *handler.AuthHandler
+-	InitializationHandler *handler.InitializationHandler
+-	SystemHandler         *handler.SystemHandler
+-	MCPServiceHandler     *handler.MCPServiceHandler
+-	WebSearchHandler              *handler.WebSearchHandler
+-	WebSearchProviderHandler      *handler.WebSearchProviderHandler
+-	FAQHandler            *handler.FAQHandler
+-	TagHandler            *handler.TagHandler
+-	CustomAgentHandler    *handler.CustomAgentHandler
+-	SkillHandler          *handler.SkillHandler
+-	OrganizationHandler   *handler.OrganizationHandler
+-	IMHandler             *handler.IMHandler
+-	DataSourceHandler     *handler.DataSourceHandler
++	Config                   *config.Config
++	UserService              interfaces.UserService
++	KBService                interfaces.KnowledgeBaseService
++	KnowledgeService         interfaces.KnowledgeService
++	ChunkService             interfaces.ChunkService
++	SessionService           interfaces.SessionService
++	MessageService           interfaces.MessageService
++	ModelService             interfaces.ModelService
++	EvaluationService        interfaces.EvaluationService
++	KBHandler                *handler.KnowledgeBaseHandler
++	KnowledgeHandler         *handler.KnowledgeHandler
++	TenantHandler            *handler.TenantHandler
++	TenantService            interfaces.TenantService
++	ChunkHandler             *handler.ChunkHandler
++	SessionHandler           *session.Handler
++	MessageHandler           *handler.MessageHandler
++	ModelHandler             *handler.ModelHandler
++	EvaluationHandler        *handler.EvaluationHandler
++	AuthHandler              *handler.AuthHandler
++	InitializationHandler    *handler.InitializationHandler
++	SystemHandler            *handler.SystemHandler
++	MCPServiceHandler        *handler.MCPServiceHandler
++	WebSearchHandler         *handler.WebSearchHandler
++	WebSearchProviderHandler *handler.WebSearchProviderHandler
++	FAQHandler               *handler.FAQHandler
++	TagHandler               *handler.TagHandler
++	CustomAgentHandler       *handler.CustomAgentHandler
++	SkillHandler             *handler.SkillHandler
++	OrganizationHandler      *handler.OrganizationHandler
++	IMHandler                *handler.IMHandler
++	DataSourceHandler        *handler.DataSourceHandler
++	CASAuthHandler           *handler.CASAuthHandler
++	CASAuthService           interfaces.CASAuthService
++	RedisClient              redis.UniversalClient
++	OpenRetrieveHandler      *handler.OpenRetrieveHandler
++}
++
++// defaultTrustedPrivateProxies 褰?behind_proxy 寮€鍚絾鏈厤缃?trusted_proxies 鏃剁殑淇濆畧榛樿鍊硷紙绉佺綉 + 鏈満锛夈€?+func defaultTrustedPrivateProxies() []string {
++	return []string{
++		"127.0.0.1",
++		"::1",
++		"10.0.0.0/8",
++		"172.16.0.0/12",
++		"192.168.0.0/16",
++	}
++}
++
++func applyGinTrustedProxies(r *gin.Engine, cfg *config.Config) {
++	if r == nil || cfg == nil || cfg.Server == nil || !cfg.Server.BehindProxy {
++		return
++	}
++	proxies := cfg.Server.TrustedProxies
++	if len(proxies) == 0 {
++		proxies = defaultTrustedPrivateProxies()
++		logger.Infof(context.Background(), "server.behind_proxy=true with empty trusted_proxies, using default private ranges")
++	}
++	if err := r.SetTrustedProxies(proxies); err != nil {
++		logger.Warnf(context.Background(), "SetTrustedProxies failed: %v", err)
++	}
+ }
+ 
+ // NewRouter 鍒涘缓鏂扮殑璺敱
+ func NewRouter(params RouterParams) *gin.Engine {
+ 	r := gin.New()
+ 	r.ContextWithFallback = true
++	applyGinTrustedProxies(r, params.Config)
+ 
+ 	// CORS 涓棿浠跺簲鏀惧湪鏈€鍓嶉潰
++	// 娉ㄦ剰锛氬綋 AllowCredentials 涓?true 鏃讹紝涓嶈兘浣跨敤閫氶厤绗?"*"锛屽繀椤绘槑纭寚瀹氬厑璁哥殑婧? 	r.Use(cors.New(cors.Config{
+-		AllowOrigins:     []string{"*"},
++		// 浣跨敤 AllowOriginFunc 鍔ㄦ€佽繑鍥炶姹傜殑 Origin锛屾敮鎸佸涓幆澧?+		AllowOriginFunc: func(origin string) bool {
++			// 鍏佽鐨勬簮鍒楄〃锛堝寘鎷崗璁€佸煙鍚嶅拰绔彛锛?+			allowedOrigins := []string{
++				"https://zsk.t.nxin.com",
++				"https://zsk.t.nxin.com:443",
++				"https://zsk.t.nxin.com:80",
++				"https://zsk.nxin.com",
++				"https://zsk.nxin.com:443",
++				"https://zsk.nxin.com:80",
++				"https://localhost",
++				"https://localhost:443",
++				"https://localhost:80",
++				"https://localhost:8081",
++				"http://localhost",
++				"http://localhost:8081",
++			}
++
++			// 妫€鏌ヨ姹傜殑 Origin 鏄惁鍦ㄥ厑璁稿垪琛ㄤ腑
++			for _, allowed := range allowedOrigins {
++				if origin == allowed {
++					return true
++				}
++			}
++
++			// 寮€鍙戠幆澧冿細鍏佽 localhost 鐨勬墍鏈夌鍙ｏ紙浠呯敤浜庡紑鍙戯級
++			if strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "https://localhost:") {
++				return true
++			}
++
++			return false
++		},
+ 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-API-Key", "X-Request-ID"},
++		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-API-Key", "X-Open-Retrieve-Api-Key", "X-Request-ID", "X-Tenant-ID"},
+ 		ExposeHeaders:    []string{"Content-Length", "Access-Control-Allow-Origin"},
+ 		AllowCredentials: true,
+ 		MaxAge:           12 * time.Hour,
+@@ -110,8 +173,13 @@ func NewRouter(params RouterParams) *gin.Engine {
+ 	// IM 鍥炶皟璺敱锛堝湪璁よ瘉涓棿浠朵箣鍓嶆敞鍐岋紝浣跨敤鍚勫钩鍙拌嚜韬殑绛惧悕楠岃瘉锛? 	RegisterIMRoutes(r, params.IMHandler)
+ 
++	// CAS 璁よ瘉璺敱锛堜笉闇€瑕佽璇佷腑闂翠欢锛屽洜涓哄畠鏄璇佽繃绋嬫湰韬級
++	if params.CASAuthHandler != nil {
++		RegisterCASRoutes(r, params.CASAuthHandler)
++	}
++
+ 	// 璁よ瘉涓棿浠?-	r.Use(middleware.Auth(params.TenantService, params.UserService, params.Config))
++	r.Use(middleware.Auth(params.TenantService, params.UserService, params.CASAuthService, params.RedisClient, params.Config))
+ 
+ 	// 鏂囦欢鏈嶅姟锛氱粺涓€浠ｇ悊鏈湴/MinIO/COS/TOS瀛樺偍鍚庣锛堥渶瑕佽璇侊級
+ 	serveFiles(r)
+@@ -144,6 +212,13 @@ func NewRouter(params RouterParams) *gin.Engine {
+ 		RegisterOrganizationRoutes(v1, params.OrganizationHandler)
+ 		RegisterIMChannelRoutes(v1, params.IMHandler)
+ 		RegisterDataSourceRoutes(v1, params.DataSourceHandler)
++
++		// 寮€鏀炬绱紙鏃犵敤鎴风櫥褰曪紱X-Open-Retrieve-Api-Key锛岃 config.open_retrieve锛?+		if params.OpenRetrieveHandler != nil {
++			openG := v1.Group("/open")
++			openG.Use(middleware.OpenRetrieveApiKey(params.Config))
++			openG.POST("/knowledge/retrieve", params.OpenRetrieveHandler.Retrieve)
++		}
+ 	}
+ 
+ 	return r
+@@ -252,6 +327,24 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
+ 	// 鐭ヨ瘑搴撹矾鐢辩粍
+ 	kb := r.Group("/knowledge-bases")
+ 	{
++		// 鍏变韩鐭ヨ瘑搴撶浉鍏宠矾鐢?+		// 鍒涘缓鍏变韩鐭ヨ瘑搴?+		kb.POST("/shared", handler.CreateSharedKnowledgeBase)
++		// 鍒楀嚭鍏变韩鐭ヨ瘑搴撳箍鍦?+		kb.GET("/shared", handler.ListSharedKnowledgeBases)
++		// 鍒楀嚭鐢ㄦ埛鐨勭煡璇嗗簱锛堜釜浜?+ 鍔犲叆鐨勫叡浜煡璇嗗簱锛?+		kb.GET("/user", handler.ListUserKnowledgeBases)
++		// 鍔犲叆鍏变韩鐭ヨ瘑搴?+		kb.POST("/:id/join", handler.JoinSharedKnowledgeBase)
++		// 绂诲紑鍏变韩鐭ヨ瘑搴?+		kb.POST("/:id/leave", handler.LeaveSharedKnowledgeBase)
++		// 鍒楀嚭鐭ヨ瘑搴撴垚鍛?+		kb.GET("/:id/members", handler.ListKnowledgeBaseMembers)
++		// 鏇存柊鎴愬憳鏉冮檺
++		kb.PUT("/:id/members/:user_id", handler.UpdateMemberRole)
++		// 绉婚櫎鎴愬憳
++		kb.DELETE("/:id/members/:user_id", handler.RemoveMember)
++
+ 		// 鍒涘缓鐭ヨ瘑搴? 		kb.POST("", handler.CreateKnowledgeBase)
+ 		// 鑾峰彇鐭ヨ瘑搴撳垪琛?@@ -393,6 +486,15 @@ func RegisterEvaluationRoutes(r *gin.RouterGroup, handler *handler.EvaluationHan
+ 	}
+ }
+ 
++// RegisterCASRoutes 娉ㄥ唽 CAS 璁よ瘉鐩稿叧鐨勮矾鐢憋紙涓嶉渶瑕佽璇佷腑闂翠欢锛?+func RegisterCASRoutes(r *gin.Engine, handler *handler.CASAuthHandler) {
++	// CAS 璺敱涓嶉渶瑕佽璇佷腑闂翠欢锛屽洜涓哄畠鏄璇佽繃绋嬫湰韬?+	cas := r.Group("/api/v1/cas")
++	{
++		cas.GET("/validate", handler.ValidateCASSession)
++	}
++}
++
+ // RegisterAuthRoutes registers authentication routes
+ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler) {
+ 	r.POST("/auth/register", handler.Register)
+diff --git a/internal/router/task.go b/internal/router/task.go
+index b804028c..97fbd0d1 100644
+--- a/internal/router/task.go
++++ b/internal/router/task.go
+@@ -4,6 +4,7 @@ import (
+ 	"log"
+ 	"os"
+ 	"strconv"
++	"strings"
+ 	"time"
+ 
+ 	"github.com/Tencent/WeKnora/internal/types"
+@@ -26,26 +27,56 @@ type AsynqTaskParams struct {
+ 	VideoMultimodal      interfaces.TaskHandler `name:"videoMultimodal"`
+ }
+ 
+-func getAsynqRedisClientOpt() *asynq.RedisClientOpt {
++// getAsynqRedisConnOpt 杩斿洖閫氱敤鐨?Redis 杩炴帴閰嶇疆锛屾敮鎸佸崟鏈哄拰闆嗙兢妯″紡銆?+// 鍗曟満锛歊EDIS_MODE 涓虹┖鎴?single锛屼娇鐢?REDIS_ADDR / REDIS_DB 绛夛紱
++// 闆嗙兢锛歊EDIS_MODE=cluster锛屼娇鐢?REDIS_CLUSTER_ADDRS锛堥€楀彿鍒嗛殧鐨?host:port 鍒楄〃锛夈€?+func getAsynqRedisConnOpt() asynq.RedisConnOpt {
++	mode := strings.ToLower(os.Getenv("REDIS_MODE"))
++
++	username := os.Getenv("REDIS_USERNAME")
++	password := os.Getenv("REDIS_PASSWORD")
++
++	if mode == "cluster" {
++		// 闆嗙兢妯″紡锛歊EDIS_CLUSTER_ADDRS=host1:6379,host2:6379,...
++		raw := os.Getenv("REDIS_CLUSTER_ADDRS")
++		parts := strings.Split(raw, ",")
++		addrs := make([]string, 0, len(parts))
++		for _, s := range parts {
++			s = strings.TrimSpace(s)
++			if s != "" {
++				addrs = append(addrs, s)
++			}
++		}
++
++		return &asynq.RedisClusterClientOpt{
++			Addrs:        addrs,
++			Username:     username,
++			Password:     password,
++			ReadTimeout:  100 * time.Millisecond,
++			WriteTimeout: 200 * time.Millisecond,
++		}
++	}
++
++	// 榛樿鍗曟満妯″紡锛屼繚鎸佸師鏈夎涓? 	db := 0
+ 	if dbStr := os.Getenv("REDIS_DB"); dbStr != "" {
+ 		if parsed, err := strconv.Atoi(dbStr); err == nil {
+ 			db = parsed
+ 		}
+ 	}
+-	opt := &asynq.RedisClientOpt{
++
++	return &asynq.RedisClientOpt{
+ 		Addr:         os.Getenv("REDIS_ADDR"),
+-		Username:     os.Getenv("REDIS_USERNAME"),
+-		Password:     os.Getenv("REDIS_PASSWORD"),
++		Username:     username,
++		Password:     password,
+ 		ReadTimeout:  100 * time.Millisecond,
+ 		WriteTimeout: 200 * time.Millisecond,
+ 		DB:           db,
+ 	}
+-	return opt
+ }
+ 
+ func NewAsyncqClient() (*asynq.Client, error) {
+-	opt := getAsynqRedisClientOpt()
++	opt := getAsynqRedisConnOpt()
+ 	client := asynq.NewClient(opt)
+ 	err := client.Ping()
+ 	if err != nil {
+@@ -55,7 +86,7 @@ func NewAsyncqClient() (*asynq.Client, error) {
+ }
+ 
+ func NewAsynqServer() *asynq.Server {
+-	opt := getAsynqRedisClientOpt()
++	opt := getAsynqRedisConnOpt()
+ 	srv := asynq.NewServer(
+ 		opt,
+ 		asynq.Config{
+diff --git a/migrations/versioned/feature/0000013_create_kb_members.down.sql b/migrations/versioned/feature/0000013_create_kb_members.down.sql
+new file mode 100644
+index 00000000..e76730c8
+--- /dev/null
++++ b/migrations/versioned/feature/0000013_create_kb_members.down.sql
+@@ -0,0 +1,9 @@
++-- 鍒犻櫎绱㈠紩
++DROP INDEX IF EXISTS idx_kb_members_deleted_at;
++DROP INDEX IF EXISTS idx_kb_members_role;
++DROP INDEX IF EXISTS idx_kb_members_tenant_id;
++DROP INDEX IF EXISTS idx_kb_members_user_id;
++DROP INDEX IF EXISTS idx_kb_members_kb_id;
++
++-- 鍒犻櫎琛?+DROP TABLE IF EXISTS knowledge_base_members;
+diff --git a/migrations/versioned/feature/0000013_create_kb_members.up.sql b/migrations/versioned/feature/0000013_create_kb_members.up.sql
+new file mode 100644
+index 00000000..907d97fa
+--- /dev/null
++++ b/migrations/versioned/feature/0000013_create_kb_members.up.sql
+@@ -0,0 +1,24 @@
++-- 鍏变韩鐭ヨ瘑搴撴垚鍛樿〃
++CREATE TABLE IF NOT EXISTS knowledge_base_members (
++    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
++    knowledge_base_id VARCHAR(36) NOT NULL,  -- 鍏宠仈 knowledge_bases.id
++    user_id VARCHAR(36) NOT NULL,             -- 鍏宠仈 users.id
++    tenant_id INTEGER NOT NULL,              -- 鍏宠仈 tenants.id锛堟垚鍛樻墍灞炵鎴凤級
++    role VARCHAR(32) NOT NULL DEFAULT 'viewer',  -- 'owner' | 'editor' | 'viewer'
++    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,  -- 鍔犲叆鏃堕棿
++    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
++    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
++    deleted_at TIMESTAMP WITH TIME ZONE,
++    
++    CONSTRAINT fk_kb_members_kb FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
++    CONSTRAINT fk_kb_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
++    CONSTRAINT fk_kb_members_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
++    CONSTRAINT uk_kb_members_kb_user UNIQUE (knowledge_base_id, user_id, deleted_at)  -- 鍞竴绾︽潫锛堟敮鎸佽蒋鍒犻櫎锛?+);
++
++-- 娣诲姞绱㈠紩
++CREATE INDEX IF NOT EXISTS idx_kb_members_kb_id ON knowledge_base_members(knowledge_base_id);
++CREATE INDEX IF NOT EXISTS idx_kb_members_user_id ON knowledge_base_members(user_id);
++CREATE INDEX IF NOT EXISTS idx_kb_members_tenant_id ON knowledge_base_members(tenant_id);
++CREATE INDEX IF NOT EXISTS idx_kb_members_role ON knowledge_base_members(role);
++CREATE INDEX IF NOT EXISTS idx_kb_members_deleted_at ON knowledge_base_members(deleted_at);
+diff --git a/migrations/versioned/feature/0000014_update_storage_quota_default.down.sql b/migrations/versioned/feature/0000014_update_storage_quota_default.down.sql
+new file mode 100644
+index 00000000..a66fcb83
+--- /dev/null
++++ b/migrations/versioned/feature/0000014_update_storage_quota_default.down.sql
+@@ -0,0 +1,13 @@
++-- Migration: 000014_update_storage_quota_default (Rollback)
++-- Description: Rollback storage quota default from 1GB to 10GB
++DO $$ BEGIN RAISE NOTICE '[Migration 000014] Rolling back storage quota default from 1GB to 10GB...'; END $$;
++
++-- Restore the default value for storage_quota column
++-- 10GB = 10737418240 bytes
++ALTER TABLE tenants ALTER COLUMN storage_quota SET DEFAULT 10737418240;
++
++-- Note: We don't rollback the updated tenant quotas as we can't distinguish
++-- between tenants that were updated by this migration and those that were
++-- manually set to 1GB
++
++DO $$ BEGIN RAISE NOTICE '[Migration 000014] Storage quota default rollback completed'; END $$;
+diff --git a/migrations/versioned/feature/0000014_update_storage_quota_default.up.sql b/migrations/versioned/feature/0000014_update_storage_quota_default.up.sql
+new file mode 100644
+index 00000000..553ffce2
+--- /dev/null
++++ b/migrations/versioned/feature/0000014_update_storage_quota_default.up.sql
+@@ -0,0 +1,16 @@
++-- Migration: 000014_update_storage_quota_default
++-- Description: Update storage quota default from 10GB to 1GB
++DO $$ BEGIN RAISE NOTICE '[Migration 000014] Updating storage quota default from 10GB to 1GB...'; END $$;
++
++-- Update the default value for storage_quota column
++-- 1GB = 1073741824 bytes
++ALTER TABLE tenants ALTER COLUMN storage_quota SET DEFAULT 1073741824;
++
++-- Update existing tenants that have the old default value (10GB) to new default (1GB)
++-- Only update tenants that have exactly 10GB quota and haven't been customized
++UPDATE tenants 
++SET storage_quota = 1073741824 
++WHERE storage_quota = 10737418240 
++  AND deleted_at IS NULL;
++
++DO $$ BEGIN RAISE NOTICE '[Migration 000014] Storage quota default updated successfully'; END $$;
+diff --git a/migrations/versioned/feature/0000016_add_cas_fields.down.sql b/migrations/versioned/feature/0000016_add_cas_fields.down.sql
+new file mode 100644
+index 00000000..2dbda5eb
+--- /dev/null
++++ b/migrations/versioned/feature/0000016_add_cas_fields.down.sql
+@@ -0,0 +1,9 @@
++-- 鍒犻櫎绱㈠紩
++DROP INDEX IF EXISTS idx_users_cas_login_name;
++DROP INDEX IF EXISTS idx_users_cas_user_id;
++
++-- 鍒犻櫎瀛楁
++ALTER TABLE users DROP COLUMN IF EXISTS cas_mobile_phone;
++ALTER TABLE users DROP COLUMN IF EXISTS cas_real_name;
++ALTER TABLE users DROP COLUMN IF EXISTS cas_login_name;
++ALTER TABLE users DROP COLUMN IF EXISTS cas_user_id;
+diff --git a/migrations/versioned/feature/0000016_add_cas_fields.up.sql b/migrations/versioned/feature/0000016_add_cas_fields.up.sql
+new file mode 100644
+index 00000000..68292ef4
+--- /dev/null
++++ b/migrations/versioned/feature/0000016_add_cas_fields.up.sql
+@@ -0,0 +1,9 @@
++-- 娣诲姞 CAS 鐩稿叧瀛楁鍒?users 琛?+ALTER TABLE users ADD COLUMN IF NOT EXISTS cas_user_id VARCHAR(64);  -- CAS 鐢ㄦ埛 ID锛堝搴?data.id锛?+ALTER TABLE users ADD COLUMN IF NOT EXISTS cas_login_name VARCHAR(100);  -- CAS 鐧诲綍鍚嶏紙瀵瑰簲 data.loginName锛?+ALTER TABLE users ADD COLUMN IF NOT EXISTS cas_real_name VARCHAR(100);  -- CAS 鐪熷疄濮撳悕锛堝搴?data.realName锛?+ALTER TABLE users ADD COLUMN IF NOT EXISTS cas_mobile_phone VARCHAR(20);  -- CAS 鎵嬫満鍙凤紙瀵瑰簲 data.mobilePhone锛?+
++-- 娣诲姞绱㈠紩
++CREATE INDEX IF NOT EXISTS idx_users_cas_user_id ON users(cas_user_id);
++CREATE INDEX IF NOT EXISTS idx_users_cas_login_name ON users(cas_login_name);
+diff --git a/migrations/versioned/feature/0000017_add_shared_kb_fields.down.sql b/migrations/versioned/feature/0000017_add_shared_kb_fields.down.sql
+new file mode 100644
+index 00000000..5648864a
+--- /dev/null
++++ b/migrations/versioned/feature/0000017_add_shared_kb_fields.down.sql
+@@ -0,0 +1,10 @@
++-- 鍒犻櫎绱㈠紩
++DROP INDEX IF EXISTS idx_knowledge_bases_shared_at;
++DROP INDEX IF EXISTS idx_knowledge_bases_owner_id;
++DROP INDEX IF EXISTS idx_knowledge_bases_visibility;
++
++-- 鍒犻櫎瀛楁
++ALTER TABLE knowledge_bases DROP COLUMN IF EXISTS member_count;
++ALTER TABLE knowledge_bases DROP COLUMN IF EXISTS shared_at;
++ALTER TABLE knowledge_bases DROP COLUMN IF EXISTS owner_id;
++ALTER TABLE knowledge_bases DROP COLUMN IF EXISTS visibility;
+diff --git a/migrations/versioned/feature/0000017_add_shared_kb_fields.up.sql b/migrations/versioned/feature/0000017_add_shared_kb_fields.up.sql
+new file mode 100644
+index 00000000..e7ee3aaf
+--- /dev/null
++++ b/migrations/versioned/feature/0000017_add_shared_kb_fields.up.sql
+@@ -0,0 +1,10 @@
++-- 娣诲姞鍏变韩鐭ヨ瘑搴撶浉鍏冲瓧娈靛埌 knowledge_bases 琛?+ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS visibility VARCHAR(32) DEFAULT 'private';  -- 'private' | 'shared'
++ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS owner_id VARCHAR(36);  -- 鍒涘缓鑰呯敤鎴?ID锛堝叧鑱?users.id锛?+ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS shared_at TIMESTAMP WITH TIME ZONE;  -- 鍏变韩鏃堕棿
++ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS member_count INTEGER DEFAULT 0;  -- 鎴愬憳鏁伴噺锛堝啑浣欏瓧娈碉紝鐢ㄤ簬蹇€熸煡璇級
++
++-- 娣诲姞绱㈠紩
++CREATE INDEX IF NOT EXISTS idx_knowledge_bases_visibility ON knowledge_bases(visibility);
++CREATE INDEX IF NOT EXISTS idx_knowledge_bases_owner_id ON knowledge_bases(owner_id);
++CREATE INDEX IF NOT EXISTS idx_knowledge_bases_shared_at ON knowledge_bases(shared_at);

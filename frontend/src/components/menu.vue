@@ -4,6 +4,7 @@
         <div class="logo_row" v-if="!uiStore.sidebarCollapsed">
             <div class="logo_box" @click="router.push('/platform/knowledge-bases')" style="cursor: pointer;">
                 <img class="logo" src="@/assets/img/nxin-weknora.svg" alt="">
+                <sup v-if="isLiteEdition" class="lite-badge">Lite</sup>
             </div>
             <div class="sidebar-toggle"
                  @click="uiStore.toggleSidebar"
@@ -66,6 +67,14 @@
                 </div>
                 </t-tooltip>
                 <div ref="submenuscrollContainer" @scroll="handleScroll" class="submenu" v-if="item.children && !uiStore.sidebarCollapsed">
+                    <!-- 骨架屏占位 -->
+                    <template v-if="loading && groupedSessions.length === 0">
+                        <div v-for="n in 5" :key="'skel-'+n" class="submenu_item_p">
+                            <div class="submenu_item">
+                                <t-skeleton animation="gradient" style="margin-left:18px;width:80%" :row-col="[{ width: '100%', height: '16px' }]" />
+                            </div>
+                        </div>
+                    </template>
                     <template v-for="(group, groupIndex) in groupedSessions" :key="groupIndex">
                         <div class="timeline_header">{{ group.label }}</div>
                         <div class="submenu_item_p" v-for="(subitem, subindex) in group.items" :key="subitem.id">
@@ -145,6 +154,7 @@ import UserMenu from '@/components/UserMenu.vue';
 import TenantSelector from '@/components/TenantSelector.vue';
 import { SvgIcon, type IconName, type IconVariant } from '@/components/icons';
 import { useI18n } from 'vue-i18n';
+import { getSystemInfo } from '@/api/system';
 
 const { t } = useI18n();
 const usemenuStore = useMenuStore();
@@ -163,8 +173,9 @@ const submenuscrollContainer = ref(null);
 const totalPages = computed(() => Math.ceil(total.value / page_size.value));
 const hasMore = computed(() => currentPage.value < totalPages.value);
 type MenuItem = { title: string; icon: string; path: string; childrenPath?: string; children?: any[] };
-const { menuArr } = storeToRefs(usemenuStore);
+const { menuArr, visibleMenuArr } = storeToRefs(usemenuStore);
 let activeSubmenu = ref<string>('');
+const isLiteEdition = ref(false);
 
 // 批量管理状态
 const batchMode = ref(false)
@@ -263,15 +274,31 @@ const isMenuItemActive = (itemPath: string): boolean => {
     }
 };
 
-// 分离上下两部分菜单
+// 统一的图标激活状态判断
+const getIconActiveState = (itemPath: string) => {
+    const currentRoute = route.name;
+
+    return {
+        isKbActive: itemPath === 'knowledge-bases' && (
+            currentRoute === 'knowledgeBaseList' ||
+            currentRoute === 'knowledgeBaseDetail' ||
+            currentRoute === 'knowledgeBaseSettings'
+        ),
+        isCreatChatActive: itemPath === 'creatChat' && (currentRoute === 'kbCreatChat' || currentRoute === 'globalCreatChat'),
+        isSettingsActive: itemPath === 'settings' && currentRoute === 'settings',
+        isChatActive: itemPath === 'chat' && currentRoute === 'chat'
+    };
+};
+
+// 分离上下两部分菜单（使用 visibleMenuArr 以便 lite 模式过滤 logout）
 const topMenuItems = computed<MenuItem[]>(() => {
-    return (menuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => 
+    return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) =>
         item.path === 'knowledge-bases' || item.path === 'knowledge-search' || item.path === 'shared-knowledge-bases' || item.path === 'agents' || item.path === 'organizations' || item.path === 'creatChat'
     );
 });
 
 const bottomMenuItems = computed<MenuItem[]>(() => {
-    return (menuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => {
+    return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => {
         if (item.path === 'knowledge-bases' || item.path === 'knowledge-search' || item.path === 'agents' || item.path === 'organizations' || item.path === 'creatChat') {
             return false;
         }
@@ -552,6 +579,14 @@ onMounted(async () => {
         currentSecondpath.value = `chat/${route.params.chatid}`;
     }
 
+    isLiteEdition.value = authStore.isLiteMode
+    getSystemInfo().then(res => {
+        if (res.data?.edition === 'lite') {
+            isLiteEdition.value = true
+            authStore.setLiteMode(true)
+        }
+    }).catch(() => {})
+    
     // 初始化知识库信息
     const kbId = (route.params as any)?.kbId as string
     if (kbId && isInKnowledgeBase.value) {
@@ -743,6 +778,11 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
     transition: width 0.25s ease, min-width 0.25s ease;
     position: relative;
 
+    // macOS Wails 桌面：红绿灯位于 HiddenInset 标题栏区域，需让出顶部空间
+    html.wails-desktop & {
+        padding-top: 30px;
+    }
+
     &--collapsed {
         min-width: 60px;
         width: 60px;
@@ -814,9 +854,20 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         flex: 1;
         min-width: 0;
         overflow: hidden;
+
         .logo{
             width: 134px;
             height: auto;
+        }
+        .lite-badge {
+            margin-left: 2px;
+            align-self: flex-start;
+            margin-top: 2px;
+            font-size: 9px;
+            font-weight: 600;
+            color: var(--td-text-color-placeholder);
+            user-select: none;
+            white-space: nowrap;
         }
     }
 
@@ -980,6 +1031,11 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         margin-left: 4px;
     }
     
+    @keyframes menuItemFadeIn {
+        from { opacity: 0; transform: translateX(-4px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+
     .timeline_header {
         font-family: "PingFang SC";
         font-size: 12px;
@@ -989,6 +1045,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         margin-top: 8px;
         line-height: 20px;
         user-select: none;
+        animation: menuItemFadeIn 0.25s ease-out;
         
         &:first-child {
             margin-top: 4px;
@@ -999,6 +1056,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         height: 44px;
         padding: 4px 0px 4px 0px;
         box-sizing: border-box;
+        animation: menuItemFadeIn 0.25s ease-out;
     }
 
 

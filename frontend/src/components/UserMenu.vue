@@ -22,10 +22,6 @@
           <t-icon name="control-platform" class="menu-icon" />
           <span>{{ $t('settings.modelManagement') }}</span>
         </div>
-        <div class="menu-item" @click="handleQuickNav('ollama')">
-          <t-icon name="server" class="menu-icon" />
-          <span>Ollama</span>
-        </div>
         <div class="menu-item" @click="handleQuickNav('websearch')">
           <svg 
             width="16" 
@@ -47,48 +43,59 @@
           <t-icon name="tools" class="menu-icon" />
           <span>{{ $t('settings.mcpService') }}</span>
         </div>
+        <div class="menu-item" @click="handleQuickNav('api')">
+          <t-icon name="secured" class="menu-icon" />
+          <span>{{ $t('settings.apiInfo') }}</span>
+        </div>
         <div class="menu-divider"></div>
         <div class="menu-item" @click="handleSettings">
           <t-icon name="setting" class="menu-icon" />
           <span>{{ $t('general.allSettings') }}</span>
         </div>
         <div class="menu-divider"></div>
-<!--        <div class="menu-item" @click="openApiDoc">-->
-<!--          <t-icon name="book" class="menu-icon" />-->
-<!--          <span class="menu-text-with-icon">-->
-<!--            <span>{{ $t('tenant.apiDocument') }}</span>-->
-<!--            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">-->
-<!--              <path-->
-<!--                fill="currentColor"-->
-<!--                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"-->
-<!--              />-->
-<!--            </svg>-->
-<!--          </span>-->
-<!--        </div>-->
-<!--        <div class="menu-item" @click="openWebsite">-->
-<!--          <t-icon name="home" class="menu-icon" />-->
-<!--          <span class="menu-text-with-icon">-->
-<!--            <span>{{ $t('common.website') }}</span>-->
-<!--            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">-->
-<!--              <path-->
-<!--                fill="currentColor"-->
-<!--                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"-->
-<!--              />-->
-<!--            </svg>-->
-<!--          </span>-->
-<!--        </div>-->
-<!--        <div class="menu-item" @click="openGithub">-->
-<!--          <t-icon name="logo-github" class="menu-icon" />-->
-<!--          <span class="menu-text-with-icon">-->
-<!--            <span>GitHub</span>-->
-<!--            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">-->
-<!--              <path-->
-<!--                fill="currentColor"-->
-<!--                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"-->
-<!--              />-->
-<!--            </svg>-->
-<!--          </span>-->
-<!--        </div>-->
+        <div class="menu-item" @click="openClawhubSkill">
+          <span class="menu-icon menu-icon--emoji" role="img" :aria-label="$t('common.clawhubSkill')">🦞</span>
+          <span class="menu-text-with-icon">
+            <span>{{ $t('common.clawhubSkill') }}</span>
+            <span class="menu-new-badge">{{ $t('common.newBadge') }}</span>
+            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"
+              />
+            </svg>
+          </span>
+        </div>
+        <div class="menu-item" @click="openChromeExtension">
+          <t-icon name="extension" class="menu-icon" />
+          <span class="menu-text-with-icon">
+            <span>{{ $t('common.chromeExtension') }}</span>
+            <span class="menu-new-badge">{{ $t('common.newBadge') }}</span>
+            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"
+              />
+            </svg>
+          </span>
+        </div>
+        <div
+          class="menu-item"
+          :title="$t('common.githubStarTip')"
+          @click="openGithub"
+        >
+          <t-icon name="logo-github" class="menu-icon" />
+          <span class="menu-text-with-icon">
+            <span>{{ $t('common.github') }}</span>
+            <t-icon name="star-filled" class="menu-github-star-icon" size="14px" aria-hidden="true" />
+            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z"
+              />
+            </svg>
+          </span>
+        </div>
         <div class="menu-divider"></div>
         <div class="menu-item danger" @click="handleLogout">
           <t-icon name="logout" class="menu-icon" />
@@ -160,16 +167,20 @@ const handleSettings = () => {
   router.push('/platform/settings')
 }
 
-// 打开 API 文档
-const openApiDoc = () => {
+const CHROME_EXTENSION_URL =
+  'https://chromewebstore.google.com/detail/jpemjbopikggjlmikmclgbmkhhopjdgd?utm_source=item-share-cb'
+
+const CLAWHUB_SKILL_URL = 'https://clawhub.ai/lyingbug/weknora'
+
+// 打开 WeKnora Chrome 插件（Chrome应用商店）
+const openChromeExtension = () => {
   menuVisible.value = false
-  window.open('https://github.com/Tencent/WeKnora/blob/main/docs/api/README.md', '_blank')
+  window.open(CHROME_EXTENSION_URL, '_blank')
 }
 
-// 打开官网
-const openWebsite = () => {
+const openClawhubSkill = () => {
   menuVisible.value = false
-  window.open('https://weknora.weixin.qq.com/', '_blank')
+  window.open(CLAWHUB_SKILL_URL, '_blank')
 }
 
 // 打开 GitHub
@@ -410,6 +421,18 @@ onUnmounted(() => {
       height: 16px;
       flex-shrink: 0;
     }
+
+    &--emoji {
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      line-height: 1;
+      flex-shrink: 0;
+      color: inherit;
+    }
   }
 
   .menu-text-with-icon {
@@ -420,11 +443,31 @@ onUnmounted(() => {
     color: inherit;
     min-width: 0;
 
-    span {
+    > span:first-of-type {
       display: inline-flex;
       align-items: center;
       min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
+  }
+
+  .menu-new-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: var(--td-brand-color-light);
+    color: var(--td-brand-color);
+    letter-spacing: 0.02em;
+  }
+
+  .menu-github-star-icon {
+    flex-shrink: 0;
+    color: var(--td-warning-color);
   }
 
   .menu-external-icon {

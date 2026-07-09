@@ -2,14 +2,13 @@
 import axios from "axios";
 import { generateRandomString } from "./index";
 import i18n from '@/i18n'
+import { getApiBaseUrl } from './api-base';
 
 const t = (key: string) => i18n.global.t(key)
 
 // API基础URL
-// 注意：生产环境必须使用 HTTPS，开发环境也需要 HTTPS 以支持 CAS Cookie
-const BASE_URL = import.meta.env.VITE_IS_DOCKER 
-  ? ""  // Docker 环境使用相对路径（同源）
-  : (import.meta.env.VITE_API_URL || (window.location.protocol === 'https:' ? "https://zsk.t.nxin.com:8080" : "http://zsk.t.nxin.com:8080"));  // 根据当前协议自动选择
+// API基础URL（NXIN 域名逻辑见 getApiBaseUrl）
+const BASE_URL = getApiBaseUrl();
 
 
 // 创建Axios实例
@@ -67,7 +66,13 @@ instance.interceptors.request.use(
 // Token刷新标志，防止多个请求同时刷新token
 let isRefreshing = false;
 let failedQueue: Array<{ resolve: Function; reject: Function }> = [];
-let hasRedirectedOn401 = false;
+
+const PUBLIC_AUTH_PATHS = ['/auth/auto-setup', '/auth/login', '/auth/register', '/auth/oidc/'];
+
+function isPublicAuthRequest(url?: string): boolean {
+  if (!url) return false;
+  return PUBLIC_AUTH_PATHS.some(p => url.includes(p));
+}
 
 // 处理队列中的请求
 const processQueue = (error: any, token: string | null = null) => {
@@ -81,6 +86,12 @@ const processQueue = (error: any, token: string | null = null) => {
   
   failedQueue = [];
 };
+
+function redirectToLogin() {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname === '/login') return;
+  window.location.href = '/login';
+}
 
 instance.interceptors.response.use(
   (response) => {
@@ -99,10 +110,10 @@ instance.interceptors.response.use(
       return Promise.reject({ message: t('error.networkError') });
     }
     
-    // 如果是登录接口的401，直接返回错误以便页面展示toast，不做跳转
-    if (error.response.status === 401 && originalRequest?.url?.includes('/auth/login')) {
+    // 公开接口（auto-setup / login / register / oidc）的 401 不走 refresh 逻辑，直接返回错误
+    if (error.response.status === 401 && isPublicAuthRequest(originalRequest?.url)) {
       const { status, data } = error.response;
-      return Promise.reject({ status, message: (typeof data === 'object' ? data?.message : data) || t('error.invalidCredentials') });
+      return Promise.reject({ status, message: (typeof data === 'object' ? (data?.error?.message || data?.message) : data) || t('error.invalidCredentials') });
     }
 
     // 如果是401错误且不是刷新token的请求，尝试刷新token
@@ -156,11 +167,7 @@ instance.interceptors.response.use(
           
           processQueue(refreshError, null);
           
-          // 跳转到登录页
-          if (!hasRedirectedOn401 && typeof window !== 'undefined') {
-            hasRedirectedOn401 = true;
-            window.location.href = '/login';
-          }
+          redirectToLogin();
           
           return Promise.reject(refreshError);
         } finally {
@@ -172,10 +179,7 @@ instance.interceptors.response.use(
         localStorage.removeItem('weknora_user');
         localStorage.removeItem('weknora_tenant');
         
-        if (!hasRedirectedOn401 && typeof window !== 'undefined') {
-          hasRedirectedOn401 = true;
-          window.location.href = '/login';
-        }
+        redirectToLogin();
         
         return Promise.reject({ message: t('error.pleaseRelogin') });
       }

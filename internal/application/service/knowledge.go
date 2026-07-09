@@ -65,6 +65,7 @@ type knowledgeService struct {
 	repo            interfaces.KnowledgeRepository
 	kbService       interfaces.KnowledgeBaseService
 	tenantRepo      interfaces.TenantRepository
+	tenantService   interfaces.TenantService
 	documentReader  interfaces.DocumentReader
 	chunkService    interfaces.ChunkService
 	chunkRepo       interfaces.ChunkRepository
@@ -93,6 +94,7 @@ func NewKnowledgeService(
 	documentReader interfaces.DocumentReader,
 	kbService interfaces.KnowledgeBaseService,
 	tenantRepo interfaces.TenantRepository,
+	tenantService interfaces.TenantService,
 	chunkService interfaces.ChunkService,
 	chunkRepo interfaces.ChunkRepository,
 	tagRepo interfaces.KnowledgeTagRepository,
@@ -112,6 +114,7 @@ func NewKnowledgeService(
 		repo:            repo,
 		kbService:       kbService,
 		tenantRepo:      tenantRepo,
+		tenantService:   tenantService,
 		documentReader:  documentReader,
 		chunkService:    chunkService,
 		chunkRepo:       chunkRepo,
@@ -202,6 +205,11 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 	}
 
 	logger.Infof(ctx, "Knowledge base ID: %s, file: %s", kbID, fileName)
+
+	if IsVideoType(getFileType(fileName)) {
+		logger.Error(ctx, "Video file upload is not supported")
+		return nil, werrors.NewBadRequestError("暂不支持上传视频文件")
+	}
 
 	// Get knowledge base configuration
 	logger.Info(ctx, "Getting knowledge base configuration")
@@ -1512,12 +1520,29 @@ type ProcessChunksOptions struct {
 	QuestionCount            int
 	EnableMultimodel         bool
 	StoredImages             []docparser.StoredImage
-	IsVideo                  bool   // true when knowledge is a standalone video file
-	VideoFilePath            string // storage path to video file (provider:// URL)
 	// ParentChunks holds parent chunk data when parent-child chunking is enabled.
 	// When set, the chunks passed to processChunks are child chunks, and each
 	// child's ParentIndex references an entry in this slice.
 	ParentChunks []types.ParsedParentChunk
+}
+
+// buildSplitterConfig creates a SplitterConfig with fallbacks from a KnowledgeBase.
+func buildSplitterConfig(kb *types.KnowledgeBase) chunker.SplitterConfig {
+	chunkCfg := chunker.SplitterConfig{
+		ChunkSize:    kb.ChunkingConfig.ChunkSize,
+		ChunkOverlap: kb.ChunkingConfig.ChunkOverlap,
+		Separators:   kb.ChunkingConfig.Separators,
+	}
+	if chunkCfg.ChunkSize <= 0 {
+		chunkCfg.ChunkSize = 512
+	}
+	if chunkCfg.ChunkOverlap <= 0 {
+		chunkCfg.ChunkOverlap = 50
+	}
+	if len(chunkCfg.Separators) == 0 {
+		chunkCfg.Separators = []string{"\n\n", "\n", "。"}
+	}
+	return chunkCfg
 }
 
 // buildParentChildConfigs derives parent and child SplitterConfig from ChunkingConfig.
@@ -1900,14 +1925,13 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 	}
 
 	// Skip summary/question generation for image-type and video-type knowledge — the text chunk
-	// is just a markdown reference, so LLM summary would be useless.
-	// The multimodal task will provide a caption/summary as the description instead.
+	// is just a markdown reference (or placeholder), so LLM summary would be useless.
+	// For images, the multimodal task provides a caption/summary as the description instead.
 	isImage := IsImageType(knowledge.FileType)
 	isVideo := IsVideoType(knowledge.FileType)
-	pendingMultimodal := (isImage && options.EnableMultimodel && len(options.StoredImages) > 0) ||
-		(isVideo && options.EnableMultimodel && options.IsVideo && options.VideoFilePath != "")
+	pendingMultimodal := isImage && options.EnableMultimodel && len(options.StoredImages) > 0
 
-	// For image/video files with pending multimodal processing, keep "processing" status
+	// For image files with pending multimodal processing, keep "processing" status
 	// so the frontend waits until the description is ready before showing "completed".
 	if pendingMultimodal {
 		knowledge.ParseStatus = types.ParseStatusProcessing
@@ -1951,11 +1975,6 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 	// Enqueue multimodal tasks for images (async, non-blocking)
 	if options.EnableMultimodel && len(options.StoredImages) > 0 {
 		s.enqueueImageMultimodalTasks(ctx, knowledge, kb, options.StoredImages, chunks)
-	}
-
-	// Enqueue multimodal tasks for videos (async, non-blocking)
-	if options.EnableMultimodel && options.IsVideo && options.VideoFilePath != "" {
-		s.enqueueVideoMultimodalTasks(ctx, knowledge, kb, options.VideoFilePath, chunks)
 	}
 
 	// Update tenant's storage usage
@@ -3044,8 +3063,7 @@ func (s *knowledgeService) ReparseKnowledge(ctx context.Context, knowledgeID str
 func isValidFileType(filename string) bool {
 	switch strings.ToLower(getFileType(filename)) {
 	case "pdf", "txt", "docx", "doc", "md", "markdown", "png", "jpg", "jpeg", "gif", "csv", "xlsx", "xls", "pptx", "ppt", "json",
-		"mp3", "wav", "m4a", "flac", "ogg",
-		"mp4", "mov", "avi", "mkv", "webm", "wmv", "flv":
+		"mp3", "wav", "m4a", "flac", "ogg":
 		return true
 	default:
 		return false
@@ -7136,20 +7154,7 @@ func (s *knowledgeService) triggerManualProcessing(ctx context.Context,
 	}
 
 	// Manual content is markdown - chunk directly with Go chunker
-	chunkCfg := chunker.SplitterConfig{
-		ChunkSize:    kb.ChunkingConfig.ChunkSize,
-		ChunkOverlap: kb.ChunkingConfig.ChunkOverlap,
-		Separators:   kb.ChunkingConfig.Separators,
-	}
-	if chunkCfg.ChunkSize <= 0 {
-		chunkCfg.ChunkSize = 512
-	}
-	if chunkCfg.ChunkOverlap <= 0 {
-		chunkCfg.ChunkOverlap = 50
-	}
-	if len(chunkCfg.Separators) == 0 {
-		chunkCfg.Separators = []string{"\n\n", "\n", "。"}
-	}
+	chunkCfg := buildSplitterConfig(kb)
 
 	var parsed []types.ParsedChunk
 	opts := ProcessChunksOptions{
@@ -7747,6 +7752,17 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 		return nil
 	}
 
+	// 视频文件不再支持入库解析
+	if payload.FilePath != "" && IsVideoType(payload.FileType) {
+		logger.GetLogger(ctx).WithField("knowledge_id", knowledge.ID).
+			Errorf("processDocument video not supported")
+		knowledge.ParseStatus = "failed"
+		knowledge.ErrorMessage = "暂不支持视频文件"
+		knowledge.UpdatedAt = time.Now()
+		s.repo.UpdateKnowledge(ctx, knowledge)
+		return nil
+	}
+
 	// New pipeline: convert -> store images -> chunk -> vectorize -> multimodal tasks
 	var convertResult *types.ReadResult
 	var chunks []types.ParsedChunk
@@ -7894,7 +7910,7 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 			return nil
 		}
 
-		transcribedText, err := asrModel.Transcribe(ctx, convertResult.AudioData, knowledge.FileName)
+		transcriptionResult, err := asrModel.Transcribe(ctx, convertResult.AudioData, knowledge.FileName)
 		if err != nil {
 			logger.Errorf(ctx, "[ASR] Transcription failed: %v", err)
 			if isLastRetry {
@@ -7904,6 +7920,11 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 				s.repo.UpdateKnowledge(ctx, knowledge)
 			}
 			return fmt.Errorf("audio transcription failed: %w", err)
+		}
+
+		var transcribedText string
+		if transcriptionResult != nil {
+			transcribedText = transcriptionResult.Text
 		}
 
 		if transcribedText == "" {
@@ -7949,28 +7970,13 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 	}
 
 	// Step 3: Split into chunks using Go chunker
-	chunkCfg := chunker.SplitterConfig{
-		ChunkSize:    kb.ChunkingConfig.ChunkSize,
-		ChunkOverlap: kb.ChunkingConfig.ChunkOverlap,
-		Separators:   kb.ChunkingConfig.Separators,
-	}
-	if chunkCfg.ChunkSize <= 0 {
-		chunkCfg.ChunkSize = 512
-	}
-	if chunkCfg.ChunkOverlap <= 0 {
-		chunkCfg.ChunkOverlap = 50
-	}
-	if len(chunkCfg.Separators) == 0 {
-		chunkCfg.Separators = []string{"\n\n", "\n", "。"}
-	}
+	chunkCfg := buildSplitterConfig(kb)
 
 	processOpts := ProcessChunksOptions{
 		EnableQuestionGeneration: payload.EnableQuestionGeneration,
 		QuestionCount:            payload.QuestionCount,
 		EnableMultimodel:         payload.EnableMultimodel,
 		StoredImages:             storedImages,
-		IsVideo:                  convertResult != nil && convertResult.IsVideo,
-		VideoFilePath:            payload.FilePath,
 	}
 
 	if kb.ChunkingConfig.EnableParentChild {
@@ -8044,8 +8050,10 @@ func (s *knowledgeService) convert(
 	logger.Infof(ctx, "[convert] kb=%s fileType=%s isURL=%v engine=%q rules=%+v",
 		kb.ID, fileType, isURL, parserEngine, kb.ChunkingConfig.ParserEngineRules)
 
-	var reader interfaces.DocReader = s.resolveDocReader(parserEngine, fileType, isURL, overrides)
+	var reader interfaces.DocReader = s.resolveDocReader(ctx, parserEngine, fileType, isURL, overrides)
 	if reader == nil {
+		logger.Errorf(ctx, "[convert] no doc reader for kb=%s knowledge=%s fileType=%s engine=%q isURL=%v",
+			kb.ID, knowledge.ID, fileType, parserEngine, isURL)
 		knowledge.ParseStatus = "failed"
 		knowledge.ErrorMessage = "Document parsing service is not configured. Please use text/paragraph import or set DOCREADER_ADDR."
 		knowledge.UpdatedAt = time.Now()
@@ -8081,6 +8089,8 @@ func (s *knowledgeService) convert(
 		return s.failKnowledge(ctx, knowledge, isLastRetry, "document read failed: %v", err)
 	}
 	if result.Error != "" {
+		logger.Errorf(ctx, "[convert] parser returned error kb=%s knowledge=%s file=%q type=%s engine=%q: %s",
+			kb.ID, knowledge.ID, req.FileName, fileType, parserEngine, result.Error)
 		knowledge.ParseStatus = "failed"
 		knowledge.ErrorMessage = result.Error
 		knowledge.UpdatedAt = time.Now()
@@ -8092,10 +8102,22 @@ func (s *knowledgeService) convert(
 
 // resolveDocReader returns the appropriate DocReader for the given engine.
 // Returns nil when the required service is unavailable.
-func (s *knowledgeService) resolveDocReader(engine, fileType string, isURL bool, overrides map[string]string) interfaces.DocReader {
+func (s *knowledgeService) resolveDocReader(ctx context.Context, engine, fileType string, isURL bool, overrides map[string]string) interfaces.DocReader {
 	switch engine {
 	case docparser.SimpleEngineName:
 		return &docparser.SimpleFormatReader{}
+	case docparser.WeKnoraCloudEngineName:
+		creds := s.tenantService.GetWeKnoraCloudCredentials(ctx)
+		if creds == nil {
+			logger.Warnf(ctx, "[resolveDocReader] WeKnoraCloud: no tenant credentials (fileType=%s)", fileType)
+			return nil
+		}
+		reader, err := docparser.NewWeKnoraCloudSignedDocumentReader(creds.AppID, creds.AppSecret)
+		if err != nil {
+			logger.Errorf(ctx, "[resolveDocReader] WeKnoraCloud reader init failed: %v", err)
+			return nil
+		}
+		return reader
 	case "mineru":
 		return docparser.NewMinerUReader(overrides)
 	case "mineru_cloud":
@@ -8180,50 +8202,6 @@ func (s *knowledgeService) enqueueImageMultimodalTasks(
 		} else {
 			logger.Infof(ctx, "Enqueued image:multimodal task for %s", img.ServingURL)
 		}
-	}
-}
-
-// enqueueVideoMultimodalTasks enqueues asynq tasks for multimodal video processing.
-func (s *knowledgeService) enqueueVideoMultimodalTasks(
-	ctx context.Context,
-	knowledge *types.Knowledge,
-	kb *types.KnowledgeBase,
-	videoFilePath string,
-	chunks []types.ParsedChunk,
-) {
-	if s.task == nil || videoFilePath == "" {
-		return
-	}
-
-	// Get the first chunk's ID as the parent chunk
-	chunkID := ""
-	if len(chunks) > 0 {
-		chunkID = chunks[0].ChunkID
-	}
-
-	lang, _ := types.LanguageFromContext(ctx)
-	payload := types.VideoMultimodalPayload{
-		TenantID:        knowledge.TenantID,
-		KnowledgeID:     knowledge.ID,
-		KnowledgeBaseID: kb.ID,
-		ChunkID:         chunkID,
-		VideoURL:        videoFilePath,
-		EnableVLM:       true,
-		EnableASR:       true,
-		Language:        lang,
-	}
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		logger.Warnf(ctx, "Failed to marshal video multimodal payload: %v", err)
-		return
-	}
-
-	task := asynq.NewTask(types.TypeVideoMultimodal, payloadBytes)
-	if _, err := s.task.Enqueue(task); err != nil {
-		logger.Warnf(ctx, "Failed to enqueue video multimodal task for %s: %v", videoFilePath, err)
-	} else {
-		logger.Infof(ctx, "Enqueued video:multimodal task for %s", videoFilePath)
 	}
 }
 

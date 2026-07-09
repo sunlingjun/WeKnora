@@ -218,7 +218,7 @@
                   </div>
                 </div>
 
-                <!-- 音频处理（ASR）设置 -->
+                <!-- 音视频语音识别（ASR）设置 -->
                 <div v-if="!isFAQ" v-show="currentSection === 'asr'" class="section">
                   <div v-if="formData" class="kb-multimodal-settings">
                     <div class="section-header">
@@ -385,8 +385,7 @@ const navItems = computed(() => {
   if (props.mode === 'edit' && kbInfo.value?.visibility === 'shared' && kbInfo.value?.is_owner) {
     items.push({ key: 'members', icon: 'usergroup', label: t('knowledgeEditor.sidebar.members') })
   }
-  // 只在编辑模式下显示共享标签页
-  if (props.mode === 'edit' && props.kbId) {
+  if (props.mode === 'edit' && props.kbId && !authStore.isLiteMode) {
     items.push({ key: 'share', icon: 'share', label: t('knowledgeEditor.sidebar.share') })
   }
   return items

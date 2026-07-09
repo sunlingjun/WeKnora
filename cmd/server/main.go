@@ -26,7 +26,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -105,7 +104,7 @@ func main() {
 		ctx, done := context.WithCancel(context.Background())
 
 		signals := make(chan os.Signal, 1)
-		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		signal.Notify(signals, shutdownSignals...)
 		go func() {
 			sig := <-signals
 			logger.Infof(context.Background(), "Received signal: %v, starting server shutdown...", sig)
@@ -161,7 +160,7 @@ func main() {
 		logger.Fatalf(context.Background(), "Failed to run application: %v", err)
 	}
 }
-
+ 
 // listenWithRetry retries listening with exponential backoff and SO_REUSEPORT,
 // useful during hot-reload when the previous process may not have released the port yet.
 func listenWithRetry(addr string, maxRetries int, baseDelay time.Duration) (net.Listener, error) {
