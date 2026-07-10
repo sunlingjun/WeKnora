@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -32,6 +33,7 @@ var noAuthAPI = map[string][]string{
 	"/api/v1/auth/oidc/url":           {"GET"},
 	"/api/v1/auth/oidc/callback":      {"GET"},
 	"/api/v1/auth/refresh":            {"POST"},
+	"/api/v1/files/presigned":         {"GET"},
 	"/api/v1/cas/validate":            {"GET"}, // CAS 会话验证（认证过程本身）
 }
 
@@ -207,7 +209,7 @@ func Auth(
 				return
 			}
 
-			if t == nil || t.APIKey != apiKey {
+			if t == nil || subtle.ConstantTimeCompare([]byte(t.APIKey), []byte(apiKey)) != 1 {
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"error": "Unauthorized: invalid API key",
 				})

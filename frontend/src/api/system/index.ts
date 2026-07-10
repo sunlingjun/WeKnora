@@ -109,20 +109,6 @@ export function getPromptTemplates(): Promise<{ data: PromptTemplatesConfig }> {
   return get('/api/v1/tenants/kv/prompt-templates')
 }
 
-export interface MinioBucketInfo {
-  name: string
-  policy: 'public' | 'private' | 'custom'
-  created_at?: string
-}
-
-export interface ListMinioBucketsResponse {
-  buckets: MinioBucketInfo[]
-}
-
-export function listMinioBuckets(): Promise<{ data: ListMinioBucketsResponse }> {
-  return get('/api/v1/system/minio/buckets')
-}
-
 export interface ParserEngineInfo {
   Name: string
   Description: string
@@ -183,10 +169,10 @@ export function reconnectDocReader(addr: string): Promise<ParserEnginesResponse 
 // ---- 存储引擎配置（租户级，供文档/图片存储与 docreader 使用） ----
 
 export interface StorageEngineConfig {
-  default_provider: string // "local" | "minio" | "cos" | "tos" | "s3" | "oss"
-  local?: { path_prefix: string }
-  minio?: { mode: string; endpoint: string; access_key_id: string; secret_access_key: string; bucket_name: string; use_ssl: boolean; path_prefix: string }
-  cos?: {
+  default_provider: string // "local" | "minio" | "cos" | "tos" | "s3" | "oss" | "ks3"
+  local: { path_prefix: string }
+  minio: { mode: string; endpoint: string; access_key_id: string; secret_access_key: string; bucket_name: string; use_ssl: boolean; path_prefix: string }
+  cos: {
     secret_id: string
     secret_key: string
     region: string
@@ -194,7 +180,7 @@ export interface StorageEngineConfig {
     app_id: string
     path_prefix: string
   }
-  tos?: {
+  tos: {
     endpoint: string
     region: string
     access_key: string
@@ -202,7 +188,7 @@ export interface StorageEngineConfig {
     bucket_name: string
     path_prefix: string
   }
-  s3?: {
+  s3: {
     endpoint: string
     region: string
     access_key: string
@@ -210,7 +196,7 @@ export interface StorageEngineConfig {
     bucket_name: string
     path_prefix: string
   }
-  oss?: {
+  oss: {
     endpoint: string
     region: string
     access_key: string
@@ -221,16 +207,26 @@ export interface StorageEngineConfig {
     temp_bucket_name: string
     temp_region: string
   }
+  ks3: {
+    endpoint: string
+    region: string
+    access_key: string
+    secret_key: string
+    bucket_name: string
+    path_prefix: string
+  }
 }
 
 export interface StorageEngineStatusItem {
   name: string
+  allowed?: boolean
   available: boolean
   description: string
 }
 
 export interface GetStorageEngineStatusResponse {
   engines: StorageEngineStatusItem[]
+  allowed_providers?: string[]
   minio_env_available: boolean
 }
 
@@ -247,12 +243,13 @@ export function getStorageEngineStatus(): Promise<{ data: GetStorageEngineStatus
 }
 
 export interface StorageCheckRequest {
-  provider: string // "minio" | "cos" | "tos" | "s3" | "oss"
+  provider: string // "minio" | "cos" | "tos" | "s3" | "oss" | "ks3"
   minio?: StorageEngineConfig['minio']
   cos?: StorageEngineConfig['cos']
   tos?: StorageEngineConfig['tos']
   s3?: StorageEngineConfig['s3']
   oss?: StorageEngineConfig['oss']
+  ks3?: StorageEngineConfig['ks3']
 }
 
 export interface StorageCheckResponse {

@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 
 	chatpipeline "github.com/Tencent/WeKnora/internal/application/service/chat_pipeline"
-	llmcontext "github.com/Tencent/WeKnora/internal/application/service/llmcontext"
 )
 
 // generateEventID generates a unique event ID with type suffix for better traceability
@@ -23,7 +22,10 @@ func generateEventID(suffix string) string {
 	return fmt.Sprintf("%s-%s", uuid.New().String()[:8], suffix)
 }
 
-// sessionService implements the SessionService interface for managing conversation sessions
+// sessionService implements the SessionService interface for managing conversation sessions.
+// History for multi-turn conversations is rebuilt from the messages table on demand
+// (see service.LoadAgentHistory and chat_pipeline history loading) — there is no
+// separate cross-turn cache layer.
 type sessionService struct {
 	cfg                   *config.Config                         // Application configuration
 	sessionRepo           interfaces.SessionRepository           // Repository for session data
@@ -33,7 +35,6 @@ type sessionService struct {
 	tenantService         interfaces.TenantService               // Service for tenant operations
 	eventManager          *chatpipeline.EventManager             // Event manager for chat pipeline
 	agentService          interfaces.AgentService                // Service for agent operations
-	sessionStorage        llmcontext.ContextStorage              // Session storage
 	knowledgeService      interfaces.KnowledgeService            // Service for knowledge operations
 	chunkService          interfaces.ChunkService                // Service for chunk operations
 	webSearchStateRepo    interfaces.WebSearchStateService       // Service for web search state
@@ -54,7 +55,6 @@ func NewSessionService(cfg *config.Config,
 	tenantService interfaces.TenantService,
 	eventManager *chatpipeline.EventManager,
 	agentService interfaces.AgentService,
-	sessionStorage llmcontext.ContextStorage,
 	webSearchStateRepo interfaces.WebSearchStateService,
 	webSearchProviderRepo interfaces.WebSearchProviderRepository,
 	kbShareService interfaces.KBShareService,
@@ -72,7 +72,6 @@ func NewSessionService(cfg *config.Config,
 		tenantService:         tenantService,
 		eventManager:          eventManager,
 		agentService:          agentService,
-		sessionStorage:        sessionStorage,
 		webSearchStateRepo:    webSearchStateRepo,
 		webSearchProviderRepo: webSearchProviderRepo,
 		kbShareService:        kbShareService,
@@ -172,6 +171,49 @@ func (s *sessionService) GetPagedSessionsByTenant(ctx context.Context,
 	return types.NewPageResult(total, pagination, sessions), nil
 }
 
+// ListSessions returns a page of sessions with search/source filters, scoped to
+// the current tenant (and user when the caller is an authenticated user).
+func (s *sessionService) ListSessions(
+	ctx context.Context, query *types.SessionListQuery,
+) (*types.PageResult, error) {
+	if query == nil {
+		query = &types.SessionListQuery{}
+	}
+	query.TenantID = types.MustTenantIDFromContext(ctx)
+	if uid, ok := types.UserIDFromContext(ctx); ok {
+		query.UserID = uid
+	}
+
+	items, total, err := s.sessionRepo.QueryPaged(ctx, query)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"tenant_id": query.TenantID,
+			"user_id":   query.UserID,
+			"keyword":   query.Keyword,
+			"source":    query.Source,
+			"agent_id":  query.AgentID,
+		})
+		return nil, err
+	}
+
+	pagination := &types.Pagination{Page: query.Page, PageSize: query.PageSize}
+	return types.NewPageResult(total, pagination, items), nil
+}
+
+// SetSessionPinned pins or unpins a session for the current user scope.
+// Returns the number of rows affected; 0 means the session doesn't exist
+// or is not owned by the caller so the handler can respond 404.
+func (s *sessionService) SetSessionPinned(
+	ctx context.Context, sessionID string, pinned bool,
+) (int64, error) {
+	if sessionID == "" {
+		return 0, errors.New("session id is required")
+	}
+	tenantID := types.MustTenantIDFromContext(ctx)
+	userID, _ := types.UserIDFromContext(ctx)
+	return s.sessionRepo.SetPinned(ctx, tenantID, userID, sessionID, pinned)
+}
+
 // UpdateSession updates an existing session's properties
 func (s *sessionService) UpdateSession(ctx context.Context, session *types.Session) error {
 	// Validate session ID
@@ -226,11 +268,6 @@ func (s *sessionService) DeleteSession(ctx context.Context, id string) error {
 		logger.Warnf(ctx, "Failed to cleanup temporary KB for session %s: %v", id, err)
 	}
 
-	// Cleanup conversation context stored in Redis for this session
-	if err := s.sessionStorage.Delete(ctx, id); err != nil {
-		logger.Warnf(ctx, "Failed to cleanup conversation context for session %s: %v", id, err)
-	}
-
 	// Delete session from repository
 	err := s.sessionRepo.Delete(ctx, tenantID, id)
 	if err != nil {
@@ -274,9 +311,6 @@ func (s *sessionService) BatchDeleteSessions(ctx context.Context, ids []string) 
 		if err := s.webSearchStateRepo.DeleteWebSearchTempKBState(ctx, id); err != nil {
 			logger.Warnf(ctx, "Failed to cleanup temporary KB for session %s: %v", id, err)
 		}
-		if err := s.sessionStorage.Delete(ctx, id); err != nil {
-			logger.Warnf(ctx, "Failed to cleanup conversation context for session %s: %v", id, err)
-		}
 	}
 
 	// Batch delete sessions from repository
@@ -318,9 +352,6 @@ func (s *sessionService) DeleteAllSessions(ctx context.Context) error {
 
 			if err := s.webSearchStateRepo.DeleteWebSearchTempKBState(ctx, session.ID); err != nil {
 				logger.Warnf(ctx, "Failed to cleanup temporary KB for session %s: %v", session.ID, err)
-			}
-			if err := s.sessionStorage.Delete(ctx, session.ID); err != nil {
-				logger.Warnf(ctx, "Failed to cleanup conversation context for session %s: %v", session.ID, err)
 			}
 		}
 	}
@@ -461,6 +492,9 @@ func (s *sessionService) GenerateTitleAsync(
 	tenantID := ctx.Value(types.TenantIDContextKey)
 	requestID := ctx.Value(types.RequestIDContextKey)
 	language := ctx.Value(types.LanguageContextKey)
+	// Keep the Langfuse trace handle so the async title generation shows up
+	// as a child of the same trace as the originating chat request.
+	langfuseTrace := ctx.Value(types.LangfuseTraceContextKey)
 	go func() {
 		bgCtx := context.Background()
 		if tenantID != nil {
@@ -471,6 +505,9 @@ func (s *sessionService) GenerateTitleAsync(
 		}
 		if language != nil {
 			bgCtx = context.WithValue(bgCtx, types.LanguageContextKey, language)
+		}
+		if langfuseTrace != nil {
+			bgCtx = context.WithValue(bgCtx, types.LangfuseTraceContextKey, langfuseTrace)
 		}
 
 		// Skip if title already exists
@@ -513,11 +550,4 @@ func (s *sessionService) GenerateTitleAsync(
 			}
 		}
 	}()
-}
-
-// ClearContext clears the LLM context for a session
-// This is useful when switching knowledge bases or agent modes to prevent context contamination
-func (s *sessionService) ClearContext(ctx context.Context, sessionID string) error {
-	logger.Infof(ctx, "Clearing context for session: %s", sessionID)
-	return s.sessionStorage.Delete(ctx, sessionID)
 }

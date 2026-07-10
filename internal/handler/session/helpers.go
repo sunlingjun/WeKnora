@@ -192,11 +192,12 @@ func (h *Handler) createAssistantMessage(ctx context.Context, assistantMessage *
 func (h *Handler) setupStreamHandler(
 	ctx context.Context,
 	sessionID, assistantMessageID, requestID string,
+	receivedAt time.Time,
 	assistantMessage *types.Message,
 	eventBus *event.EventBus,
 ) *AgentStreamHandler {
 	streamHandler := NewAgentStreamHandler(
-		ctx, sessionID, assistantMessageID, requestID,
+		ctx, sessionID, assistantMessageID, requestID, receivedAt,
 		assistantMessage, h.streamManager, eventBus,
 	)
 	streamHandler.Subscribe()
@@ -214,9 +215,13 @@ func (h *Handler) setupStopEventHandler(
 	eventBus.On(event.EventStop, func(ctx context.Context, evt event.Event) error {
 		logger.Infof(ctx, "Received stop event, cancelling async operations for session: %s", sessionID)
 		cancel()
-		assistantMessage.Content = "用户停止了本次对话"
-		// Use session's tenant for message update (ctx may have effectiveTenantID when using shared agent)
-		updateCtx := context.WithValue(ctx, types.TenantIDContextKey, sessionTenantID)
+		// Preserve whatever has been streamed so far; do not overwrite Content.
+		// Use session's tenant for message update (ctx may have effectiveTenantID when using shared agent).
+		// Use WithoutCancel so the GORM UPDATE survives the upcoming ctx.Done triggered by cancel()/client disconnect.
+		updateCtx := context.WithValue(
+			context.WithoutCancel(ctx),
+			types.TenantIDContextKey, sessionTenantID,
+		)
 		h.completeAssistantMessage(updateCtx, assistantMessage, "") // empty query: stopped conversations are not indexed
 		return nil
 	})

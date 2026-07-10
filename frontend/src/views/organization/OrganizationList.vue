@@ -34,7 +34,7 @@
                   style="--wails-draggable: no-drag"
                   @click="handleCreateOrganization"
                 >
-                  <template #icon><SvgIcon name="organization" variant="green" :size="16" class="org-create-icon sidebar-org-icon" /></template>
+                  <template #icon><img src="@/assets/img/organization-green.svg" class="org-create-icon" alt="" aria-hidden="true" /></template>
                 </t-button>
               </t-tooltip>
             </div>
@@ -148,7 +148,7 @@
               </t-tooltip>
               <t-tooltip :content="$t('organization.invite.agents')" placement="top">
                 <div class="feature-badge stat-agent">
-                  <SvgIcon name="agent" variant="green" :size="14" class="stat-agent-icon" />
+                  <img src="@/assets/img/agent-green.svg" class="stat-agent-icon" alt="" aria-hidden="true" />
                   <span class="badge-count">{{ org.agent_share_count ?? 0 }}</span>
                 </div>
               </t-tooltip>
@@ -178,7 +178,7 @@
           {{ $t('organization.joinOrg') }}
         </t-button>
         <t-button class="org-create-btn" @click="handleCreateOrganization">
-          <template #icon><SvgIcon name="organization" variant="green" theme="anti" :size="16" class="org-create-icon"  /></template>
+          <template #icon><img src="@/assets/img/organization-green.svg" class="org-create-icon" alt="" aria-hidden="true" /></template>
           {{ $t('organization.createOrg') }}
         </t-button>
       </div>
@@ -414,7 +414,7 @@
                                 {{ org.share_count }}
                               </span>
                               <span class="searchable-badge searchable-badge-agent">
-                                <SvgIcon name="agent" variant="default" :size="12" class="searchable-badge-agent-icon" />
+                                <img src="@/assets/img/agent.svg" class="searchable-badge-agent-icon" alt="" aria-hidden="true" />
                                 {{ org.agent_share_count ?? 0 }}
                               </span>
                               <t-tag v-if="org.require_approval" class="searchable-tag-approval" size="small" variant="light">
@@ -491,7 +491,7 @@
                         {{ invitePreviewData.share_count }} {{ $t('organization.invite.knowledgeBases') }}
                       </span>
                       <span class="preview-badge preview-badge-agent">
-                        <SvgIcon name="agent" variant="default" :size="14" class="preview-badge-agent-icon" />
+                        <img src="@/assets/img/agent.svg" class="preview-badge-agent-icon" alt="" aria-hidden="true" />
                         {{ invitePreviewData.agent_share_count ?? 0 }} {{ $t('organization.invite.agents') }}
                       </span>
                       <t-tag v-if="invitePreviewData.require_approval" class="preview-tag-approval" size="small" variant="light">
@@ -590,7 +590,6 @@ import { useI18n } from 'vue-i18n'
 import OrganizationSettingsModal from './OrganizationSettingsModal.vue'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import ListSpaceSidebar from '@/components/ListSpaceSidebar.vue'
-import { SvgIcon } from '@/components/icons'
 
 interface OrgWithUI extends Organization {
   showMore?: boolean
@@ -1238,7 +1237,7 @@ onUnmounted(() => {
 <style scoped lang="less">
 .org-list-container {
   margin: 0 16px 0 0;
-  height: calc(100vh);
+  height: 100%;
   box-sizing: border-box;
   flex: 1;
   display: flex;
@@ -1284,7 +1283,7 @@ onUnmounted(() => {
   h2 {
     margin: 0;
     color: var(--td-text-color-primary);
-    font-family: "PingFang SC", system-ui, sans-serif;
+    font-family: var(--app-font-family);
     font-size: 24px;
     font-weight: 600;
     line-height: 32px;
@@ -1324,12 +1323,12 @@ onUnmounted(() => {
   border: none;
   color: var(--td-text-color-anti);
   font-weight: 500;
-  box-shadow: 0 2px 8px rgba(from var(--td-brand-color, #07c05f) r g b / 0.25);
+  box-shadow: 0 2px 8px rgba(7, 192, 95, 0.25);
   transition: all 0.25s ease;
 
   &:hover {
-    background: var(--td-brand-color-hover, #05a650);
-    box-shadow: 0 4px 14px rgba(from var(--td-brand-color, #07c05f) r g b / 0.35);
+    background: var(--td-brand-color);
+    box-shadow: 0 4px 14px rgba(7, 192, 95, 0.35);
   }
 
   .org-create-icon {
@@ -1342,7 +1341,7 @@ onUnmounted(() => {
 .header-subtitle {
   margin: 0;
   color: var(--td-text-color-secondary);
-  font-family: "PingFang SC", system-ui, sans-serif;
+  font-family: var(--app-font-family);
   font-size: 14px;
   font-weight: 400;
   line-height: 20px;
@@ -1393,7 +1392,7 @@ onUnmounted(() => {
     padding: 12px 0;
     cursor: pointer;
     color: var(--td-text-color-secondary);
-    font-family: "PingFang SC", system-ui, sans-serif;
+    font-family: var(--app-font-family);
     font-size: 14px;
     font-weight: 400;
     user-select: none;
@@ -1466,29 +1465,29 @@ onUnmounted(() => {
     right: 0;
     width: 120px;
     height: 80px;
-    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(from var(--td-brand-color, #07c05f) r g b / 0.06) 0%, transparent 70%);
+    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(7, 192, 95, 0.06) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
 
   &.joined-org {
     &:hover {
-      border-color: rgba(from var(--td-brand-color, #07c05f) r g b / 0.4);
-      box-shadow: 0 4px 16px rgba(from var(--td-brand-color, #07c05f) r g b / 0.08);
+      border-color: rgba(7, 192, 95, 0.4);
+      box-shadow: 0 4px 16px rgba(7, 192, 95, 0.08);
     }
   }
 
   &:hover {
-    border-color: rgba(from var(--td-brand-color, #07c05f) r g b / 0.5);
-    box-shadow: 0 6px 20px rgba(from var(--td-brand-color, #07c05f) r g b / 0.12);
+    border-color: rgba(7, 192, 95, 0.5);
+    box-shadow: 0 6px 20px rgba(7, 192, 95, 0.12);
   }
 
   .card-decoration {
-    color: rgba(from var(--td-brand-color, #07c05f) r g b / 0.35);
+    color: rgba(7, 192, 95, 0.35);
   }
 
   &:hover .card-decoration {
-    color: rgba(from var(--td-brand-color, #07c05f) r g b / 0.55);
+    color: rgba(7, 192, 95, 0.55);
   }
 
   .card-header {
@@ -1585,7 +1584,7 @@ onUnmounted(() => {
 
 .card-title {
   color: var(--td-text-color-primary);
-  font-family: "PingFang SC", -apple-system, sans-serif;
+  font-family: var(--app-font-family);
   font-size: 15px;
   font-weight: 600;
   line-height: 22px;
@@ -1646,7 +1645,7 @@ onUnmounted(() => {
   line-clamp: 2;
   overflow: hidden;
   color: var(--td-text-color-secondary);
-  font-family: "PingFang SC", -apple-system, sans-serif;
+  font-family: var(--app-font-family);
   font-size: 12px;
   font-weight: 400;
   line-height: 18px;
@@ -1686,7 +1685,7 @@ onUnmounted(() => {
   border-radius: 5px;
   font-size: 11px;
   font-weight: 500;
-  font-family: "PingFang SC", system-ui, sans-serif;
+  font-family: var(--app-font-family);
   cursor: default;
   transition: background 0.2s ease;
 
@@ -1699,17 +1698,17 @@ onUnmounted(() => {
   }
 
   &.stat-member {
-    background: rgba(from var(--td-text-color-secondary, #64748b) r g b / 0.08);
+    background: rgba(100, 116, 139, 0.08);
     color: var(--td-text-color-secondary);
     .t-icon { color: var(--td-text-color-secondary); }
-    &:hover { background: rgba(from var(--td-text-color-secondary, #64748b) r g b / 0.12); }
+    &:hover { background: rgba(100, 116, 139, 0.12); }
   }
 
   &.stat-kb {
-    background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.08);
-    color: var(--td-brand-color, #07c05f);
-    .t-icon { color: var(--td-brand-color, #07c05f); }
-    &:hover { background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.12); }
+    background: rgba(7, 192, 95, 0.08);
+    color: var(--td-brand-color);
+    .t-icon { color: var(--td-brand-color); }
+    &:hover { background: rgba(7, 192, 95, 0.12); }
   }
 
   &.stat-agent {
@@ -1735,8 +1734,8 @@ onUnmounted(() => {
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
-  background: rgba(from var(--td-warning-color-5, #f59e0b) r g b / 0.12);
-  color: var(--td-warning-color, #d48806);
+  background: rgba(250, 173, 20, 0.12);
+  color: var(--td-warning-color);
   white-space: nowrap;
 }
 
@@ -1756,8 +1755,8 @@ onUnmounted(() => {
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
-  font-family: "PingFang SC", system-ui, sans-serif;
-  background: rgba(from var(--td-text-color-placeholder, #6b7280) r g b / 0.08);
+  font-family: var(--app-font-family);
+  background: rgba(107, 114, 128, 0.08);
   color: var(--td-text-color-secondary);
 
   .t-icon {
@@ -1772,21 +1771,21 @@ onUnmounted(() => {
   }
 
   &.admin {
-    background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.08);
+    background: rgba(7, 192, 95, 0.12);
     color: var(--td-brand-color);
     .t-icon { color: var(--td-brand-color); }
   }
 
   &.editor {
-    background: rgba(from var(--td-brand-color, #07c05f) r g b / 0.08);
+    background: rgba(7, 192, 95, 0.08);
     color: var(--td-brand-color);
     .t-icon { color: var(--td-brand-color); }
   }
 
   &.viewer {
-    background: rgba(from var(--td-text-color-placeholder, #6b7280) r g b / 0.08);
-    color: var(--td-text-color-secondary, #6b7280);
-    .t-icon { color: var(--td-text-color-secondary, #6b7280); }
+    background: rgba(107, 114, 128, 0.08);
+    color: var(--td-text-color-secondary);
+    .t-icon { color: var(--td-text-color-secondary); }
   }
 }
 
@@ -1806,7 +1805,7 @@ onUnmounted(() => {
 
   .empty-txt {
     color: var(--td-text-color-placeholder);
-    font-family: "PingFang SC";
+    font-family: var(--app-font-family);
     font-size: 16px;
     font-weight: 600;
     line-height: 26px;
@@ -1815,7 +1814,7 @@ onUnmounted(() => {
 
   .empty-desc {
     color: var(--td-text-color-disabled);
-    font-family: "PingFang SC";
+    font-family: var(--app-font-family);
     font-size: 14px;
     font-weight: 400;
     line-height: 22px;
@@ -1886,7 +1885,7 @@ onUnmounted(() => {
 
   .circle-title {
     color: var(--td-text-color-primary);
-    font-family: "PingFang SC";
+    font-family: var(--app-font-family);
     font-size: 16px;
     font-weight: 600;
     line-height: 24px;
@@ -1894,7 +1893,7 @@ onUnmounted(() => {
 
   .del-circle-txt {
     color: var(--td-text-color-placeholder);
-    font-family: "PingFang SC";
+    font-family: var(--app-font-family);
     font-size: 14px;
     font-weight: 400;
     line-height: 22px;
@@ -1912,7 +1911,7 @@ onUnmounted(() => {
 
   .circle-btn-txt {
     color: var(--td-text-color-primary);
-    font-family: "PingFang SC";
+    font-family: var(--app-font-family);
     font-size: 14px;
     font-weight: 400;
     line-height: 22px;
@@ -1941,7 +1940,7 @@ onUnmounted(() => {
 .create-org-dialog,
 .join-org-dialog {
   .t-form-item__label {
-    font-family: "PingFang SC";
+    font-family: var(--app-font-family);
     font-size: 14px;
     font-weight: 500;
     color: var(--td-text-color-primary);
@@ -1949,18 +1948,9 @@ onUnmounted(() => {
 
   .t-input,
   .t-textarea {
-    font-family: "PingFang SC";
+    font-family: var(--app-font-family);
   }
 
-  .t-button--theme-primary {
-    background-color: var(--td-brand-color);
-    border-color: var(--td-brand-color);
-
-    &:hover {
-      background-color: var(--td-brand-color);
-      border-color: var(--td-brand-color);
-    }
-  }
 }
 
 // 邀请预览弹框 - 参考 FAQ 导入弹窗风格，更紧凑
@@ -1968,7 +1958,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 2000;
-  background: rgba(from var(--td-text-color-primary, #000) r g b / 0.5);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2023,7 +2013,7 @@ onUnmounted(() => {
 
 .invite-preview-title {
   margin: 0;
-  font-family: "PingFang SC", -apple-system, sans-serif;
+  font-family: var(--app-font-family);
   font-size: 18px;
   font-weight: 600;
   color: var(--td-text-color-primary);
@@ -2117,7 +2107,7 @@ onUnmounted(() => {
     user-select: none;
     position: relative;
     transition: color 0.2s ease;
-    font-family: "PingFang SC", -apple-system, sans-serif;
+    font-family: var(--app-font-family);
 
     &:hover {
       color: var(--td-text-color-primary);
@@ -2202,7 +2192,7 @@ onUnmounted(() => {
 
   .searchable-empty-txt {
     color: var(--td-text-color-placeholder);
-    font-family: "PingFang SC", system-ui, sans-serif;
+    font-family: var(--app-font-family);
     font-size: 14px;
     font-weight: 500;
     line-height: 1.5;
@@ -2296,7 +2286,7 @@ onUnmounted(() => {
 
   .searchable-card-title {
     color: var(--td-text-color-primary);
-    font-family: "PingFang SC", -apple-system, sans-serif;
+    font-family: var(--app-font-family);
     font-size: 15px;
     font-weight: 600;
     line-height: 22px;
@@ -2330,7 +2320,7 @@ onUnmounted(() => {
     overflow: hidden;
     margin: 0;
     color: var(--td-text-color-placeholder);
-    font-family: "PingFang SC", system-ui, sans-serif;
+    font-family: var(--app-font-family);
     font-size: 12px;
     font-weight: 400;
     line-height: 1.5;
@@ -2360,7 +2350,7 @@ onUnmounted(() => {
     border-radius: 6px;
     font-size: 12px;
     font-weight: 500;
-    font-family: "PingFang SC", system-ui, sans-serif;
+    font-family: var(--app-font-family);
 
     &.member {
       background: rgba(7, 192, 95, 0.08);
@@ -2401,7 +2391,7 @@ onUnmounted(() => {
     color: var(--td-text-color-secondary);
     margin: 0 0 16px;
     line-height: 1.55;
-    font-family: "PingFang SC", -apple-system, sans-serif;
+    font-family: var(--app-font-family);
   }
   .invite-preview-input-wrap {
     margin-bottom: 12px;
@@ -2411,7 +2401,7 @@ onUnmounted(() => {
     color: var(--td-text-color-secondary);
     margin: 0 0 20px;
     line-height: 1.5;
-    font-family: "PingFang SC", -apple-system, sans-serif;
+    font-family: var(--app-font-family);
   }
   .invite-preview-error-inline {
     display: flex;
@@ -2420,7 +2410,7 @@ onUnmounted(() => {
     color: var(--td-error-color);
     font-size: 13px;
     margin-bottom: 16px;
-    font-family: "PingFang SC", -apple-system, sans-serif;
+    font-family: var(--app-font-family);
   }
   .invite-preview-footer-single {
     margin: 24px 0 0;
@@ -2441,7 +2431,7 @@ onUnmounted(() => {
   .invite-preview-loading-text {
     font-size: 14px;
     color: var(--td-text-color-secondary);
-    font-family: "PingFang SC", -apple-system, sans-serif;
+    font-family: var(--app-font-family);
   }
 }
 
@@ -2462,7 +2452,7 @@ onUnmounted(() => {
     font-weight: 600;
     color: var(--td-text-color-primary);
     margin: 0 0 8px;
-    font-family: "PingFang SC";
+    font-family: var(--app-font-family);
   }
 
   .invite-preview-error-desc {
@@ -2470,7 +2460,7 @@ onUnmounted(() => {
     color: var(--td-text-color-secondary);
     margin: 0 0 24px;
     line-height: 1.5;
-    font-family: "PingFang SC";
+    font-family: var(--app-font-family);
   }
 }
 
@@ -2544,7 +2534,7 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--td-text-color-primary);
   margin: 0 0 4px;
-  font-family: "PingFang SC", system-ui, sans-serif;
+  font-family: var(--app-font-family);
   line-height: 1.3;
   letter-spacing: -0.02em;
 }
@@ -2556,7 +2546,7 @@ onUnmounted(() => {
   margin: 0;
   font-size: 12px;
   color: var(--td-text-color-placeholder);
-  font-family: "PingFang SC", system-ui, sans-serif;
+  font-family: var(--app-font-family);
 }
 
 .preview-detail-id-label {
@@ -2564,7 +2554,7 @@ onUnmounted(() => {
 }
 
 .preview-detail-id-value {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--app-font-family-mono);
   font-size: 11px;
   letter-spacing: 0.02em;
   color: var(--td-text-color-secondary);
@@ -2592,7 +2582,7 @@ onUnmounted(() => {
   overflow: hidden;
   margin: 0;
   color: var(--td-text-color-placeholder);
-  font-family: "PingFang SC", system-ui, sans-serif;
+  font-family: var(--app-font-family);
   font-size: 13px;
   font-weight: 400;
   line-height: 1.5;
@@ -2622,7 +2612,7 @@ onUnmounted(() => {
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
-  font-family: "PingFang SC", system-ui, sans-serif;
+  font-family: var(--app-font-family);
 
   &.member {
     background: rgba(7, 192, 95, 0.08);
@@ -2663,7 +2653,7 @@ onUnmounted(() => {
   gap: 10px;
   margin-bottom: 12px;
   font-size: 14px;
-  font-family: "PingFang SC", system-ui, sans-serif;
+  font-family: var(--app-font-family);
 }
 
 .preview-join-label {
@@ -2691,7 +2681,7 @@ onUnmounted(() => {
   font-size: 13px;
   color: var(--td-text-color-secondary);
   line-height: 1.5;
-  font-family: "PingFang SC", system-ui, sans-serif;
+  font-family: var(--app-font-family);
   margin-bottom: 16px;
 
   &.preview-join-note-warning {
@@ -2725,7 +2715,7 @@ onUnmounted(() => {
 .preview-form-label {
   display: block;
   margin-bottom: 8px;
-  font-family: "PingFang SC", system-ui, sans-serif;
+  font-family: var(--app-font-family);
   font-size: 14px;
   font-weight: 500;
   color: var(--td-text-color-secondary);

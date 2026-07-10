@@ -149,7 +149,7 @@ interface ConnectorDef {
   permissionDocUrl: string
   permissionPageUrl: string
   requiredPermissions: string[]
-  fields: { key: string; labelKey: string; placeholder: string; secret?: boolean }[]
+  fields: { key: string; labelKey: string; placeholder: string; secret?: boolean; optional?: boolean; hintKey?: string }[]
 }
 
 const connectorDefs = computed<ConnectorDef[]>(() => [
@@ -183,13 +183,17 @@ const connectorDefs = computed<ConnectorDef[]>(() => [
   },
   {
     type: 'yuque',
-    available: false,
-    docUrl: 'https://www.yuque.com/settings/tokens',
-    permissionDocUrl: '',
-    permissionPageUrl: '',
-    requiredPermissions: [],
+    available: true,
+    docUrl: 'https://www.yuque.com/yuque/developer/api',
+    permissionDocUrl: 'https://www.yuque.com/yuque/developer/api',
+    permissionPageUrl: 'https://www.yuque.com/settings/tokens',
+    requiredPermissions: [
+      'repo:read',
+      'doc:read',
+    ],
     fields: [
       { key: 'api_token', labelKey: 'datasource.field.apiToken', placeholder: '', secret: true },
+      { key: 'base_url', labelKey: 'datasource.field.baseUrl', placeholder: 'https://www.yuque.com', optional: true, hintKey: 'datasource.field.baseUrlHint' },
     ],
   },
 ])
@@ -244,6 +248,7 @@ function selectType(def: ConnectorDef) {
 async function testConnection() {
   const fields = currentDef.value?.fields || []
   for (const f of fields) {
+    if (f.optional) continue
     if (!form.value.config.credentials[f.key]) {
       MessagePlugin.warning(`${t(f.labelKey)} ${t('datasource.isRequired')}`)
       return
@@ -373,6 +378,7 @@ function toggleResource(id: string) {
 function validateStep1Fields(): boolean {
   const fields = currentDef.value?.fields || []
   for (const f of fields) {
+    if (f.optional) continue
     if (!form.value.config.credentials[f.key]) {
       MessagePlugin.warning(`${t(f.labelKey)} ${t('datasource.isRequired')}`)
       return false
@@ -458,6 +464,7 @@ async function handleClose() {
 const resourceTypeLabelMap: Record<string, string> = {
   wiki_space: 'datasource.resourceType.wikiSpace',
   doc_category: 'datasource.resourceType.docCategory',
+  book: 'datasource.resourceType.book',
 }
 
 function resourceTypeLabel(type: string): string {
@@ -548,8 +555,9 @@ const stepTitles = computed(() => [
             <div class="ds-prereq-item-desc">{{ t(`datasource.prereqStep3Desc_${form.type}`, t('datasource.prereqMemberDesc')) }}</div>
           </div>
         </div>
-        <a :href="currentDef.permissionPageUrl" target="_blank" rel="noopener" class="ds-prereq-link">
-          {{ t('datasource.prereqOpenConsole') }}
+        <a :href="currentDef.permissionPageUrl" target="_blank" rel="noopener" class="doc-link ds-prereq-link">
+          {{ t(`datasource.prereqOpenConsole_${form.type}`, t('datasource.prereqOpenConsole')) }}
+          <t-icon name="link" class="link-icon" />
         </a>
       </div>
 
@@ -561,16 +569,23 @@ const stepTitles = computed(() => [
       <div v-if="currentDef?.docUrl" class="ds-doc-link">
         <t-icon name="info-circle" size="14px" />
         <span>{{ t('datasource.docHint') }}</span>
-        <a :href="currentDef.docUrl" target="_blank" rel="noopener">{{ currentDef.docUrl }}</a>
+        <a :href="currentDef.docUrl" target="_blank" rel="noopener" class="doc-link">
+          {{ currentDef.docUrl }}
+          <t-icon name="link" class="link-icon" />
+        </a>
       </div>
 
       <div v-for="field in currentDef?.fields || []" :key="field.key" class="form-item">
-        <label class="form-label">{{ t(field.labelKey) }}</label>
+        <label class="form-label">
+          {{ t(field.labelKey) }}
+          <span v-if="!field.optional" class="required-mark">*</span>
+        </label>
         <t-input
           v-model="form.config.credentials[field.key]"
           :placeholder="field.placeholder"
           :type="field.secret ? 'password' : 'text'"
         />
+        <div v-if="field.hintKey" class="form-hint">{{ t(field.hintKey) }}</div>
       </div>
 
       <div class="form-actions">
@@ -654,8 +669,9 @@ const stepTitles = computed(() => [
           <t-button variant="outline" size="small" @click="loadResources">
             {{ t('datasource.retryLoadResources') }}
           </t-button>
-          <a v-if="currentDef?.permissionDocUrl" :href="currentDef.permissionDocUrl" target="_blank" rel="noopener" class="ds-doc-link-inline">
+          <a v-if="currentDef?.permissionDocUrl" :href="currentDef.permissionDocUrl" target="_blank" rel="noopener" class="doc-link">
             {{ t('datasource.permissionDocLink') }}
+            <t-icon name="link" class="link-icon" />
           </a>
         </div>
       </div>
@@ -678,16 +694,16 @@ const stepTitles = computed(() => [
       <div class="form-item">
         <label class="form-label">{{ t('datasource.syncModeLabel') }}</label>
         <t-radio-group v-model="form.sync_mode">
-          <t-radio value="incremental">{{ t('datasource.syncMode.incremental') }}</t-radio>
-          <t-radio value="full">{{ t('datasource.syncMode.full') }}</t-radio>
+          <t-radio-button value="incremental">{{ t('datasource.syncMode.incremental') }}</t-radio-button>
+          <t-radio-button value="full">{{ t('datasource.syncMode.full') }}</t-radio-button>
         </t-radio-group>
       </div>
 
       <div class="form-item">
         <label class="form-label">{{ t('datasource.conflictLabel') }}</label>
         <t-radio-group v-model="form.conflict_strategy">
-          <t-radio value="overwrite">{{ t('datasource.conflict.overwrite') }}</t-radio>
-          <t-radio value="skip">{{ t('datasource.conflict.skip') }}</t-radio>
+          <t-radio-button value="overwrite">{{ t('datasource.conflict.overwrite') }}</t-radio-button>
+          <t-radio-button value="skip">{{ t('datasource.conflict.skip') }}</t-radio-button>
         </t-radio-group>
       </div>
 
@@ -841,13 +857,12 @@ const stepTitles = computed(() => [
   border-radius: 3px;
   background: var(--td-bg-color-component);
   color: var(--td-text-color-secondary);
-  font-family: monospace;
+  font-family: var(--app-font-family-mono);
   margin-right: 4px;
 }
 
 .ds-prereq-link {
   font-size: 12px;
-  color: var(--td-brand-color);
   padding-left: 30px;
 }
 
@@ -864,14 +879,15 @@ const stepTitles = computed(() => [
   margin-bottom: 16px;
 }
 
-.ds-doc-link a {
-  color: var(--td-brand-color);
+.ds-doc-link .doc-link {
   word-break: break-all;
 }
 
 .form-item { margin-bottom: 16px; }
 .form-label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--td-text-color-primary); }
+.required-mark { color: var(--td-error-color); margin-left: 2px; }
 .form-tip { font-size: 12px; color: var(--td-text-color-placeholder); margin: 4px 0 12px; }
+.form-hint { font-size: 12px; color: var(--td-text-color-placeholder); margin-top: 6px; line-height: 1.5; }
 .form-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .test-ok { color: var(--td-success-color); font-size: 13px; display: flex; align-items: center; gap: 4px; }
 
@@ -1041,8 +1057,4 @@ const stepTitles = computed(() => [
   gap: 16px;
 }
 
-.ds-doc-link-inline {
-  color: var(--td-brand-color);
-  font-size: 12px;
-}
 </style>

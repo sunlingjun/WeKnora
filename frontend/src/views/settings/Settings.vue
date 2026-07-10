@@ -117,6 +117,11 @@
                   <ChatHistorySettings />
                 </div>
 
+                <!-- 向量数据库引擎 -->
+                <div v-if="currentSection === 'vectorstore'" class="section">
+                  <VectorStoreSettings />
+                </div>
+
                 <!-- 解析引擎 -->
                 <div v-if="currentSection === 'parser'" class="section">
                   <ParserEngineSettings />
@@ -170,6 +175,7 @@ import OllamaSettings from './OllamaSettings.vue'
 import McpSettings from './McpSettings.vue'
 import WebSearchSettings from './WebSearchSettings.vue'
 import ChatHistorySettings from './ChatHistorySettings.vue'
+import VectorStoreSettings from './VectorStoreSettings.vue'
 import ParserEngineSettings from './ParserEngineSettings.vue'
 import StorageEngineSettings from './StorageEngineSettings.vue'
 import WeKnoraCloudSettings from './WeKnoraCloudSettings.vue'
@@ -208,6 +214,7 @@ const navItems = computed(() => {
     },
     { key: 'websearch', icon: 'search', label: t('settings.webSearchConfig')  },
     { key: 'chathistory', icon: 'chat', label: t('chatHistorySettings.title') },
+    { key: 'vectorstore', icon: 'data-base', label: t('settings.vectorStoreEngine') },
     {
       key: 'parser',
       icon: 'file-search',

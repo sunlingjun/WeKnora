@@ -6,7 +6,7 @@ package container
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -20,6 +20,7 @@ import (
 	_ "github.com/duckdb/duckdb-go/v2"
 	esv7 "github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v8"
+	_ "github.com/go-sql-driver/mysql" // 给 Doris (database/sql) 注册 MySQL 协议驱动
 	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 	"github.com/panjf2000/ants/v2"
 	"github.com/redis/go-redis/v9"
@@ -28,18 +29,20 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/Tencent/WeKnora/internal/agent/approval"
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	memoryRepo "github.com/Tencent/WeKnora/internal/application/repository/memory/neo4j"
+	dorisRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/doris"
 	elasticsearchRepoV7 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v7"
 	elasticsearchRepoV8 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v8"
 	neo4jRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/neo4j"
 	postgresRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/postgres"
 	sqliteRetrieverRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/sqlite"
+	tencentVectorDBRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/tencentvectordb"
 	weaviateRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/weaviate"
 	"github.com/Tencent/WeKnora/internal/application/service"
 	chatpipeline "github.com/Tencent/WeKnora/internal/application/service/chat_pipeline"
 	"github.com/Tencent/WeKnora/internal/application/service/file"
-	"github.com/Tencent/WeKnora/internal/application/service/llmcontext"
 	memoryService "github.com/Tencent/WeKnora/internal/application/service/memory"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	"github.com/Tencent/WeKnora/internal/config"
@@ -47,6 +50,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/datasource"
 	feishuConnector "github.com/Tencent/WeKnora/internal/datasource/connector/feishu"
 	notionConnector "github.com/Tencent/WeKnora/internal/datasource/connector/notion"
+	yuqueConnector "github.com/Tencent/WeKnora/internal/datasource/connector/yuque"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/handler"
 	"github.com/Tencent/WeKnora/internal/handler/session"
@@ -67,9 +71,10 @@ import (
 	"github.com/Tencent/WeKnora/internal/router"
 	"github.com/Tencent/WeKnora/internal/stream"
 	"github.com/Tencent/WeKnora/internal/tracing"
+	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
-	slackpkg "github.com/slack-go/slack"
+	"github.com/tencent/vectordatabase-sdk-go/tcvectordb"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/auth"
 	wgrpc "github.com/weaviate/weaviate-go-client/v5/weaviate/grpc"
@@ -94,14 +99,15 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	logger.Debugf(ctx, "[Container] Registering core infrastructure...")
 	must(container.Provide(config.LoadConfig))
 	must(container.Provide(initTracer))
+	must(container.Provide(initLangfuse))
 	must(container.Provide(initDatabase))
 	must(container.Provide(initFileService))
 	must(container.Provide(initRedisClient))
 	must(container.Provide(initAntsPool))
-	must(container.Provide(initContextStorage))
 
 	// Register tracer cleanup handler (tracer needs to be available for cleanup registration)
 	must(container.Invoke(registerTracerCleanup))
+	must(container.Invoke(registerLangfuseCleanup))
 
 	// Register goroutine pool cleanup handler
 	must(container.Invoke(registerPoolCleanup))
@@ -138,6 +144,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(neo4jRepo.NewNeo4jRepository))
 	must(container.Provide(memoryRepo.NewMemoryRepository))
 	must(container.Provide(repository.NewMCPServiceRepository))
+	must(container.Provide(repository.NewMCPToolApprovalRepository))
 	must(container.Provide(repository.NewCustomAgentRepository))
 	must(container.Provide(repository.NewOrganizationRepository))
 	must(container.Provide(repository.NewKBShareRepository))
@@ -146,6 +153,10 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewWebSearchStateService))
 	must(container.Provide(repository.NewDataSourceRepository))
 	must(container.Provide(repository.NewSyncLogRepository))
+	must(container.Provide(repository.NewWikiPageRepository))
+	must(container.Provide(repository.NewWikiLogEntryRepository))
+	must(container.Provide(repository.NewTaskPendingOpsRepository))
+	must(container.Provide(repository.NewTaskDeadLetterRepository))
 
 	// MCP manager for managing MCP client connections
 	logger.Debugf(ctx, "[Container] Registering MCP manager...")
@@ -174,11 +185,17 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
 	must(container.Provide(service.NewDataTableSummaryService, dig.Name("dataTableSummary")))
 	must(container.Provide(service.NewImageMultimodalService, dig.Name("imageMultimodal")))
+	must(container.Provide(service.NewKnowledgePostProcessService, dig.Name("knowledgePostProcess")))
 
 	must(container.Provide(service.NewMessageService))
 	must(container.Provide(service.NewMCPServiceService))
+	must(container.Provide(service.NewMCPToolApprovalService))
 	must(container.Provide(service.NewCustomAgentService))
 	must(container.Provide(memoryService.NewMemoryService))
+	must(container.Provide(service.NewWikiPageService))
+	must(container.Provide(service.NewWikiLogEntryService))
+	must(container.Provide(service.NewWikiIngestService, dig.Name("wikiIngest")))
+	must(container.Provide(service.NewWikiLintService))
 
 	// Web search service (needed by AgentService)
 	logger.Debugf(ctx, "[Container] Registering web search registry and providers...")
@@ -188,12 +205,33 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewVectorStoreRepository))
 	must(container.Provide(service.NewWebSearchService))
 	must(container.Provide(service.NewWebSearchProviderService))
+	must(container.Provide(NewEngineFactory))
+	// StoreRegistry: same instance as RetrieveEngineRegistry, exposed as StoreRegistry interface.
+	// NewRetrieveEngineRegistry always returns *retriever.RetrieveEngineRegistry which implements both.
+	must(container.Provide(func(r interfaces.RetrieveEngineRegistry) (interfaces.StoreRegistry, error) {
+		sr, ok := r.(*retriever.RetrieveEngineRegistry)
+		if !ok {
+			return nil, fmt.Errorf("registry does not implement StoreRegistry")
+		}
+		return sr, nil
+	}))
 	must(container.Provide(service.NewVectorStoreService))
 
 	// Agent service layer (requires event bus, web search service)
 	// SessionService is passed as parameter to CreateAgentEngine method when creating AgentService
 	logger.Debugf(ctx, "[Container] Registering event bus and agent service...")
 	must(container.Provide(event.NewEventBus))
+	must(container.Provide(func(rdb redis.UniversalClient) *redis.Client {
+		if c, ok := rdb.(*redis.Client); ok {
+			return c
+		}
+		return nil
+	}))
+	must(container.Provide(func(cfg *config.Config, s interfaces.MCPToolApprovalService, rdb *redis.Client) *approval.Gate {
+		return approval.NewGate(cfg, &approval.Adapter{Svc: s}, rdb)
+	}))
+	// Expose Gate as MCPApproval interface so AgentService and others can depend on the abstraction.
+	must(container.Provide(func(g *approval.Gate) approval.MCPApproval { return g }))
 	must(container.Provide(service.NewAgentService))
 
 	// Session service (depends on agent service)
@@ -237,6 +275,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Invoke(chatpipeline.NewPluginExtractEntity))
 	must(container.Invoke(chatpipeline.NewPluginSearchEntity))
 	must(container.Invoke(chatpipeline.NewPluginSearchParallel))
+	must(container.Invoke(chatpipeline.NewPluginWikiBoost))
 	must(container.Invoke(chatpipeline.NewMemoryPlugin))
 	logger.Debugf(ctx, "[Container] Chat pipeline plugins registered")
 
@@ -270,6 +309,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 
 	// Data source handler
 	must(container.Provide(handler.NewDataSourceHandler))
+	// Wiki page handler
+	must(container.Provide(handler.NewWikiPageHandler))
 	// IM integration
 	logger.Debugf(ctx, "[Container] Registering IM integration...")
 	must(container.Provide(imPkg.NewService))
@@ -313,8 +354,14 @@ func initTracer() (*tracing.Tracer, error) {
 	return tracing.InitTracer()
 }
 
-// initRedisClient 根据 REDIS_MODE 初始化：单机用 *redis.Client，集群用 *redis.ClusterClient（多地址）。
-// 返回 redis.UniversalClient 供 dig 统一注入各服务（与 go-redis 接口一致）。
+// initLangfuse initializes the Langfuse ingestion client.
+func initLangfuse() (*langfuse.Manager, error) {
+	cfg := langfuse.LoadConfigFromEnv()
+	return langfuse.Init(cfg)
+}
+
+// initRedisClient 根据 REDIS_MODE 初始化：单机用 *redis.Client，集群用 *redis.ClusterClient。
+// 返回 redis.UniversalClient；未配置 REDIS_ADDR 且非 cluster 时返回 nil（Lite 模式）。
 func initRedisClient() (redis.UniversalClient, error) {
 	mode := strings.ToLower(os.Getenv("REDIS_MODE"))
 	username := os.Getenv("REDIS_USERNAME")
@@ -340,16 +387,16 @@ func initRedisClient() (redis.UniversalClient, error) {
 			ReadTimeout:  100 * time.Millisecond,
 			WriteTimeout: 200 * time.Millisecond,
 		})
-		_, err := client.Ping(context.Background()).Result()
-		if err != nil {
+		if _, err := client.Ping(context.Background()).Result(); err != nil {
 			return nil, fmt.Errorf("连接Redis集群失败: %w", err)
 		}
 		return client, nil
 	}
 
-	addr := os.Getenv("REDIS_ADDR")
-	if addr == "" {
-		addr = "redis:6379"
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		logger.Infof(context.Background(), "[Redis] No REDIS_ADDR configured, Redis disabled (Lite mode)")
+		return nil, nil
 	}
 	db := 0
 	if dbStr := os.Getenv("REDIS_DB"); dbStr != "" {
@@ -358,24 +405,15 @@ func initRedisClient() (redis.UniversalClient, error) {
 		}
 	}
 	client := redis.NewClient(&redis.Options{
-		Addr:     addr,
+		Addr:     redisAddr,
 		Username: username,
 		Password: password,
 		DB:       db,
 	})
-	_, err := client.Ping(context.Background()).Result()
-	if err != nil {
+	if _, err := client.Ping(context.Background()).Result(); err != nil {
 		return nil, fmt.Errorf("连接Redis失败: %w", err)
 	}
 	return client, nil
-}
-
-func initContextStorage(redisClient redis.UniversalClient) (llmcontext.ContextStorage, error) {
-	storage, err := llmcontext.NewRedisStorage(redisClient, 24*time.Hour, "context:")
-	if err != nil {
-		return nil, err
-	}
-	return storage, nil
 }
 
 // initDatabase initializes database connection
@@ -544,8 +582,39 @@ func resolveStorageProviderPending(db *gorm.DB) {
 		logger.Infof(context.Background(), "Resolved %d knowledge bases with __pending_env__ storage provider → %s", result.RowsAffected, storageType)
 	}
 
+	// Sync PostgreSQL sequences with actual MAX values to prevent duplicate key
+	// errors. The old code assigned seq_id via SELECT MAX()+1 in application
+	// code, which could push values past the DB sequence counter.
+	syncSequences(db)
+
 	// Reset any pending tasks left over from previous aborted runs (Lite App mode)
 	resetPendingTasks(db)
+}
+
+// syncSequences ensures PostgreSQL sequences for auto-increment columns (seq_id)
+// are at least as high as the current MAX value in each table. This is needed
+// because older code assigned seq_id via application-level MAX()+1, which could
+// advance values past the DB sequence counter and cause duplicate key errors.
+func syncSequences(db *gorm.DB) {
+	if db.Dialector.Name() != "postgres" {
+		return
+	}
+	pairs := [][2]string{
+		{"chunks", "chunks_seq_id_seq"},
+		{"knowledge_tags", "knowledge_tags_seq_id_seq"},
+	}
+	for _, p := range pairs {
+		table, seq := p[0], p[1]
+		sql := fmt.Sprintf(
+			`SELECT setval('%s', GREATEST(nextval('%s'), (SELECT COALESCE(MAX(seq_id), 0) FROM %s)))`,
+			seq, seq, table,
+		)
+		if err := db.Exec(sql).Error; err != nil {
+			logger.Warnf(context.Background(), "Failed to sync sequence %s: %v", seq, err)
+		} else {
+			logger.Infof(context.Background(), "Synced sequence %s with table %s", seq, table)
+		}
+	}
 }
 
 // resetPendingTasks resets the state of any knowledge items or sync logs stuck in processing
@@ -706,7 +775,8 @@ func initFileService(cfg *config.Config) (interfaces.FileService, error) {
 		if baseDir == "" {
 			baseDir = "/data/files"
 		}
-		return file.NewLocalFileService(baseDir), nil
+		externalURL := strings.TrimSpace(os.Getenv("APP_EXTERNAL_URL"))
+		return file.NewLocalFileService(baseDir, externalURL), nil
 	case "dummy":
 		return file.NewDummyFileService(), nil
 	default:
@@ -758,7 +828,7 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 		if err != nil {
 			log.Errorf("Create elasticsearch_v8 client failed: %v", err)
 		} else {
-			elasticsearchRepo := elasticsearchRepoV8.NewElasticsearchEngineRepository(client, cfg)
+			elasticsearchRepo := elasticsearchRepoV8.NewElasticsearchEngineRepository(client, cfg, nil)
 			if err := registry.Register(
 				retriever.NewKVHybridRetrieveEngine(
 					elasticsearchRepo, types.ElasticsearchRetrieverEngineType,
@@ -780,7 +850,7 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 		if err != nil {
 			log.Errorf("Create elasticsearch_v7 client failed: %v", err)
 		} else {
-			elasticsearchRepo := elasticsearchRepoV7.NewElasticsearchEngineRepository(client, cfg)
+			elasticsearchRepo := elasticsearchRepoV7.NewElasticsearchEngineRepository(client, cfg, nil)
 			if err := registry.Register(
 				retriever.NewKVHybridRetrieveEngine(
 					elasticsearchRepo, types.ElasticsearchRetrieverEngineType,
@@ -825,7 +895,7 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 		if err != nil {
 			log.Errorf("Create weaviate client failed: %v", err)
 		} else {
-			weaviateRepository := weaviateRepo.NewWeaviateRetrieveEngineRepository(weaviateClient)
+			weaviateRepository := weaviateRepo.NewWeaviateRetrieveEngineRepository(weaviateClient, nil)
 			if err := registry.Register(
 				retriever.NewKVHybridRetrieveEngine(
 					weaviateRepository, types.WeaviateRetrieverEngineType,
@@ -838,7 +908,119 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 		}
 	}
 	registerMilvusRetrieverEngine(retrieveDriver, registry, log)
+	if slices.Contains(retrieveDriver, "doris") {
+		dorisAddr := os.Getenv("DORIS_ADDR")
+		if dorisAddr == "" {
+			// docker-compose 默认服务名 + Doris FE MySQL 端口
+			dorisAddr = "doris-fe:9030"
+		}
+		dorisDatabase := os.Getenv("DORIS_DATABASE")
+		if dorisDatabase == "" {
+			dorisDatabase = "weknora"
+		}
+		dorisUsername := os.Getenv("DORIS_USERNAME")
+		if dorisUsername == "" {
+			dorisUsername = "root"
+		}
+		dorisPassword := os.Getenv("DORIS_PASSWORD")
+		dorisHTTPPort := 8030
+		if portStr := os.Getenv("DORIS_HTTP_PORT"); portStr != "" {
+			if port, err := strconv.Atoi(portStr); err == nil {
+				dorisHTTPPort = port
+			}
+		}
+
+		dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
+			dorisUsername, dorisPassword, dorisAddr, dorisDatabase)
+		dorisDB, err := sql.Open("mysql", dsn)
+		if err != nil {
+			log.Errorf("Create doris client failed: %v", err)
+		} else {
+			dorisDB.SetMaxOpenConns(20)
+			dorisDB.SetMaxIdleConns(5)
+			dorisDB.SetConnMaxLifetime(time.Hour)
+
+			httpBase := "http://" + hostFromAddr(dorisAddr) + ":" + strconv.Itoa(dorisHTTPPort)
+			dorisRepository := dorisRepo.NewDorisRetrieveEngineRepository(
+				dorisDB, httpBase, dorisUsername, dorisPassword, dorisDatabase, nil,
+			)
+			if err := registry.Register(
+				retriever.NewKVHybridRetrieveEngine(
+					dorisRepository, types.DorisRetrieverEngineType,
+				),
+			); err != nil {
+				log.Errorf("Register doris retrieve engine failed: %v", err)
+			} else {
+				log.Infof("Register doris retrieve engine success: %s db=%s", dorisAddr, dorisDatabase)
+			}
+		}
+	}
+	if slices.Contains(retrieveDriver, "tencent_vectordb") {
+		addr := os.Getenv("TENCENT_VECTORDB_ADDR")
+		username := os.Getenv("TENCENT_VECTORDB_USERNAME")
+		apiKey := os.Getenv("TENCENT_VECTORDB_API_KEY")
+		if addr == "" || username == "" || apiKey == "" {
+			log.Errorf("Missing Tencent VectorDB configuration")
+		} else {
+			client, err := tcvectordb.NewRpcClient(addr, username, apiKey, &tcvectordb.ClientOption{
+				ReadConsistency: tcvectordb.EventualConsistency,
+				Timeout:         10 * time.Second,
+			})
+			if err != nil {
+				log.Errorf("Create tencent_vectordb client failed: %v", err)
+			} else {
+				tencentRepository := tencentVectorDBRepo.NewTencentVectorDBRetrieveEngineRepository(
+					client,
+					os.Getenv("TENCENT_VECTORDB_DATABASE"),
+					nil,
+				)
+				if err := registry.Register(
+					retriever.NewKVHybridRetrieveEngine(
+						tencentRepository, types.TencentVectorDBRetrieverEngineType,
+					),
+				); err != nil {
+					log.Errorf("Register tencent_vectordb retrieve engine failed: %v", err)
+				} else {
+					log.Infof("Register tencent_vectordb retrieve engine success")
+				}
+			}
+		}
+	}
+	// ─── DB store registration (byStoreID) ───
+	if storeReg, ok := registry.(*retriever.RetrieveEngineRegistry); ok {
+		loadDBStoresIntoRegistry(storeReg, db, cfg)
+	}
+
 	return registry, nil
+}
+
+// loadDBStoresIntoRegistry loads VectorStore records from DB and registers them
+// in the registry's byStoreID map. Failures are logged and skipped (non-fatal).
+func loadDBStoresIntoRegistry(storeRegistry interfaces.StoreRegistry, db *gorm.DB, cfg *config.Config) {
+	ctx := context.Background()
+	log := logger.GetLogger(ctx)
+
+	var stores []types.VectorStore
+	// GORM soft delete automatically adds "deleted_at IS NULL" condition
+	if err := db.Find(&stores).Error; err != nil {
+		log.Warnf("Failed to load vector stores from DB: %v", err)
+		return
+	}
+
+	if len(stores) == 0 {
+		return
+	}
+
+	log.Infof("Loading %d vector store(s) from database", len(stores))
+	for _, store := range stores {
+		svc, err := createEngineServiceFromStore(ctx, store, db, cfg)
+		if err != nil {
+			log.Errorf("Failed to create engine for store %s (%s): %v", store.ID, store.Name, err)
+			continue
+		}
+		storeRegistry.RegisterWithStoreID(store.ID, svc)
+		log.Infof("Registered DB vector store: id=%s, name=%s, engine=%s", store.ID, store.Name, store.EngineType)
+	}
 }
 
 // initAntsPool initializes the goroutine pool
@@ -885,6 +1067,20 @@ func registerTracerCleanup(tracer *tracing.Tracer, cleaner interfaces.ResourceCl
 	cleaner.RegisterWithName("Tracer", func() error {
 		// Create context for cleanup with longer timeout for tracer shutdown
 		return tracer.Cleanup(context.Background())
+	})
+}
+
+// registerLangfuseCleanup ensures buffered Langfuse events are flushed on
+// shutdown. A 5-second timeout matches other external-service cleanups and
+// balances data durability against a slow remote endpoint holding up exit.
+func registerLangfuseCleanup(mgr *langfuse.Manager, cleaner interfaces.ResourceCleaner) {
+	if mgr == nil {
+		return
+	}
+	cleaner.RegisterWithName("Langfuse", func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return mgr.Shutdown(ctx)
 	})
 }
 
@@ -970,13 +1166,13 @@ func NewDuckDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open duckdb: %w", err)
 	}
 
-	// 预加载扩展：httpfs（read_csv 从 URL）、spatial（Excel/st_read）
-	for _, ext := range []string{"httpfs", "spatial"} {
-		if _, err := sqlDB.ExecContext(context.Background(), "INSTALL "+ext+";"); err != nil {
-			logger.Warnf(context.Background(), "[DuckDB] Failed to install %s extension: %v", ext, err)
+	bgCtx := context.Background()
+	for _, ext := range []string{"httpfs", "spatial", "excel"} {
+		if _, err := sqlDB.ExecContext(bgCtx, fmt.Sprintf("INSTALL %s;", ext)); err != nil {
+			logger.Warnf(bgCtx, "[DuckDB] Failed to install %s extension: %v", ext, err)
 		}
-		if _, err := sqlDB.ExecContext(context.Background(), "LOAD "+ext+";"); err != nil {
-			logger.Warnf(context.Background(), "[DuckDB] Failed to load %s extension: %v", ext, err)
+		if _, err := sqlDB.ExecContext(bgCtx, fmt.Sprintf("LOAD %s;", ext)); err != nil {
+			logger.Warnf(bgCtx, "[DuckDB] Failed to load %s extension: %v", ext, err)
 		}
 	}
 
@@ -993,360 +1189,52 @@ func registerWebSearchProviders(registry *infra_web_search.Registry) {
 	registry.Register("tavily", infra_web_search.NewTavilyProvider)
 	registry.Register("ollama", infra_web_search.NewOllamaProvider)
 	registry.Register("baidu", infra_web_search.NewBaiduProvider)
+	registry.Register("searxng", infra_web_search.NewSearxngProvider)
 }
 
 // registerIMAdapterFactories registers adapter factories for each IM platform
-// and loads enabled channels from the database.
+// and loads enabled channels from the database. Each platform's factory lives
+// in its own subpackage to keep this file focused on wiring.
 func registerIMAdapterFactories(imService *imPkg.Service) {
-	ctx := context.Background()
-
-	// Register WeCom adapter factory
-	imService.RegisterAdapterFactory("wecom", func(factoryCtx context.Context, channel *imPkg.IMChannel, msgHandler func(context.Context, *imPkg.IncomingMessage) error) (imPkg.Adapter, context.CancelFunc, error) {
-		creds, err := parseCredentials(channel.Credentials)
-		if err != nil {
-			return nil, nil, fmt.Errorf("parse wecom credentials: %w", err)
-		}
-
-		mode := channel.Mode
-		if mode == "" {
-			mode = "websocket"
-		}
-
-		switch mode {
-		case "webhook":
-			corpAgentID := 0
-			if v, ok := creds["corp_agent_id"]; ok {
-				switch val := v.(type) {
-				case float64:
-					corpAgentID = int(val)
-				case int:
-					corpAgentID = val
-				}
-			}
-			adapter, err := wecom.NewWebhookAdapter(
-				getString(creds, "corp_id"),
-				getString(creds, "agent_secret"),
-				getString(creds, "token"),
-				getString(creds, "encoding_aes_key"),
-				corpAgentID,
-				getString(creds, "api_base_url"),
-			)
-			if err != nil {
-				return nil, nil, err
-			}
-			return adapter, nil, nil
-
-		case "websocket":
-			client, err := wecom.NewLongConnClient(
-				getString(creds, "bot_id"),
-				getString(creds, "bot_secret"),
-				getString(creds, "ws_endpoint"),
-				getString(creds, "bot_name"),
-				msgHandler,
-			)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			wsCtx, wsCancel := context.WithCancel(context.Background())
-			go func() {
-				if err := client.Start(wsCtx); err != nil && wsCtx.Err() == nil {
-					logger.Errorf(context.Background(), "[IM] WeCom long connection stopped for channel %s: %v", channel.ID, err)
-				}
-			}()
-
-			adapter := wecom.NewWSAdapter(client)
-			return adapter, wsCancel, nil
-
-		default:
-			return nil, nil, fmt.Errorf("unknown WeCom mode: %s", mode)
-		}
-	})
-
-	// Register Feishu adapter factory
-	imService.RegisterAdapterFactory("feishu", func(factoryCtx context.Context, channel *imPkg.IMChannel, msgHandler func(context.Context, *imPkg.IncomingMessage) error) (imPkg.Adapter, context.CancelFunc, error) {
-		creds, err := parseCredentials(channel.Credentials)
-		if err != nil {
-			return nil, nil, fmt.Errorf("parse feishu credentials: %w", err)
-		}
-
-		appID := getString(creds, "app_id")
-		appSecret := getString(creds, "app_secret")
-		verificationToken := getString(creds, "verification_token")
-		encryptKey := getString(creds, "encrypt_key")
-
-		// Always create the HTTP adapter (needed for SendReply in both modes)
-		adapter := feishu.NewAdapter(appID, appSecret, verificationToken, encryptKey)
-
-		mode := channel.Mode
-		if mode == "" {
-			mode = "websocket"
-		}
-
-		switch mode {
-		case "webhook":
-			return adapter, nil, nil
-
-		case "websocket":
-			client := feishu.NewLongConnClient(appID, appSecret, msgHandler)
-
-			wsCtx, wsCancel := context.WithCancel(context.Background())
-			go func() {
-				if err := client.Start(wsCtx); err != nil && wsCtx.Err() == nil {
-					logger.Errorf(context.Background(), "[IM] Feishu long connection stopped for channel %s: %v", channel.ID, err)
-				}
-			}()
-
-			return adapter, wsCancel, nil
-
-		default:
-			return nil, nil, fmt.Errorf("unknown Feishu mode: %s", mode)
-		}
-	})
-
-	// Register Slack adapter factory
-	imService.RegisterAdapterFactory("slack", func(factoryCtx context.Context, channel *imPkg.IMChannel, msgHandler func(context.Context, *imPkg.IncomingMessage) error) (imPkg.Adapter, context.CancelFunc, error) {
-		creds, err := parseCredentials(channel.Credentials)
-		if err != nil {
-			return nil, nil, fmt.Errorf("parse slack credentials: %w", err)
-		}
-
-		mode := channel.Mode
-		if mode == "" {
-			mode = "websocket"
-		}
-
-		switch mode {
-		case "webhook":
-			api := slackpkg.New(getString(creds, "bot_token"))
-			adapter := slack.NewWebhookAdapter(api, getString(creds, "signing_secret"))
-			return adapter, func() {}, nil
-
-		case "websocket":
-			client := slack.NewLongConnClient(
-				getString(creds, "app_token"),
-				getString(creds, "bot_token"),
-				msgHandler,
-			)
-
-			adapter := slack.NewAdapter(client, client.GetAPI())
-
-			wsCtx, wsCancel := context.WithCancel(context.Background())
-			go func() {
-				if err := client.Start(wsCtx); err != nil && wsCtx.Err() == nil {
-					logger.Errorf(context.Background(), "[IM] Slack long connection stopped for channel %s: %v", channel.ID, err)
-				}
-			}()
-
-			return adapter, wsCancel, nil
-
-		default:
-			return nil, nil, fmt.Errorf("unsupported slack mode: %s", mode)
-		}
-	})
-
-	// Register Telegram adapter factory
-	imService.RegisterAdapterFactory("telegram", func(factoryCtx context.Context, channel *imPkg.IMChannel, msgHandler func(context.Context, *imPkg.IncomingMessage) error) (imPkg.Adapter, context.CancelFunc, error) {
-		creds, err := parseCredentials(channel.Credentials)
-		if err != nil {
-			return nil, nil, fmt.Errorf("parse telegram credentials: %w", err)
-		}
-
-		botToken := getString(creds, "bot_token")
-
-		mode := channel.Mode
-		if mode == "" {
-			mode = "websocket"
-		}
-
-		switch mode {
-		case "webhook":
-			secretToken := getString(creds, "secret_token")
-			adapter := telegram.NewWebhookAdapter(botToken, secretToken)
-			return adapter, nil, nil
-
-		case "websocket":
-			client := telegram.NewLongConnClient(botToken, msgHandler)
-
-			wsCtx, wsCancel := context.WithCancel(context.Background())
-			go func() {
-				if err := client.Start(wsCtx); err != nil && wsCtx.Err() == nil {
-					logger.Errorf(context.Background(), "[IM] Telegram long polling stopped for channel %s: %v", channel.ID, err)
-				}
-			}()
-
-			adapter := telegram.NewAdapter(client, botToken)
-			return adapter, wsCancel, nil
-
-		default:
-			return nil, nil, fmt.Errorf("unsupported telegram mode: %s", mode)
-		}
-	})
-
-	// Register DingTalk adapter factory
-	imService.RegisterAdapterFactory("dingtalk", func(factoryCtx context.Context, channel *imPkg.IMChannel, msgHandler func(context.Context, *imPkg.IncomingMessage) error) (imPkg.Adapter, context.CancelFunc, error) {
-		creds, err := parseCredentials(channel.Credentials)
-		if err != nil {
-			return nil, nil, fmt.Errorf("parse dingtalk credentials: %w", err)
-		}
-
-		clientID := getString(creds, "client_id")
-		clientSecret := getString(creds, "client_secret")
-		cardTemplateID := getString(creds, "card_template_id")
-
-		mode := channel.Mode
-		if mode == "" {
-			mode = "websocket"
-		}
-
-		switch mode {
-		case "webhook":
-			adapter := dingtalk.NewWebhookAdapter(clientID, clientSecret, cardTemplateID)
-			return adapter, nil, nil
-
-		case "websocket":
-			client := dingtalk.NewLongConnClient(clientID, clientSecret, msgHandler)
-
-			wsCtx, wsCancel := context.WithCancel(context.Background())
-			go func() {
-				if err := client.Start(wsCtx); err != nil && wsCtx.Err() == nil {
-					logger.Errorf(context.Background(), "[IM] DingTalk stream stopped for channel %s: %v", channel.ID, err)
-				}
-			}()
-
-			adapter := dingtalk.NewAdapter(client, clientID, clientSecret, cardTemplateID)
-			return adapter, wsCancel, nil
-
-		default:
-			return nil, nil, fmt.Errorf("unsupported dingtalk mode: %s", mode)
-		}
-	})
-
-	// Register Mattermost adapter factory (outgoing webhook + REST API).
-	imService.RegisterAdapterFactory("mattermost", func(factoryCtx context.Context, channel *imPkg.IMChannel, msgHandler func(context.Context, *imPkg.IncomingMessage) error) (imPkg.Adapter, context.CancelFunc, error) {
-		creds, err := parseCredentials(channel.Credentials)
-		if err != nil {
-			return nil, nil, fmt.Errorf("parse mattermost credentials: %w", err)
-		}
-
-		mode := channel.Mode
-		if mode == "" {
-			mode = "webhook"
-		}
-		if mode != "webhook" {
-			return nil, nil, fmt.Errorf("unsupported mattermost mode: %s (only webhook is supported)", mode)
-		}
-
-		siteURL := getString(creds, "site_url")
-		botToken := getString(creds, "bot_token")
-		outgoingToken := getString(creds, "outgoing_token")
-		botUserID := getString(creds, "bot_user_id")
-
-		if outgoingToken == "" {
-			return nil, nil, fmt.Errorf("mattermost outgoing_token is required")
-		}
-
-		client, err := mattermost.NewClient(siteURL, botToken)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		postReplyToMain := credentialBool(creds, "post_to_main")
-		adapter := mattermost.NewAdapter(client, outgoingToken, botUserID, postReplyToMain)
-		return adapter, func() {}, nil
-	})
-	// Register WeChat adapter factory
-	imService.RegisterAdapterFactory("wechat", func(factoryCtx context.Context, channel *imPkg.IMChannel, msgHandler func(context.Context, *imPkg.IncomingMessage) error) (imPkg.Adapter, context.CancelFunc, error) {
-		creds, err := parseCredentials(channel.Credentials)
-		if err != nil {
-			return nil, nil, fmt.Errorf("parse wechat credentials: %w", err)
-		}
-
-		botToken := getString(creds, "bot_token")
-		ilinkBotID := getString(creds, "ilink_bot_id")
-
-		if botToken == "" || ilinkBotID == "" {
-			return nil, nil, fmt.Errorf("wechat credentials require bot_token and ilink_bot_id")
-		}
-
-		adapter := wechat.NewAdapter(botToken, ilinkBotID)
-		client := wechat.NewLongPollClient(botToken, ilinkBotID, msgHandler)
-
-		pollCtx, pollCancel := context.WithCancel(context.Background())
-		go func() {
-			if err := client.Start(pollCtx); err != nil && pollCtx.Err() == nil {
-				logger.Errorf(context.Background(), "[IM] WeChat long-poll stopped for channel %s: %v", channel.ID, err)
-			}
-		}()
-
-		return adapter, pollCancel, nil
-	})
+	imService.RegisterAdapterFactory("wecom", wecom.NewFactory())
+	imService.RegisterAdapterFactory("feishu", feishu.NewFactory())
+	imService.RegisterAdapterFactory("slack", slack.NewFactory())
+	imService.RegisterAdapterFactory("telegram", telegram.NewFactory())
+	imService.RegisterAdapterFactory("dingtalk", dingtalk.NewFactory())
+	imService.RegisterAdapterFactory("mattermost", mattermost.NewFactory())
+	imService.RegisterAdapterFactory("wechat", wechat.NewFactory())
 
 	// Load and start all enabled channels from database
 	if err := imService.LoadAndStartChannels(); err != nil {
-		logger.Warnf(ctx, "[IM] Failed to load channels from database: %v", err)
-	}
-}
-
-// parseCredentials parses the JSONB credentials field into a map.
-func parseCredentials(data []byte) (map[string]interface{}, error) {
-	if len(data) == 0 {
-		return map[string]interface{}{}, nil
-	}
-	var creds map[string]interface{}
-	if err := json.Unmarshal(data, &creds); err != nil {
-		return nil, err
-	}
-	return creds, nil
-}
-
-// getString safely extracts a string value from a credentials map.
-func getString(creds map[string]interface{}, key string) string {
-	if v, ok := creds[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-// credentialBool reads a boolean from JSON credentials (bool, string "true"/"1", or non-zero number).
-func credentialBool(creds map[string]interface{}, key string) bool {
-	v, ok := creds[key]
-	if !ok {
-		return false
-	}
-	switch x := v.(type) {
-	case bool:
-		return x
-	case string:
-		s := strings.TrimSpace(strings.ToLower(x))
-		return s == "true" || s == "1" || s == "yes"
-	case float64:
-		return x != 0
-	case int:
-		return x != 0
-	default:
-		return false
+		logger.Warnf(context.Background(), "[IM] Failed to load channels from database: %v", err)
 	}
 }
 
 // initConnectorRegistry creates and populates the connector registry with all available connectors.
-func initConnectorRegistry() *datasource.ConnectorRegistry {
+// Aggregates registration errors via errors.Join so a misconfigured or duplicated connector fails
+// container initialization loudly instead of silently disabling the feature at runtime.
+func initConnectorRegistry() (*datasource.ConnectorRegistry, error) {
 	registry := datasource.NewConnectorRegistry()
 
-	// Register Feishu connector
-	_ = registry.Register(feishuConnector.NewConnector())
-
-	// Register Notion connector
-	_ = registry.Register(notionConnector.NewConnector())
+	var errs error
+	if err := registry.Register(feishuConnector.NewConnector()); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("register feishu connector: %w", err))
+	}
+	if err := registry.Register(notionConnector.NewConnector()); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("register notion connector: %w", err))
+	}
+	if err := registry.Register(yuqueConnector.NewConnector()); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("register yuque connector: %w", err))
+	}
 
 	// Future connectors will be registered here:
-	// _ = registry.Register(confluenceConnector.NewConnector())
-	// _ = registry.Register(yuqueConnector.NewConnector())
-	// _ = registry.Register(githubConnector.NewConnector())
+	// if err := registry.Register(confluenceConnector.NewConnector()); err != nil { ... }
+	// if err := registry.Register(githubConnector.NewConnector()); err != nil { ... }
 
-	return registry
+	if errs != nil {
+		return nil, errs
+	}
+	return registry, nil
 }
 
 // startDataSourceScheduler starts the data source cron scheduler and registers cleanup.

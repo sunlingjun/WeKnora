@@ -30,11 +30,12 @@
         </div>
         <div class="setting-control">
           <div class="api-key-control">
-            <t-input 
-              v-model="displayApiKey" 
-              readonly 
+            <t-input
+              v-model="displayApiKey"
+              readonly
               type="text"
-              style="width: 100%; font-family: monospace; font-size: 12px;"
+              class="mono-text-input"
+              style="width: 100%;"
             />
             <t-button 
               size="small" 
@@ -50,6 +51,16 @@
               :title="$t('tenant.api.copyTitle')"
             >
               <t-icon name="file-copy" />
+            </t-button>
+            <t-button
+              size="small"
+              variant="text"
+              theme="danger"
+              :loading="resetting"
+              :title="$t('tenant.api.resetTitle')"
+              @click="confirmResetApiKey"
+            >
+              <t-icon name="refresh" />
             </t-button>
           </div>
         </div>
@@ -67,7 +78,8 @@
               :model-value="apiBaseUrlDisplay"
               readonly
               type="text"
-              style="width: 100%; font-family: monospace; font-size: 12px;"
+              class="mono-text-input"
+              style="width: 100%;"
             />
             <t-button
               size="small"
@@ -126,7 +138,8 @@
                 :model-value="wailsApiLanBaseURL"
                 readonly
                 type="text"
-                style="width: 100%; font-family: monospace; font-size: 12px;"
+                class="mono-text-input"
+                style="width: 100%;"
               />
               <t-button
                 size="small"
@@ -213,8 +226,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { getCurrentUser, type TenantInfo, type UserInfo } from '@/api/auth'
+import { resetTenantApiKey } from '@/api/tenant'
 import { getApiBaseUrl } from '@/utils/api-base'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 
 const { t, locale } = useI18n()
@@ -225,6 +239,7 @@ const userInfo = ref<UserInfo | null>(null)
 const loading = ref(true)
 const error = ref('')
 const showApiKey = ref(false)
+const resetting = ref(false)
 /** WeKnora Lite (Wails): real API origin is loopback + dynamic port, not window.location.origin */
 const wailsApiBaseURL = ref<string | null>(null)
 const showDesktopPortSetting = ref(false)
@@ -441,6 +456,43 @@ const fallbackCopyText = (text: string) => {
   document.body.removeChild(textArea)
 }
 
+const confirmResetApiKey = () => {
+  if (!tenantInfo.value?.id) {
+    MessagePlugin.warning(t('tenant.api.noKey'))
+    return
+  }
+  const dialog = DialogPlugin.confirm({
+    header: t('tenant.api.resetConfirmTitle'),
+    body: t('tenant.api.resetConfirmBody'),
+    confirmBtn: { content: t('tenant.api.resetConfirmOk'), theme: 'danger' },
+    cancelBtn: t('tenant.api.resetConfirmCancel'),
+    onConfirm: async () => {
+      await performResetApiKey()
+      dialog.destroy()
+    },
+    onClose: () => dialog.destroy(),
+  })
+}
+
+const performResetApiKey = async () => {
+  if (!tenantInfo.value?.id) return
+  resetting.value = true
+  try {
+    const resp = await resetTenantApiKey(tenantInfo.value.id)
+    if (resp.success && resp.data?.api_key) {
+      tenantInfo.value = { ...tenantInfo.value, api_key: resp.data.api_key }
+      showApiKey.value = true
+      MessagePlugin.success(t('tenant.api.resetSuccess'))
+    } else {
+      MessagePlugin.error(resp.message || t('tenant.api.resetFailed'))
+    }
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('tenant.api.resetFailed'))
+  } finally {
+    resetting.value = false
+  }
+}
+
 const copyApiKey = async () => {
   if (!tenantInfo.value?.api_key) {
     MessagePlugin.warning(t('tenant.api.noKey'))
@@ -522,6 +574,16 @@ onMounted(async () => {
   width: 100%;
 }
 
+// TDesign's <t-input> forwards `style=""` to its wrapper but applies
+// `font: var(--td-font-body-medium)` (a shorthand) to the real <input>
+// inside, which silently resets font-family. Reach into the inner input
+// explicitly so the code font actually takes effect for API keys, URLs,
+// etc. Scoped via `.mono-text-input` so this only applies where we opt in.
+.mono-text-input :deep(input) {
+  font-family: var(--app-font-family-mono);
+  font-size: 12px;
+}
+
 .section-header {
   margin-bottom: 32px;
 
@@ -593,23 +655,7 @@ onMounted(async () => {
   }
 
   .doc-link {
-    color: var(--td-brand-color);
-    text-decoration: none;
-    font-weight: 500;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
     cursor: pointer;
-    transition: all 0.2s ease;
-
-    &:hover {
-      color: var(--td-brand-color-active);
-      text-decoration: underline;
-    }
-
-    .link-icon {
-      font-size: 12px;
-    }
   }
 }
 
@@ -661,7 +707,7 @@ onMounted(async () => {
   }
 
   :deep(input) {
-    font-family: monospace;
+    font-family: var(--app-font-family-mono);
     font-size: 12px;
   }
 }

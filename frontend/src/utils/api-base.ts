@@ -1,14 +1,21 @@
 export function getApiBaseUrl(): string {
-  // Docker / 同源部署：使用相对路径
+  // LocalHub plugin: respect vite BASE_URL for reverse proxy deployments
+  const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
+  if (baseUrl && baseUrl !== '/') {
+    return baseUrl;
+  }
+
+  // Docker / same-origin
   if (import.meta.env.VITE_IS_DOCKER) {
     return '';
   }
-  // 显式配置优先
+
   const envUrl = import.meta.env.VITE_API_URL;
   if (envUrl) {
     return envUrl;
   }
-  // NXIN 环境默认 API 基址（支持 CAS HTTPS Cookie）
+
+  // NXIN default API base (CAS HTTPS cookie)
   if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
     return 'https://zsk.t.nxin.com:8080';
   }

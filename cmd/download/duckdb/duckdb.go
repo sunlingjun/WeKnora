@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 )
+
+// duckdbExtensions required by WeKnora data analysis (httpfs for remote CSV, spatial/excel for sheets).
+var duckdbExtensions = []string{"httpfs", "spatial", "excel"}
 
 func downloadExtensions() {
 	ctx := context.Background()
@@ -16,13 +20,12 @@ func downloadExtensions() {
 	}
 	defer sqlDB.Close()
 
-	// httpfs: 用于 read_csv_auto('http(s)://...') 等远程文件读取
-	for _, ext := range []string{"httpfs", "spatial"} {
-		if _, err := sqlDB.ExecContext(ctx, "INSTALL "+ext+";"); err != nil {
-			panic(err)
+	for _, ext := range duckdbExtensions {
+		if _, err := sqlDB.ExecContext(ctx, fmt.Sprintf("INSTALL %s;", ext)); err != nil {
+			panic(fmt.Errorf("failed to install %s extension: %w", ext, err))
 		}
-		if _, err := sqlDB.ExecContext(ctx, "LOAD "+ext+";"); err != nil {
-			panic(err)
+		if _, err := sqlDB.ExecContext(ctx, fmt.Sprintf("LOAD %s;", ext)); err != nil {
+			panic(fmt.Errorf("failed to load %s extension: %w", ext, err))
 		}
 	}
 }

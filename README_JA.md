@@ -18,11 +18,17 @@
     <a href="https://chatbot.weixin.qq.com" target="_blank">
         <img alt="WeChat対話オープンプラットフォーム" src="https://img.shields.io/badge/WeChat対話オープンプラットフォーム-5ac725">
     </a>
+    <a href="https://chromewebstore.google.com/detail/jpemjbopikggjlmikmclgbmkhhopjdgd" target="_blank">
+        <img alt="Chrome 拡張機能" src="https://img.shields.io/badge/Chrome 拡張機能-WeKnora-4285F4">
+    </a>
+    <a href="https://clawhub.ai/lyingbug/weknora" target="_blank">
+        <img alt="ClawHub Skill" src="https://img.shields.io/badge/ClawHub Skill-WeKnora-ff6b35">
+    </a>
     <a href="https://github.com/Tencent/WeKnora/blob/main/LICENSE">
         <img src="https://img.shields.io/badge/License-MIT-ffffff?labelColor=d4eaf7&color=2e6cc4" alt="License">
     </a>
     <a href="./CHANGELOG.md">
-        <img alt="バージョン" src="https://img.shields.io/badge/version-0.4.0-2e6cc4?labelColor=d4eaf7">
+        <img alt="バージョン" src="https://img.shields.io/badge/version-0.5.2-2e6cc4?labelColor=d4eaf7">
     </a>
 </p>
 
@@ -38,17 +44,33 @@
   </h4>
 </p>
 
-# 💡 WeKnora - 大規模言語モデルベースの文書理解検索フレームワーク
+# 💡 WeKnora — ドキュメントを「生きたナレッジ」へ：RAG・Agent 推論・自動 Wiki を統合した LLM ナレッジフレームワーク
 
 ## 📌 プロジェクト紹介
 
-[**WeKnora（ウィーノラ）**](https://weknora.weixin.qq.com) は、大規模言語モデル（LLM）をベースとしたインテリジェントなナレッジ管理・Q&Aフレームワークで、エンタープライズ向けの文書理解と意味検索シナリオに特化して設計されています。
+[**WeKnora（ウィーノラ）**](https://weknora.weixin.qq.com) は、大規模言語モデル（LLM）をベースとしたオープンソースのナレッジフレームワークで、エンタープライズ級の文書理解、セマンティック検索、自律推論シナリオ向けに設計されています。
 
-WeKnora は**クイック Q&A** と**インテリジェント推論**の 2 つの Q&A モードを提供します。クイック Q&A は **RAG（Retrieval-Augmented Generation）** パイプラインで関連フラグメントを素早く検索・回答を生成し、日常的なナレッジ検索に最適です。インテリジェント推論は **ReACT Agent** エンジンにより、**プログレッシブ戦略**でナレッジ検索、MCP ツール、Web 検索を自律的にオーケストレーションし、反復推論とリフレクションで段階的に結論を導きます。複数情報源の統合や複雑なタスクに最適です。カスタムエージェントにも対応し、専用のナレッジベース、ツールセット、システムプロンプトを柔軟に設定できます。用途に応じてモードを選択し、応答速度と推論の深さを両立します。
+本フレームワークは **3 つのコア能力** を中心に構築されています：日常的な検索に最適な **RAG ベースのクイック Q&A**、ナレッジ検索・MCP ツール・Web 検索を自律的にオーケストレーションし複雑なマルチステップタスクを処理する **ReAct Agent 推論**、そして Agent が生のドキュメントから相互リンクされた Markdown ナレッジベースとインタラクティブなナレッジグラフを自律生成・維持する全く新しい **Wiki モード**。さらに、多様なデータソース連携（Feishu / Notion / Yuque、随時拡充中）、20 以上の LLM プロバイダー統合、Langfuse による全体可観測性、完全セルフホスト可能なモジュラーアーキテクチャと組み合わせることで、WeKnora は散在する文書を「検索可能・推論可能・継続的に進化する」専用ナレッジ資産へと昇華させます。
 
-Feishuなどの外部プラットフォームからのナレッジ自動同期（他のデータソースも順次対応中）に対応し、PDF、Word、画像、Excelなど10以上の文書フォーマットをサポート。WeChat Work、Feishu、Slack、TelegramなどのIMチャネルから直接Q&Aサービスを提供できます。モデル層ではOpenAI、DeepSeek、Qwen（Alibaba Cloud）、Zhipu、Hunyuan、Gemini、MiniMax、NVIDIA、Ollamaなど主要プロバイダーに対応。全プロセスをモジュラー設計し、大規模モデル、ベクトルデータベース、ストレージなどのコンポーネントを柔軟に差し替え可能。ローカルおよびプライベートクラウドデプロイに対応し、データは完全に自己管理可能です。
+Feishu、Notion、Yuqueなどの外部プラットフォームからのナレッジ自動同期（他のデータソースも順次対応中）に対応し、PDF、Word、画像、Excelなど10以上の文書フォーマットをサポート。WeChat Work、Feishu、Slack、TelegramなどのIMチャネルから直接Q&Aサービスを提供できます。モデル層ではOpenAI、DeepSeek、Qwen（Alibaba Cloud）、Zhipu、Hunyuan、Gemini、MiniMax、NVIDIA、Ollamaなど主要プロバイダーに対応。全プロセスをモジュラー設計し、大規模モデル、ベクトルデータベース、ストレージなどのコンポーネントを柔軟に差し替え可能。ローカルおよびプライベートクラウドデプロイに対応し、データは完全に自己管理可能です。さらにWeKnoraは **Langfuse** とシームレスに統合され、Agentの推論、トークン消費、パイプラインに対する包括的な可観測性（オブザーバビリティ）を提供します。
 
 ## ✨ 最新アップデート
+
+**v0.5.2 バージョンのハイライト:**
+
+- **Wiki モードのスケール強化**：Wiki インジェストが汎用タスクキュー + デッドレターキューにより万件規模の KB に対応。ページリンクグラフはサブグラフ API + インタラクティブ探索 UI を追加。
+- **MCP ツールの Human-in-the-Loop 承認**：センシティブな MCP ツール呼び出しで Agent が一時停止し、チャット UI でユーザーの明示承認を待機。
+- **新規 LLM / ベクター DB / ストレージ / 検索**：Anthropic（Claude）、Apache Doris 4.1、Tencent VectorDB、金山雲 KS3、SearXNG をバックエンドとして追加。Vector Store 管理 UI と KB ごとのインデックス戦略 ON/OFF と組み合わせて利用可能。
+- **オブザーバビリティ強化**：Langfuse Span を retrieval / rerank / agent 各ステージに拡張；チャットストリームの両端で end-to-end TTFB を記録；LLM 呼び出しのフォールバックタイムアウトを強化し worker プールの恒久ブロックを防止。
+- **適応型 3 段階チャンキング**：見出しベース / ヒューリスティック / 再帰 の 3 戦略に自動振り分け、KB エディタにライブプレビューパネルを内蔵。詳細は [`docs/CHUNKING.md`](./docs/CHUNKING.md)。
+- **グローバルコマンドパレット**：⌘K パレットが独立検索ページを置き換え、結果から直接新規チャットを起動可能。
+- **データソースとモバイル**：Yuque コネクタ（フル + 増分同期）が Feishu / Notion と並んで利用可能、軽量な WeChat ミニプログラムクライアントを `miniprogram/` 配下に同梱。
+- **`weknora` CLI（プレビュー版）**：`cli/` 配下に公式コマンドラインクライアントの早期版を同梱、フィードバック歓迎。
+- **その他の改善**：テナント単位の RRF 調整；クエリ理解用の専用モデル；KB の一括管理；ユーザー単位のセッションピン留めとキーワード検索；テナント全体の IM チャネル概観；ユーザー単位で保存されるフォント / テーマ設定；OpenMaiC マイクロクラスルームの新規 Agent スキル；API ドキュメント / Swagger / Client SDK の全面リフレッシュ。
+- **バグ修正**：Embedder が接続失敗時に `(nil, nil)` を返して SIGSEGV に至る問題を修正；Mimo / DeepSeek 系プロバイダーの `reasoning_content` ラウンドトリップ復元；Agent 多ターン履歴を DB から再構築（添付ファイル replay 含む）；OIDC ログイン修正；Wiki インジェストの信頼性向上多数；空 PDF でファイル名から要約を捏造しないよう修正。
+
+<details>
+<summary><b>過去のリリース</b></summary>
 
 **v0.4.0 バージョンのハイライト:**
 
@@ -65,8 +87,6 @@ Feishuなどの外部プラットフォームからのナレッジ自動同期�
 - **VectorStore 管理**：完全な VectorStore CRUD 機能。エンティティ、リポジトリ、サービスレイヤー、接続テスト、API エンドポイント
 - **重要なバグ修正**：Azure OpenAI エンドポイント処理、Embedding 切り詰め、IM 引用タグのストリップ、neo4j Go 1.24 Windows 互換性、OSS 署名問題を修正
 
-<details>
-<summary><b>過去のリリース</b></summary>
 
 **v0.3.6 バージョンのハイライト:**
 
@@ -160,6 +180,25 @@ Feishuなどの外部プラットフォームからのナレッジ自動同期�
 </details>
 
 
+## 📱 機能デモ
+
+<table>
+  <tr>
+    <td colspan="2" align="center"><b>💬 インテリジェント Q&A 対話</b><br/><img src="./docs/images/qa.png" alt="インテリジェント Q&A 対話" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><b>📖 Wiki ブラウザ</b><br/><img src="./docs/images/wiki-browser.png" alt="Wiki ブラウザ" width="100%"></td>
+    <td width="50%" align="center"><b>🕸️ Wiki ナレッジグラフ</b><br/><img src="./docs/images/wiki-graph.png" alt="Wiki ナレッジグラフ" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><b>🤖 Agent モード · ツール呼び出しプロセス</b><br/><img src="./docs/images/agent-qa.png" alt="Agent モードツール呼び出しプロセス" width="100%"></td>
+    <td width="50%" align="center"><b>⚙️ 対話設定</b><br/><img src="./docs/images/settings.png" alt="対話設定" width="100%"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><b>🔭 可観測性 · Langfuse Tracing</b><br/><img src="./docs/images/langfuse.png" alt="Langfuse Tracing" width="100%"></td>
+  </tr>
+</table>
+
 ## 🏗️ アーキテクチャ設計
 
 ![weknora-architecture.png](./docs/images/architecture.png)
@@ -169,43 +208,45 @@ Feishuなどの外部プラットフォームからのナレッジ自動同期�
 
 ## 🧩 機能概要
 
-**🤖 インテリジェント対話**
+**インテリジェント対話**
 
 | 機能 | 詳細 |
 |------|------|
 | インテリジェント推論 | ReACT プログレッシブ・マルチステップ推論、ナレッジ検索・MCP ツール・Web 検索を自律的にオーケストレーション、カスタムエージェント対応 |
 | クイック Q&A | ナレッジベースベースの RAG Q&A、迅速かつ正確な回答 |
+| Wiki モード | Agent主導で生のドキュメントから構造化された相互リンク済みMarkdown Wikiページを自動生成・保守 |
 | ツール呼び出し | 組み込みツール、MCP ツール、Web 検索 |
 | 対話戦略 | オンライン Prompt 編集、検索閾値チューニング、マルチターン文脈認識 |
 | 推奨質問 | ナレッジベースの内容に基づく質問の自動生成 |
 
-**📚 ナレッジ管理**
+**ナレッジ管理**
 
 | 機能 | 詳細 |
 |------|------|
-| ナレッジベースタイプ | FAQ / ドキュメント、フォルダーインポート・URL インポート・タグ管理・オンライン入力 |
-| データソースインポート | Feishu / Notion ナレッジベースの自動同期（他のデータソースも開発中）、増分・全量同期対応 |
+| ナレッジベースタイプ | FAQ / ドキュメント / Wiki、フォルダーインポート・URL インポート・タグ管理・オンライン入力 |
+| データソースインポート | Feishu / Notion / Yuque ナレッジベースの自動同期（他のデータソースも開発中）、増分・全量同期対応 |
 | 文書フォーマット | PDF / Word / Txt / Markdown / HTML / 画像 / CSV / Excel / PPT / JSON |
 | 検索戦略 | BM25 疎検索 / Dense 密検索 / GraphRAG グラフ強化 / 親子チャンキング / 多次元インデックス |
 | E2E テスト | 検索+生成の全パイプライン可視化、リコール的中率・BLEU / ROUGE 指標評価 |
 
-**🔌 連携と拡張**
+**連携と拡張**
 
 | 機能 | 詳細 |
 |------|------|
-| 大規模モデル | OpenAI / Azure OpenAI / DeepSeek / Qwen (Alibaba Cloud) / Zhipu / Hunyuan / Doubao (Volcengine) / Gemini / MiniMax / NVIDIA / Novita AI / SiliconFlow / OpenRouter / Ollama |
+| 大規模モデル | OpenAI / Azure OpenAI / Anthropic (Claude) / DeepSeek / Qwen (Alibaba Cloud) / Zhipu / Hunyuan / Doubao (Volcengine) / Gemini / MiniMax / NVIDIA / Novita AI / SiliconFlow / OpenRouter / Ollama |
 | Embedding | Ollama / BGE / GTE / OpenAI 互換 API |
-| ベクトル DB | PostgreSQL (pgvector) / Elasticsearch / Milvus / Weaviate / Qdrant |
-| オブジェクトストレージ | ローカル / MinIO / AWS S3 / 火山引擎 TOS / Alibaba Cloud OSS |
+| ベクトル DB | PostgreSQL (pgvector) / Elasticsearch / Milvus / Weaviate / Qdrant / Apache Doris / Tencent VectorDB |
+| オブジェクトストレージ | ローカル / MinIO / AWS S3 / 火山引擎 TOS / Alibaba Cloud OSS / 金山雲 KS3 |
 | IM 統合 | WeChat Work / Feishu / Slack / Telegram / DingTalk / Mattermost / WeChat |
-| Web 検索 | DuckDuckGo / Bing / Google / Tavily / Baidu / Ollama |
+| Web 検索 | DuckDuckGo / Bing / Google / Tavily / Baidu / Ollama / SearXNG |
 
-**🛡️ プラットフォーム**
+**プラットフォーム**
 
 | 機能 | 詳細 |
 |------|------|
 | デプロイ | ローカル / Docker / Kubernetes (Helm)、プライベート化・オフラインデプロイ対応 |
-| UI | Web UI / RESTful API / Chrome Extension |
+| UI | Web UI / RESTful API / CLI (`weknora`) / Chrome Extension / WeChat ミニプログラム |
+| 可観測性 | ReActループ、トークン消費、ツール呼び出し、パイプライン追跡のためのLangfuse統合 |
 | タスク管理 | MQ 非同期タスク、バージョンアップ時の DB 自動マイグレーション |
 | モデル管理 | 集中設定、ナレッジベース単位のモデル選択、マルチテナント組み込みモデル共有、WeKnora Cloud ホスティングモデルとドキュメント解析 |
 
@@ -252,7 +293,7 @@ docker compose up -d   # コアサービスを起動
 | `full` | 全機能 | `docker compose --profile full up -d` |
 | `neo4j` | ナレッジグラフ (Neo4j) | `docker compose --profile neo4j up -d` |
 | `minio` | オブジェクトストレージ (MinIO) | `docker compose --profile minio up -d` |
-| `jaeger` | トレーシング (Jaeger) | `docker compose --profile jaeger up -d` |
+| `langfuse` | トレーシング (Langfuse) | `docker compose --profile langfuse up -d` |
 
 組み合わせ例：`docker compose --profile neo4j --profile minio up -d`
 
@@ -264,22 +305,7 @@ docker compose up -d   # コアサービスを起動
 |---------|-----|
 | Web UI | `http://localhost` |
 | バックエンド API | `http://localhost:8080` |
-| Jaeger トレーシング | `http://localhost:16686` |
-
-## 📱 機能デモ
-
-<table>
-  <tr>
-    <td colspan="2"><b>インテリジェントQ&A対話</b><br/><img src="./docs/images/qa.png" alt="インテリジェントQ&A対話"></td>
-  </tr>
-  <tr>
-    <td colspan="2"><b>Agentモードツール呼び出しプロセス</b><br/><img src="./docs/images/agent-qa.png" alt="Agentモードツール呼び出しプロセス"></td>
-  </tr>
-    <tr>
-    <td><b>ナレッジベース管理</b><br/><img src="./docs/images/knowledgebases.png" alt="ナレッジベース管理"></td>
-    <td><b>対話設定</b><br/><img src="./docs/images/settings.png" alt="対話設定"></td>
-  </tr>
-</table>
+| Langfuse トレーシング | `http://localhost:3000` |
 
 ## 文書ナレッジグラフ
 

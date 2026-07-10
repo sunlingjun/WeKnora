@@ -287,12 +287,12 @@ func extractColumnNamesFromNode(node *pg_query.Node) []string {
 
 	// Handle ColumnRef (column reference)
 	if colRef := node.GetColumnRef(); colRef != nil {
-		if colRef.Fields != nil {
-			for _, field := range colRef.Fields {
-				if strNode := field.GetString_(); strNode != nil {
-					if strNode.Sval != "*" { // Skip wildcard
-						colNames = append(colNames, strNode.Sval)
-					}
+		if len(colRef.Fields) > 0 {
+			// Extract only the actual column name (the last part of table.column or schema.table.column)
+			lastField := colRef.Fields[len(colRef.Fields)-1]
+			if strNode := lastField.GetString_(); strNode != nil {
+				if strNode.Sval != "*" { // Skip wildcard
+					colNames = append(colNames, strNode.Sval)
 				}
 			}
 		}

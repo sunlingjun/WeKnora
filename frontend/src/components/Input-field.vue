@@ -19,6 +19,12 @@ import { listWebSearchProviders, type WebSearchProviderEntity } from '@/api/web-
 import { getConversationConfig, updateConversationConfig, type ConversationConfig } from '@/api/system';
 import { useI18n } from 'vue-i18n';
 import AttachmentUpload, { type AttachmentFile } from './AttachmentUpload.vue';
+import {
+  kbSatisfiesAgentRequirements,
+  deriveKbFilterForAgent,
+  toolsConsumeFiles,
+  type ScopeCapabilities,
+} from '@/utils/tool-capabilities';
 
 const route = useRoute();
 const router = useRouter();
@@ -39,6 +45,41 @@ const imageUploading = ref(false);
 // Attachment upload state
 const attachmentUploadRef = ref<InstanceType<typeof AttachmentUpload>>();
 const uploadedAttachments = ref<AttachmentFile[]>([]);
+const CHAT_FILE_DROP_EVENT = 'weknora:chat-file-drop';
+
+const isImageFile = (file: File) => {
+  if (file.type.startsWith('image/')) {
+    return true;
+  }
+  const fileName = file.name.toLowerCase();
+  return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].some(ext => fileName.endsWith(ext));
+};
+
+const handleDroppedFiles = (files: File[]) => {
+  if (!files.length) return;
+
+  const imageFiles = files.filter(isImageFile);
+  const attachmentFiles = files.filter(file => !isImageFile(file));
+
+  if (imageFiles.length > 0) {
+    if (isImageUploadEnabledByAgent.value) {
+      addImageFiles(imageFiles);
+    } else {
+      MessagePlugin.warning(t('input.imageUploadDisabledByAgent'));
+    }
+  }
+
+  if (attachmentFiles.length > 0) {
+    attachmentUploadRef.value?.addFiles(attachmentFiles);
+  }
+};
+
+const handleChatFileDrop = (event: Event) => {
+  const customEvent = event as CustomEvent<{ files?: File[] }>;
+  const files = customEvent.detail?.files;
+  if (!files || files.length === 0) return;
+  handleDroppedFiles(files);
+};
 
 const handleImageSelect = (event: Event) => {
   const input = event.target as HTMLInputElement;
@@ -234,6 +275,61 @@ const agentSupportedFileTypes = computed(() => {
   return currentAgentConfig.value?.supported_file_types || [];
 });
 
+// 智能体配置的工具列表，驱动 @ 菜单的 KB 兼容性过滤
+const agentAllowedTools = computed<string[]>(() => {
+  if (!hasAgentConfig.value) return [];
+  return currentAgentConfig.value?.allowed_tools || [];
+});
+
+// 从 KB 对象里抽能力位，优先用 backend 显式的 capabilities 字段；否则回退到 indexing_strategy，
+// 最后拿 kb.type === 'faq' 兜底。shared / owned / agent-scope 三路的 KB 响应结构一致。
+const kbToScopeCaps = (kb: any): Partial<ScopeCapabilities> => {
+  if (kb?.capabilities) {
+    return {
+      vector: !!kb.capabilities.vector,
+      keyword: !!kb.capabilities.keyword,
+      wiki: !!kb.capabilities.wiki,
+      graph: !!kb.capabilities.graph,
+      faq: !!kb.capabilities.faq,
+    };
+  }
+  const s = kb?.indexing_strategy;
+  return {
+    vector: s ? !!s.vector_enabled : false,
+    keyword: s ? !!s.keyword_enabled : false,
+    wiki: s ? !!s.wiki_enabled : false,
+    graph: s ? !!s.graph_enabled : false,
+    faq: kb?.type === 'faq',
+  };
+};
+
+// 当前智能体的 agent_mode（quick-answer / smart-reasoning），用于把
+// "RAG-only 模式不能 @ wiki-only 知识库"这种隐式约束带进 KB 过滤。
+const agentMode = computed(() => {
+  if (!hasAgentConfig.value) return '';
+  return currentAgentConfig.value?.agent_mode || '';
+});
+
+// "all" 模式 + 智能体工具有 KB 依赖时的兼容性过滤；'selected'/'none' 不在这里二次过滤
+// （selected 由编辑器负责，none 已经空表）。
+const isKbCompatibleWithAgent = (kb: any): boolean => {
+  if (!hasAgentConfig.value) return true;
+  if (agentKBSelectionMode.value !== 'all') return true;
+  return kbSatisfiesAgentRequirements(kbToScopeCaps(kb), agentMode.value, agentAllowedTools.value);
+};
+
+// 仅在用户没输入搜索词、且是因智能体工具兼容性把列表清空的场景展示专用空态文案
+const mentionEmptyHint = computed(() => {
+  if (mentionQuery.value) return '';
+  if (!hasAgentConfig.value) return '';
+  if (agentKBSelectionMode.value !== 'all') return '';
+  // 列表为空 && 兼容性过滤器其实是有效的（否则"全部"不会被剔空）
+  if (mentionItems.value.length !== 0) return '';
+  const filter = deriveKbFilterForAgent(agentMode.value, agentAllowedTools.value);
+  if (!filter) return '';
+  return t('mentionDetail.noCompatibleKbForAgent');
+});
+
 // 智能体是否启用了图片上传（多模态）
 const isImageUploadEnabledByAgent = computed(() => {
   if (!hasAgentConfig.value) return false;
@@ -258,6 +354,9 @@ const mentionStartPos = ref(0);
 const isComposing = ref(false);
 const isMentionTriggeredByButton = ref(false);
 const mentionHasMore = ref(false);
+// 当前 @ 会话可见的 KB ID 集合（含工具兼容性过滤），分页加载文件时复用，
+// 避免 append 请求把不兼容 KB 的文件漏进来。`null` 表示"不受限制"（非智能体场景）
+const mentionAllowedKbIds = ref<Set<string> | null>(null);
 const mentionLoading = ref(false);
 const mentionOffset = ref(0);
 const MENTION_PAGE_SIZE = 20;
@@ -285,6 +384,10 @@ const props = defineProps({
   assistantMessageId: {
     type: String,
     required: false
+  },
+  embeddedMode: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -440,10 +543,13 @@ const loadKnowledgeBases = async () => {
   try {
     const response: any = await listKnowledgeBases();
     if (response.data && Array.isArray(response.data)) {
-      const validKbs = response.data.filter((kb: any) =>
-        kb.embedding_model_id && kb.embedding_model_id !== '' &&
-        kb.summary_model_id && kb.summary_model_id !== ''
-      );
+      const validKbs = response.data.filter((kb: any) => {
+        if (!kb.summary_model_id || kb.summary_model_id === '') return false
+        const strategy = kb.indexing_strategy
+        const needsEmbedding = !strategy || strategy.vector_enabled || strategy.keyword_enabled
+        if (needsEmbedding && (!kb.embedding_model_id || kb.embedding_model_id === '')) return false
+        return true
+      });
       knowledgeBases.value = validKbs;
 
       // 拉取共享知识库（供 @ 提及与清理选中项时识别）
@@ -828,13 +934,16 @@ const loadMentionItems = async (q: string, resetIndex = true, append = false) =>
         const res: any = await listKnowledgeBases({ agent_id: agentId });
         const list = res?.data && Array.isArray(res.data) ? res.data : [];
         const orgLabel = sharedAgentOrgName.value || '';
+        // 保留 capabilities / indexing_strategy，后面过滤时要用
         availableKbs = list.map((kb: any) => ({
           id: kb.id,
           name: kb.name,
           type: kb.type || 'document',
           knowledge_count: kb.knowledge_count,
           chunk_count: kb.chunk_count,
-          org_name: orgLabel
+          org_name: orgLabel,
+          capabilities: kb.capabilities,
+          indexing_strategy: kb.indexing_strategy,
         }));
         sharedAgentKbList.value = list.map((kb: any) => ({
           id: kb.id,
@@ -860,7 +969,9 @@ const loadMentionItems = async (q: string, resetIndex = true, append = false) =>
           type: s.knowledge_base.type || 'document',
           knowledge_count: s.knowledge_base.knowledge_count,
           chunk_count: s.knowledge_base.chunk_count,
-          org_name: s.org_name || ''
+          org_name: s.org_name || '',
+          capabilities: s.knowledge_base.capabilities,
+          indexing_strategy: s.knowledge_base.indexing_strategy,
         }));
       const ownIds = new Set(availableKbs.map((kb: any) => kb.id));
       sharedKbsForMention.forEach((kb: any) => {
@@ -873,13 +984,31 @@ const loadMentionItems = async (q: string, resetIndex = true, append = false) =>
 
     if (hasAgentConfig.value) {
       const kbMode = agentKBSelectionMode.value;
+      // 共享智能体路径：`availableKbs` 已经来自 `listKnowledgeBases({agent_id})`,
+      // 后端按 kb_selection_mode + allowed_tools 做过权威过滤；前端不再重复一遍。
+      // 本人智能体路径：走 own KBs + user-shared KBs 合并，后端拿不到 agent 上下文，
+      // 所以 'selected' 要收敛到配置集合，'all' 要按工具派生的能力过滤。
+      const isSharedAgent = !!(sourceTenantId && agentId);
       if (kbMode === 'none') {
         availableKbs = [];
-      } else if (kbMode === 'selected') {
-        const configuredKbIds = agentKnowledgeBases.value;
-        availableKbs = availableKbs.filter((kb: any) => configuredKbIds.includes(kb.id));
+      } else if (!isSharedAgent) {
+        if (kbMode === 'selected') {
+          // 'selected' 完全信任用户在编辑器里的勾选；编辑器已经用 kb_filter 灰显
+          // 不兼容项，这里不再二次过滤，避免越权擦除用户明确的选择。
+          const configuredKbIds = agentKnowledgeBases.value;
+          availableKbs = availableKbs.filter((kb: any) => configuredKbIds.includes(kb.id));
+        } else if (kbMode === 'all') {
+          // 'all' 的语义是"全部兼容的 KB"——按工具派生的能力集合过滤，
+          // 避免 wiki-qa 选"全部"后 @ 出来一堆 wiki 工具跑不动的 KB。
+          availableKbs = availableKbs.filter((kb: any) => isKbCompatibleWithAgent(kb));
+        }
       }
     }
+
+    // 非智能体场景不限制文件过滤；智能体场景按当前 availableKbs 的 ID 集合过滤文件
+    mentionAllowedKbIds.value = hasAgentConfig.value
+      ? new Set(availableKbs.map((kb: any) => String(kb.id)))
+      : null;
 
     const kbs = availableKbs.filter((kb: any) =>
       !q || (kb.name && kb.name.toLowerCase().includes(q.toLowerCase()))
@@ -895,9 +1024,14 @@ const loadMentionItems = async (q: string, resetIndex = true, append = false) =>
   }
   
   // Fetch Files from API
-  // 如果智能体禁用了知识库，也不显示文件
+  // 仅当满足以下两点才加载文件：
+  //   1. 智能体确实会用到知识库（kb_selection_mode !== 'none'）；
+  //   2. 智能体启用的工具里至少有一个能消费 @ 的文件 ID
+  //      （比如 wiki-qa 全是 wiki_* 工具，用户 @ 的文件根本进不到任何工具里，就没必要展示）。
   let fileItems: any[] = [];
-  const shouldLoadFiles = !hasAgentConfig.value || agentKBSelectionMode.value !== 'none';
+  const kbModeAllowsFiles = !hasAgentConfig.value || agentKBSelectionMode.value !== 'none';
+  const toolsAllowFiles = !hasAgentConfig.value || toolsConsumeFiles(agentAllowedTools.value);
+  const shouldLoadFiles = kbModeAllowsFiles && toolsAllowFiles;
   
   if (shouldLoadFiles) {
     mentionLoading.value = true;
@@ -922,9 +1056,17 @@ const loadMentionItems = async (q: string, resetIndex = true, append = false) =>
       console.log('[Mention] searchKnowledge response:', res);
       if (res.data && Array.isArray(res.data)) {
         let files = res.data;
-        if (!sourceTenantId && hasAgentConfig.value && agentKBSelectionMode.value === 'selected') {
-          const configuredKbIds = agentKnowledgeBases.value;
-          files = files.filter((f: any) => configuredKbIds.includes(f.knowledge_base_id ?? f.kb_id));
+        // 按当前 @ 会话的兼容 KB 集合过滤：
+        //   - 非智能体场景：`mentionAllowedKbIds` 为 null，跳过；
+        //   - 智能体场景（含 shared agent）：'selected' 会把 ID 收敛到用户勾的 KB，
+        //     'all' 会收敛到"兼容"的 KB，'none' 根本走不到这里（shouldLoadFiles=false）。
+        //   这样分页 append 也能用同一份集合，不再只兜住 'selected' + 非共享的分支。
+        if (mentionAllowedKbIds.value) {
+          const allowed = mentionAllowedKbIds.value;
+          files = files.filter((f: any) => {
+            const kbId = f.knowledge_base_id ?? f.kb_id;
+            return kbId != null && allowed.has(String(kbId));
+          });
         }
         const sharedKbOrgMap: Record<string, string> = {};
         (orgStore.sharedKnowledgeBases || []).forEach((s: any) => {
@@ -1278,6 +1420,7 @@ onMounted(() => {
   loadConversationConfig();
   loadChatModels();
   loadAgents();
+  window.addEventListener(CHAT_FILE_DROP_EVENT, handleChatFileDrop as EventListener);
 
   // 从持久化恢复 fileId -> kbId，刷新后共享知识库文件可带 kb_id 拉取（仅保留当前仍选中的文件）
   const persisted = settingsStore.settings.selectedFileKbMap;
@@ -1333,6 +1476,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener(CHAT_FILE_DROP_EVENT, handleChatFileDrop as EventListener);
   document.removeEventListener('click', closeAgentModeSelector);
   document.removeEventListener('click', closeModelSelector);
   document.removeEventListener('click', closeMentionSelector);
@@ -1674,11 +1818,8 @@ const onPaste = (e: ClipboardEvent) => {
 const onDrop = (e: DragEvent) => {
   e.preventDefault();
   const files = e.dataTransfer?.files;
-  if (!files) return;
-  const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
-  if (imageFiles.length > 0 && isImageUploadEnabledByAgent.value) {
-    addImageFiles(imageFiles);
-  }
+  if (!files || files.length === 0) return;
+  handleDroppedFiles(Array.from(files));
 };
 
 const onDragOver = (e: DragEvent) => {
@@ -1710,17 +1851,16 @@ const getBuiltinAgentNotReadyReasons = (agent: CustomAgent, isAgentMode: boolean
   const reasons: string[] = []
   const config = agent.config || {}
   
-  // 检查对话模型（Summary Model）
-  if (!config.model_id || config.model_id.trim() === '') {
-    reasons.push(t('input.customAgentMissingSummaryModel'))
-  }
+  // 内置智能体会自动回退到租户的默认模型，因此不再在前端强制校验 model_id
   
-  // 检查重排模型（Rerank Model）- 如果使用知识库则需要
-  if (config.kb_selection_mode !== 'none') {
-    if (!config.rerank_model_id || config.rerank_model_id.trim() === '') {
-      reasons.push(t('input.customAgentMissingRerankModel'))
-    }
-  }
+  // 检查重排模型（Rerank Model）- 仅当允许使用 knowledge_search 工具时需要
+  // 内置智能体允许重排模型为空（使用默认配置）
+  // const hasKnowledgeSearchTool = config.allowed_tools && config.allowed_tools.includes('knowledge_search')
+  // if (hasKnowledgeSearchTool) {
+  //   if (!config.rerank_model_id || config.rerank_model_id.trim() === '') {
+  //     reasons.push(t('input.customAgentMissingRerankModel'))
+  //   }
+  // }
   
   // Agent 模式还需要检查允许的工具
   if (isAgentMode) {
@@ -1741,13 +1881,11 @@ const getCustomAgentNotReadyReasons = (agent: CustomAgent): string[] => {
   if (!config.model_id || config.model_id.trim() === '') {
     reasons.push(t('input.customAgentMissingSummaryModel'))
   }
-  // 检查重排模型（Rerank Model）- 如果使用知识库则需要
-  if (config.kb_selection_mode !== 'none') {
-    if (!config.rerank_model_id || config.rerank_model_id.trim() === '') {
-      reasons.push(t('input.customAgentMissingRerankModel'))
-    }
-  }
-  
+  // Rerank 模型不在此处强制校验：当 knowledge_search 实际命中 RAG 知识库时，
+  // 后端会优先使用 agent.rerank_model_id，未配置则回退到租户默认 rerank 模型；
+  // 仅在两者都缺失时由后端报错。这样可以避免"作用域内无 RAG KB 却被拦"的误报，
+  // 并支持后续添加 RAG KB 时的自动兜底。
+
   return reasons
 }
 
@@ -1947,6 +2085,7 @@ defineExpose({
         :items="mentionItems"
         :hasMore="mentionHasMore"
         :loading="mentionLoading"
+        :emptyHint="mentionEmptyHint"
         v-model:activeIndex="mentionActiveIndex"
         @select="onMentionSelect"
         @loadMore="loadMoreMentionItems"
@@ -1956,7 +2095,7 @@ defineExpose({
     <!-- 控制栏 -->
     <div class="control-bar">
       <!-- 左侧控制按钮 -->
-      <div class="control-left">
+      <div class="control-left" v-if="!embeddedMode">
         <!-- Agent 模式切换按钮 -->
         <div 
           ref="agentModeButtonRef"
@@ -2217,13 +2356,17 @@ const getImgSrc = (url: string) => {
   z-index: 99;
   bottom: 60px;
   left: 50%;
-  transform: translateX(-400px);
+  transform: translateX(-50%);
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
 /* 富文本输入框容器 */
 .rich-input-container {
   position: relative;
-  width: 800px;
+  width: 100%;
+  max-width: 800px;
   background: var(--td-bg-color-container, #FFF);
   border-radius: 12px;
   border: .5px solid var(--td-component-border, #E7E7E7);
@@ -2410,7 +2553,7 @@ const getImgSrc = (url: string) => {
   font-size: 16px;
   font-weight: 400;
   line-height: 24px;
-  font-family: var(--td-font-family, "PingFang SC");
+  font-family: var(--app-font-family);
   padding: 12px 16px 56px 16px;
   border-radius: 0 0 12px 12px;
   border: none;
@@ -2425,7 +2568,7 @@ const getImgSrc = (url: string) => {
 
   &::placeholder {
     color: var(--td-text-color-placeholder, #00000066);
-    font-family: var(--td-font-family, "PingFang SC");
+    font-family: var(--app-font-family);
     font-size: 16px;
     font-weight: 400;
     line-height: 24px;

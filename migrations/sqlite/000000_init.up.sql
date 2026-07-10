@@ -67,12 +67,15 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     is_pinned INTEGER NOT NULL DEFAULT 0,
     pinned_at DATETIME NULL,
     asr_config TEXT,
+    vector_store_id VARCHAR(36),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted_at DATETIME
 );
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_bases_tenant_id ON knowledge_bases(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_bases_tenant_vector_store
+    ON knowledge_bases(tenant_id, vector_store_id);
 
 CREATE TABLE IF NOT EXISTS knowledges (
     id VARCHAR(36) PRIMARY KEY,
@@ -131,6 +134,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     agent_config TEXT DEFAULT NULL,
     context_config TEXT DEFAULT NULL,
     agent_id VARCHAR(36),
+    user_id VARCHAR(36),
+    is_pinned BOOLEAN NOT NULL DEFAULT 0,
+    pinned_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted_at DATETIME
@@ -138,6 +144,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_tenant_id ON sessions(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_tenant_user_pin
+    ON sessions (tenant_id, user_id, is_pinned, pinned_at, updated_at)
+    WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS messages (
     id VARCHAR(36) PRIMARY KEY,
@@ -276,6 +285,20 @@ CREATE INDEX IF NOT EXISTS idx_mcp_services_tenant_id ON mcp_services(tenant_id)
 CREATE INDEX IF NOT EXISTS idx_mcp_services_enabled ON mcp_services(enabled);
 CREATE INDEX IF NOT EXISTS idx_mcp_services_is_builtin ON mcp_services(is_builtin);
 CREATE INDEX IF NOT EXISTS idx_mcp_services_deleted_at ON mcp_services(deleted_at);
+
+CREATE TABLE IF NOT EXISTS mcp_tool_approvals (
+    id VARCHAR(36) PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
+    service_id VARCHAR(36) NOT NULL,
+    tool_name VARCHAR(512) NOT NULL,
+    require_approval BOOLEAN NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (service_id) REFERENCES mcp_services(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_tool_approvals_tenant_svc_tool ON mcp_tool_approvals(tenant_id, service_id, tool_name);
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_approvals_service_id ON mcp_tool_approvals(service_id);
 
 CREATE TABLE IF NOT EXISTS custom_agents (
     id VARCHAR(36) NOT NULL,

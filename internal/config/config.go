@@ -74,6 +74,9 @@ type AgentConfig struct {
 	// LLMCallTimeout is the default timeout for a single LLM call in seconds.
 	// Default: 120 (standard agents) or 300 (can be overridden by Env).
 	LLMCallTimeout int `yaml:"llm_call_timeout" json:"llm_call_timeout"`
+	// ToolApprovalTimeoutSeconds is how long the agent waits for human approval on a flagged MCP tool.
+	// 0 means default 600 (10 minutes).
+	ToolApprovalTimeoutSeconds int `yaml:"tool_approval_timeout_seconds" json:"tool_approval_timeout_seconds"`
 }
 
 // IMConfig configures the IM integration service.
@@ -476,10 +479,22 @@ func LoadConfig() (*Config, error) {
 		fmt.Printf("Warning: failed to load builtin agents config: %v\n", err)
 	}
 
+	// Load smart-reasoning agent type presets (rag-qa / wiki-qa / hybrid / custom).
+	if err := types.LoadAgentTypePresetsConfig(configDir); err != nil {
+		fmt.Printf("Warning: failed to load agent type presets: %v\n", err)
+	}
+
 	// Resolve prompt template ID references in builtin agent configs
 	// (e.g. system_prompt_id -> actual content from agent_system_prompt.yaml)
 	if cfg.PromptTemplates != nil {
 		resolveBuiltinAgentPromptIDs(cfg.PromptTemplates)
+		// Validate that every preset references an existing prompt template.
+		types.ResolveAgentTypePresetPromptRefs(func(id string) string {
+			if t := FindTemplateByID(cfg.PromptTemplates, id); t != nil {
+				return t.Content
+			}
+			return ""
+		})
 	}
 
 	// Validate configuration values
@@ -627,6 +642,15 @@ func applyAgentEnvOverrides(cfg *Config) {
 		} else if sec, err := time.ParseDuration(value + "s"); err == nil {
 			// Handle case where user just provides a number like "300"
 			cfg.Agent.LLMCallTimeout = int(sec.Seconds())
+		}
+	}
+	// MCP tool human-approval wait timeout (issue #1173). Accepts Go duration
+	// (e.g. "10m", "30s") or a bare number interpreted as seconds.
+	if value := strings.TrimSpace(os.Getenv("WEKNORA_AGENT_TOOL_APPROVAL_TIMEOUT")); value != "" {
+		if d, err := time.ParseDuration(value); err == nil {
+			cfg.Agent.ToolApprovalTimeoutSeconds = int(d.Seconds())
+		} else if d, err := time.ParseDuration(value + "s"); err == nil {
+			cfg.Agent.ToolApprovalTimeoutSeconds = int(d.Seconds())
 		}
 	}
 }
