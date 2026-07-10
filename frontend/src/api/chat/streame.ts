@@ -3,6 +3,10 @@ import { ref, onUnmounted } from 'vue';
 import { generateRandomString } from '@/utils/index';
 import i18n from '@/i18n';
 import { getApiBaseUrl } from '@/utils/api-base';
+import {
+  sanitizeStreamRequestBody,
+  type StreamRequestMeta,
+} from '@/utils/chatRequestDebug';
 
 
 
@@ -23,14 +27,17 @@ export function useStream() {
   const isStreaming = ref(false)      // 流状态
   const isLoading = ref(false)        // 初始加载
   const error = ref<string | null>(null)// 错误信息
+  const lastStreamRequest = ref<StreamRequestMeta | null>(null)
   let controller = new AbortController()
+  let streamGeneration = 0
 
   // 流式渲染缓冲
   let buffer: string[] = []
   let renderTimer: number | null = null
 
   // 启动流式请求
-  const startStream = async (params: { session_id: any; query: any; knowledge_base_ids?: string[]; knowledge_ids?: string[]; agent_enabled?: boolean; agent_id?: string; web_search_enabled?: boolean; enable_memory?: boolean; summary_model_id?: string; mcp_service_ids?: string[]; mentioned_items?: Array<{id: string; name: string; type: string; kb_type?: string}>; images?: Array<{data: string}>; attachment_uploads?: Array<{data: string; file_name: string; file_size: number}>; method: string; url: string }) => {
+  const startStream = async (params: { session_id: any; query: any; knowledge_base_ids?: string[]; knowledge_ids?: string[]; agent_enabled?: boolean; agent_id?: string; web_search_enabled?: boolean; enable_memory?: boolean; summary_model_id?: string; mcp_service_ids?: string[]; mentioned_items?: Array<{id: string; name: string; type: string; kb_type?: string}>; images?: Array<{data: string}>; attachment_uploads?: Array<{data: string; file_name: string; file_size: number}>; method: string; url: string; embed_token?: string; embed_session_sig?: string }) => {
+    const myGeneration = ++streamGeneration
     // 重置状态
     output.value = '';
     error.value = null;
@@ -40,36 +47,23 @@ export function useStream() {
     // 获取API配置
     const apiUrl = getApiBaseUrl();
     
-    // 获取JWT Token
-    const token = localStorage.getItem('weknora_token');
+    const embedToken = params.embed_token;
+    const token = embedToken || localStorage.getItem('weknora_token');
     if (!token) {
       error.value = i18n.global.t('error.tokenNotFound');
       stopStream();
       return;
     }
 
-    // 获取跨租户访问请求头
+    // 跨租户访问请求头：只要 setSelectedTenant 写过激活租户，就附
+    // X-Tenant-ID。早期版本会 short-circuit "selectedTenantId ===
+    // defaultTenantId 时不附" 来减少 header 体积，但任何把 weknora_tenant
+    // 写成激活租户的代码（OIDC 同步 / UserMenu loadUserInfo / router
+    // hydrate）都会让两者相等，使得后续流式请求悄悄丢 header、落到
+    // home 租户上，导致 SSE 接口返回 404。直接附即可——后端
+    // IsTenantAccessible 也允许 header 指向自家租户。
     const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id');
-    const defaultTenantId = localStorage.getItem('weknora_tenant');
-    let tenantIdHeader: string | null = null;
-    if (selectedTenantId) {
-      try {
-        const defaultTenant = defaultTenantId ? JSON.parse(defaultTenantId) : null;
-        const defaultId = defaultTenant?.id ? String(defaultTenant.id) : null;
-        if (selectedTenantId !== defaultId) {
-          tenantIdHeader = selectedTenantId;
-        }
-      } catch (e) {
-        console.error('Failed to parse tenant info', e);
-      }
-    }
-
-    // Validate knowledge_base_ids for agent-chat requests
-    // Note: knowledge_base_ids can be empty if user hasn't selected any, but we allow it
-    // The backend will handle the case when no knowledge bases are selected
-    const isAgentChat = params.url === '/api/v1/agent-chat';
-    // Removed validation - allow empty knowledge_base_ids array
-    // The backend should handle this case appropriately
+    const tenantIdHeader: string | null = selectedTenantId || null;
 
     // TTFB instrumentation: record the moment we kick off the request so
     // we can compare it with the first answer chunk we receive from the
@@ -133,16 +127,25 @@ export function useStream() {
       if (params.attachment_uploads !== undefined && params.attachment_uploads.length > 0) {
         postBody.attachment_uploads = params.attachment_uploads;
       }
-      postBody.channel = "web";
+      postBody.channel = embedToken ? "embed" : "web";
+
+      lastStreamRequest.value = {
+        requestId: requestID,
+        url,
+        method: params.method,
+        body: params.method === 'POST' ? sanitizeStreamRequestBody(postBody) : null,
+        sentAt: Date.now(),
+      };
       
       await fetchEventSource(url, {
         method: params.method,
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
+          "Authorization": embedToken ? `Embed ${embedToken}` : `Bearer ${token}`,
           "Accept-Language": i18n.global.locale?.value || localStorage.getItem('locale') || 'zh-CN',
           "X-Request-ID": requestID,
-          ...(tenantIdHeader ? { "X-Tenant-ID": tenantIdHeader } : {}),
+          ...(!embedToken && tenantIdHeader ? { "X-Tenant-ID": tenantIdHeader } : {}),
+          ...(params.embed_session_sig ? { "X-Embed-Session": params.embed_session_sig } : {}),
         },
         body:
           params.method == "POST"
@@ -158,6 +161,7 @@ export function useStream() {
         },
 
         onmessage: (ev) => {
+          if (myGeneration !== streamGeneration) return
           const parsed = JSON.parse(ev.data);
           // Log first answer chunk for end-to-end TTFB measurement.
           // Filter by event type so non-answer events (references, tool
@@ -196,6 +200,7 @@ export function useStream() {
 
   // 停止流
   const stopStream = () => {
+    streamGeneration++
     controller.abort();
     controller = new AbortController(); // 重置控制器（如需重新发起）
     isStreaming.value = false;
@@ -210,6 +215,7 @@ export function useStream() {
     isStreaming,     // 是否在流式传输中
     isLoading,       // 初始连接状态
     error,
+    lastStreamRequest,
     onChunk,
     startStream,     // 启动流
     stopStream       // 手动停止

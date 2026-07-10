@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	_ "github.com/go-sql-driver/mysql" // 给 Doris (database/sql) 注册 MySQL 协议驱动
 	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 	"github.com/panjf2000/ants/v2"
+	"github.com/qdrant/go-client/qdrant"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/dig"
 	"gorm.io/driver/postgres"
@@ -36,6 +38,8 @@ import (
 	elasticsearchRepoV7 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v7"
 	elasticsearchRepoV8 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v8"
 	neo4jRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/neo4j"
+	openSearchRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/opensearch"
+	qdrantRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/qdrant"
 	postgresRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/postgres"
 	sqliteRetrieverRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/sqlite"
 	tencentVectorDBRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/tencentvectordb"
@@ -50,6 +54,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/datasource"
 	feishuConnector "github.com/Tencent/WeKnora/internal/datasource/connector/feishu"
 	notionConnector "github.com/Tencent/WeKnora/internal/datasource/connector/notion"
+	rssConnector "github.com/Tencent/WeKnora/internal/datasource/connector/rss"
 	yuqueConnector "github.com/Tencent/WeKnora/internal/datasource/connector/yuque"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/handler"
@@ -66,14 +71,15 @@ import (
 	infra_web_search "github.com/Tencent/WeKnora/internal/infrastructure/web_search"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/mcp"
+	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/models/embedding"
 	"github.com/Tencent/WeKnora/internal/models/utils/ollama"
 	"github.com/Tencent/WeKnora/internal/router"
 	"github.com/Tencent/WeKnora/internal/stream"
-	"github.com/Tencent/WeKnora/internal/tracing"
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	secutils "github.com/Tencent/WeKnora/internal/utils"
 	"github.com/tencent/vectordatabase-sdk-go/tcvectordb"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/auth"
@@ -98,15 +104,12 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// Core infrastructure configuration
 	logger.Debugf(ctx, "[Container] Registering core infrastructure...")
 	must(container.Provide(config.LoadConfig))
-	must(container.Provide(initTracer))
 	must(container.Provide(initLangfuse))
 	must(container.Provide(initDatabase))
 	must(container.Provide(initFileService))
 	must(container.Provide(initRedisClient))
 	must(container.Provide(initAntsPool))
 
-	// Register tracer cleanup handler (tracer needs to be available for cleanup registration)
-	must(container.Invoke(registerTracerCleanup))
 	must(container.Invoke(registerLangfuseCleanup))
 
 	// Register goroutine pool cleanup handler
@@ -131,9 +134,13 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// Data repositories layer
 	logger.Debugf(ctx, "[Container] Registering repositories...")
 	must(container.Provide(repository.NewTenantRepository))
+	must(container.Provide(repository.NewTenantMemberRepository))
+	must(container.Provide(repository.NewTenantInvitationRepository))
+	must(container.Provide(repository.NewAuditLogRepository))
 	must(container.Provide(repository.NewKnowledgeBaseRepository))
 	must(container.Provide(repository.NewKnowledgeBaseMemberRepository))
 	must(container.Provide(repository.NewKnowledgeRepository))
+	must(container.Provide(repository.NewKnowledgeSpanRepository))
 	must(container.Provide(repository.NewChunkRepository))
 	must(container.Provide(repository.NewKnowledgeTagRepository))
 	must(container.Provide(repository.NewSessionRepository))
@@ -141,15 +148,19 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewModelRepository))
 	must(container.Provide(repository.NewUserRepository))
 	must(container.Provide(repository.NewAuthTokenRepository))
+	must(container.Provide(repository.NewSystemSettingRepository))
 	must(container.Provide(neo4jRepo.NewNeo4jRepository))
 	must(container.Provide(memoryRepo.NewMemoryRepository))
 	must(container.Provide(repository.NewMCPServiceRepository))
 	must(container.Provide(repository.NewMCPToolApprovalRepository))
+	must(container.Provide(repository.NewMCPOAuthRepository))
 	must(container.Provide(repository.NewCustomAgentRepository))
 	must(container.Provide(repository.NewOrganizationRepository))
 	must(container.Provide(repository.NewKBShareRepository))
 	must(container.Provide(repository.NewAgentShareRepository))
+	must(container.Provide(repository.NewEmbedChannelRepository))
 	must(container.Provide(repository.NewTenantDisabledSharedAgentRepository))
+	must(container.Provide(repository.NewUserResourceFavoriteRepository))
 	must(container.Provide(service.NewWebSearchStateService))
 	must(container.Provide(repository.NewDataSourceRepository))
 	must(container.Provide(repository.NewSyncLogRepository))
@@ -161,16 +172,22 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// MCP manager for managing MCP client connections
 	logger.Debugf(ctx, "[Container] Registering MCP manager...")
 	must(container.Provide(mcp.NewMCPManager))
+	must(container.Provide(mcp.NewOAuthManager))
 
 	// Business service layer
 	logger.Debugf(ctx, "[Container] Registering business services...")
 	must(container.Provide(service.NewTenantService))
+	must(container.Provide(service.NewTenantMemberService))
+	must(container.Provide(service.NewTenantInvitationService))
+	must(container.Provide(service.NewAuditLogService))
+	must(container.Provide(service.NewAuditLogRetentionRunner))
 	must(container.Provide(service.NewKnowledgeBaseService))
 	must(container.Provide(service.NewOrganizationService))
 	must(container.Provide(service.NewKBShareService))             // KBShareService must be registered before KnowledgeService and KnowledgeTagService
 	must(container.Provide(service.NewSharedKnowledgeBaseService)) // KnowledgeService 依赖 SharedKnowledgeBaseService，须先注册
 	must(container.Provide(service.NewAgentShareService))
 	must(container.Provide(service.NewKnowledgeService))
+	must(container.Provide(service.NewSpanTracker))
 	must(container.Provide(service.NewChunkService))
 	must(container.Provide(service.NewKnowledgeTagService))
 	must(container.Provide(embedding.NewBatchEmbedder))
@@ -179,6 +196,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewEvaluationService))
 	must(container.Provide(service.NewUserService))
 	must(container.Provide(service.NewCASAuthService))
+	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewWeKnoraCloudService))
 
 	// Extract services - register individual extracters with names
@@ -191,11 +209,13 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewMCPServiceService))
 	must(container.Provide(service.NewMCPToolApprovalService))
 	must(container.Provide(service.NewCustomAgentService))
+	must(container.Provide(service.NewUserResourceFavoriteService))
 	must(container.Provide(memoryService.NewMemoryService))
 	must(container.Provide(service.NewWikiPageService))
 	must(container.Provide(service.NewWikiLogEntryService))
 	must(container.Provide(service.NewWikiIngestService, dig.Name("wikiIngest")))
 	must(container.Provide(service.NewWikiLintService))
+	must(container.Provide(service.NewEmbedChannelService))
 
 	// Web search service (needed by AgentService)
 	logger.Debugf(ctx, "[Container] Registering web search registry and providers...")
@@ -203,6 +223,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Invoke(registerWebSearchProviders))
 	must(container.Provide(repository.NewWebSearchProviderRepository))
 	must(container.Provide(repository.NewVectorStoreRepository))
+	// TenantStoreOwnership adapter used by the retriever factory functions
+	// to verify that a resolved VectorStore belongs to the caller's tenant.
+	must(container.Provide(retriever.NewVectorStoreRepoOwnership))
 	must(container.Provide(service.NewWebSearchService))
 	must(container.Provide(service.NewWebSearchProviderService))
 	must(container.Provide(NewEngineFactory))
@@ -244,10 +267,18 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	if redisAvailable {
 		must(container.Provide(router.NewAsyncqClient, dig.As(new(interfaces.TaskEnqueuer))))
 		must(container.Provide(router.NewAsynqServer))
+		// Asynq inspector for cancel-by-knowledge-id (best-effort
+		// dequeue of pending/scheduled/retry tasks + active-task cancel).
+		must(container.Provide(router.NewAsynqInspector))
+		must(container.Provide(router.NewAsynqTaskInspector))
 	} else {
 		syncExec := router.NewSyncTaskExecutor()
 		must(container.Provide(func() interfaces.TaskEnqueuer { return syncExec }))
 		must(container.Provide(func() *router.SyncTaskExecutor { return syncExec }))
+		// Lite mode: no Redis means no asynq inspector. SyncTaskExecutor
+		// dispatches inline goroutines that the checkpoint-based abort
+		// already handles.
+		must(container.Provide(router.NewNoopTaskInspector))
 	}
 
 	// Chat pipeline components for processing chat requests
@@ -260,6 +291,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewDataSourceService))
 	must(container.Invoke(startDataSourceScheduler))
 	logger.Debugf(ctx, "[Container] Data source sync framework registered")
+	must(container.Invoke(startAuditLogRetention))
+	logger.Debugf(ctx, "[Container] Audit log retention runner registered")
+	must(container.Provide(service.NewHousekeepingService))
+	must(container.Invoke(startHousekeepingService))
+	logger.Debugf(ctx, "[Container] Knowledge housekeeping runner registered")
 	must(container.Provide(chatpipeline.NewEventManager))
 	must(container.Invoke(chatpipeline.NewPluginSearch))
 	must(container.Invoke(chatpipeline.NewPluginRerank))
@@ -282,8 +318,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// HTTP handlers layer
 	logger.Debugf(ctx, "[Container] Registering HTTP handlers...")
 	must(container.Provide(handler.NewTenantHandler))
-	// 共享知识库相关（MemberRepository / SharedKnowledgeBaseService 已在上方与 repos/services 一起注册）
-	logger.Debugf(ctx, "[Container] Registering shared knowledge base handlers...")
+	must(container.Provide(handler.NewTenantMemberHandler))
+	must(container.Provide(handler.NewTenantInvitationHandler))
+	must(container.Provide(handler.NewAuditLogHandler))
 	must(container.Provide(handler.NewKnowledgeBaseHandler))
 	must(container.Provide(handler.NewKnowledgeHandler))
 	must(container.Provide(handler.NewChunkHandler))
@@ -299,10 +336,16 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewCASAuthHandler))
 	must(container.Provide(handler.NewSystemHandler))
 	must(container.Provide(handler.NewMCPServiceHandler))
+	must(container.Provide(handler.NewMCPCredentialsHandler))
+	must(container.Provide(handler.NewMCPOAuthHandler))
+	must(container.Provide(handler.NewModelCredentialsHandler))
+	must(container.Provide(handler.NewWebSearchProviderCredentialsHandler))
+	must(container.Provide(handler.NewDataSourceCredentialsHandler))
 	must(container.Provide(handler.NewWebSearchHandler))
 	must(container.Provide(handler.NewWebSearchProviderHandler))
 	must(container.Provide(handler.NewVectorStoreHandler))
 	must(container.Provide(handler.NewCustomAgentHandler))
+	must(container.Provide(handler.NewUserResourceFavoriteHandler))
 	must(container.Provide(service.NewSkillService))
 	must(container.Provide(handler.NewSkillHandler))
 	must(container.Provide(handler.NewOrganizationHandler))
@@ -316,8 +359,14 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(imPkg.NewService))
 	must(container.Invoke(registerIMAdapterFactories))
 	must(container.Provide(handler.NewIMHandler))
+	must(container.Provide(handler.NewEmbedChannelHandler))
 	must(container.Provide(handler.NewWeKnoraCloudHandler))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
+
+	// Wire the chat package's local image resolver so multimodal chat can read
+	// local:// images that live under a tenant's configured storage PathPrefix
+	// (which is not encoded in the local:// URL).
+	must(container.Invoke(registerChatLocalImageResolver))
 
 	// Router configuration
 	logger.Debugf(ctx, "[Container] Registering router and starting task server...")
@@ -332,6 +381,41 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	return container
 }
 
+// registerChatLocalImageResolver wires the chat package's LocalImageResolver
+// hook. Stored local:// URLs are relative to the resolved storage base dir and
+// do NOT encode the owning tenant's configured PathPrefix, so resolving them to
+// disk bytes requires rebuilding the FileService from that tenant's storage
+// config. The owning tenant is parsed from the URL's first path segment, which
+// correctly handles cross-tenant shared resources (e.g. shared KB images).
+func registerChatLocalImageResolver(tenantRepo interfaces.TenantRepository) {
+	chat.LocalImageResolver = func(storageURL string) ([]byte, bool) {
+		tenantID := secutils.ParseTenantIDFromStoragePath(storageURL)
+		if tenantID == 0 {
+			return nil, false
+		}
+		ctx := context.Background()
+		tenant, err := tenantRepo.GetTenantByID(ctx, tenantID)
+		if err != nil || tenant == nil {
+			return nil, false
+		}
+		baseDir := strings.TrimSpace(os.Getenv("LOCAL_STORAGE_BASE_DIR"))
+		fileSvc, _, err := file.NewFileServiceFromStorageConfig("local", tenant.StorageEngineConfig, baseDir)
+		if err != nil {
+			return nil, false
+		}
+		rc, err := fileSvc.GetFile(ctx, storageURL)
+		if err != nil {
+			return nil, false
+		}
+		defer rc.Close()
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return nil, false
+		}
+		return data, true
+	}
+}
+
 // must is a helper function for error handling
 // Panics if the error is not nil, useful for configuration steps that must succeed
 // Parameters:
@@ -340,18 +424,6 @@ func must(err error) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-// initTracer initializes OpenTelemetry tracer
-// Sets up distributed tracing for observability across the application
-// Parameters:
-//   - None
-//
-// Returns:
-//   - Configured tracer instance
-//   - Error if initialization fails
-func initTracer() (*tracing.Tracer, error) {
-	return tracing.InitTracer()
 }
 
 // initLangfuse initializes the Langfuse ingestion client.
@@ -501,6 +573,18 @@ func initDatabase(cfg *config.Config) (*gorm.DB, error) {
 		return nil, err
 	}
 
+	// Sanity check: dialect-specific code in services (notably the
+	// vector_stores delete guard) compares Dialector.Name() to "postgres" /
+	// "sqlite" string literals. A future driver swap that produces a
+	// different name (e.g., a wrapper dialect for managed PG) would silently
+	// fall back to the SQLite path, dropping the row-level X-lock. Catching
+	// the mismatch at startup is loud and inexpensive.
+	if name := db.Dialector.Name(); name != "postgres" && name != "sqlite" {
+		return nil, fmt.Errorf(
+			"unsupported gorm dialector %q; expected postgres or sqlite "+
+				"(see vectorStoreService.isPostgres for impact)", name)
+	}
+
 	if os.Getenv("DB_DRIVER") == "sqlite" {
 		sqlDB, err := db.DB()
 		if err != nil {
@@ -538,6 +622,11 @@ func initDatabase(cfg *config.Config) (*gorm.DB, error) {
 		// The SQL migration marks KBs that have documents but no provider with "__pending_env__";
 		// we replace that with the actual STORAGE_TYPE from the environment.
 		resolveStorageProviderPending(db)
+
+		// Post-migration: declarative built-in models from config/builtin_models.yaml (optional).
+		if err := types.LoadBuiltinModelsConfig(context.Background(), db, config.ConfigDir()); err != nil {
+			logger.Warnf(context.Background(), "Load builtin models config failed: %v", err)
+		}
 	} else {
 		logger.Infof(context.Background(), "Auto-migration is disabled (AUTO_MIGRATE=false)")
 	}
@@ -614,53 +703,6 @@ func syncSequences(db *gorm.DB) {
 		} else {
 			logger.Infof(context.Background(), "Synced sequence %s with table %s", seq, table)
 		}
-	}
-}
-
-// resetPendingTasks resets the state of any knowledge items or sync logs stuck in processing
-// due to an unexpected application restart when using in-memory queues (Lite mode).
-func resetPendingTasks(db *gorm.DB) {
-	if os.Getenv("REDIS_ADDR") != "" {
-		return // Distributed queue (Asynq) will handle its own retries
-	}
-
-	// 1. Reset knowledge parsing tasks
-	result := db.Model(&types.Knowledge{}).
-		Where("parse_status IN ?", []string{types.ParseStatusPending, types.ParseStatusProcessing, types.ParseStatusDeleting}).
-		Updates(map[string]interface{}{
-			"parse_status":  types.ParseStatusFailed,
-			"error_message": "Task interrupted due to application restart",
-		})
-	if result.Error != nil {
-		logger.Warnf(context.Background(), "Failed to reset pending knowledge tasks: %v", result.Error)
-	} else if result.RowsAffected > 0 {
-		logger.Infof(context.Background(), "Reset %d stuck knowledge parsing tasks to failed state", result.RowsAffected)
-	}
-
-	// 2. Reset knowledge summary tasks
-	resultSummary := db.Model(&types.Knowledge{}).
-		Where("summary_status IN ?", []string{types.SummaryStatusPending, types.SummaryStatusProcessing}).
-		Updates(map[string]interface{}{
-			"summary_status": types.SummaryStatusFailed,
-		})
-	if resultSummary.Error != nil {
-		logger.Warnf(context.Background(), "Failed to reset pending summary tasks: %v", resultSummary.Error)
-	} else if resultSummary.RowsAffected > 0 {
-		logger.Infof(context.Background(), "Reset %d stuck summary generation tasks to failed state", resultSummary.RowsAffected)
-	}
-
-	// 3. Reset data source sync tasks
-	resultSync := db.Model(&types.SyncLog{}).
-		Where("status IN ?", []string{types.SyncLogStatusRunning, "pending"}).
-		Updates(map[string]interface{}{
-			"status":        types.SyncLogStatusFailed,
-			"error_message": "Sync interrupted due to application restart",
-			"end_time":      time.Now(),
-		})
-	if resultSync.Error != nil {
-		logger.Warnf(context.Background(), "Failed to reset pending data source sync tasks: %v", resultSync.Error)
-	} else if resultSync.RowsAffected > 0 {
-		logger.Infof(context.Background(), "Reset %d stuck data source sync tasks to failed state", resultSync.RowsAffected)
 	}
 }
 
@@ -748,6 +790,26 @@ func initFileService(cfg *config.Config) (interfaces.FileService, error) {
 			os.Getenv("S3_REGION"),
 			pathPrefix,
 		)
+	case "obs":
+		if os.Getenv("OBS_ENDPOINT") == "" ||
+			os.Getenv("OBS_ACCESS_KEY") == "" ||
+			os.Getenv("OBS_SECRET_KEY") == "" ||
+			os.Getenv("OBS_BUCKET_NAME") == "" {
+			return nil, fmt.Errorf("missing OBS configuration")
+		}
+		obsRegion := os.Getenv("OBS_REGION")
+		obsPathPrefix := os.Getenv("OBS_PATH_PREFIX")
+		if obsPathPrefix == "" {
+			obsPathPrefix = "weknora/"
+		}
+		return file.NewObsFileService(
+			os.Getenv("OBS_ENDPOINT"),
+			obsRegion,
+			os.Getenv("OBS_ACCESS_KEY"),
+			os.Getenv("OBS_SECRET_KEY"),
+			os.Getenv("OBS_BUCKET_NAME"),
+			obsPathPrefix,
+		)
 	case "oss":
 		if os.Getenv("OSS_ENDPOINT") == "" ||
 			os.Getenv("OSS_REGION") == "" ||
@@ -794,10 +856,16 @@ func initFileService(cfg *config.Config) (interfaces.FileService, error) {
 // Returns:
 //   - Configured retrieval engine registry
 //   - Error if initialization fails
-func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.RetrieveEngineRegistry, error) {
+func initRetrieveEngineRegistry(
+	db *gorm.DB, cfg *config.Config, auditSvc interfaces.AuditLogService,
+) (interfaces.RetrieveEngineRegistry, error) {
 	registry := retriever.NewRetrieveEngineRegistry()
 	retrieveDriver := strings.Split(os.Getenv("RETRIEVE_DRIVER"), ",")
 	log := logger.GetLogger(context.Background())
+	// Audit sink for OpenSearch driver events (index created / reindex). Driver
+	// events fire under a tenant-scoped ctx at indexing time; the env-path
+	// registration ctx below has no tenant, so those emits self-skip.
+	auditSink := newAuditSinkAdapter(auditSvc)
 
 	if slices.Contains(retrieveDriver, "postgres") {
 		postgresRepo := postgresRepo.NewPostgresRetrieveEngineRepository(db)
@@ -863,7 +931,75 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 		}
 	}
 
-	registerQdrantRetrieverEngine(retrieveDriver, registry, log)
+	if slices.Contains(retrieveDriver, "opensearch") {
+		cc := &types.ConnectionConfig{
+			Addr:               os.Getenv("OPENSEARCH_ADDR"),
+			Username:           os.Getenv("OPENSEARCH_USERNAME"),
+			Password:           os.Getenv("OPENSEARCH_PASSWORD"),
+			InsecureSkipVerify: strings.EqualFold(os.Getenv("OPENSEARCH_INSECURE_SKIP_VERIFY"), "true"),
+		}
+		client, err := openSearchRepo.NewOpenSearchClient(cc)
+		if err != nil {
+			log.Errorf("Create opensearch client failed: %v", err)
+		} else if repo, err := openSearchRepo.NewRepository(
+			context.Background(), client, "", nil, openSearchRepo.WithAuditSink(auditSink),
+		); err != nil {
+			log.Errorf("Create opensearch repository failed: %v", err)
+		} else if err := registry.Register(
+			retriever.NewKVHybridRetrieveEngine(repo, types.OpenSearchRetrieverEngineType),
+		); err != nil {
+			log.Errorf("Register opensearch retrieve engine failed: %v", err)
+		} else {
+			log.Infof("Register opensearch retrieve engine success")
+		}
+	}
+
+	if slices.Contains(retrieveDriver, "qdrant") {
+		qdrantHost := os.Getenv("QDRANT_HOST")
+		if qdrantHost == "" {
+			qdrantHost = "localhost"
+		}
+
+		qdrantPort := 6334 // Default port
+		if portStr := os.Getenv("QDRANT_PORT"); portStr != "" {
+			if port, err := strconv.Atoi(portStr); err == nil {
+				qdrantPort = port
+			}
+		}
+
+		// API key for authentication (optional)
+		qdrantAPIKey := os.Getenv("QDRANT_API_KEY")
+
+		// TLS configuration (optional, defaults to false)
+		qdrantUseTLS := false
+		if useTLSStr := os.Getenv("QDRANT_USE_TLS"); useTLSStr != "" {
+			useTLSLower := strings.ToLower(strings.TrimSpace(useTLSStr))
+			qdrantUseTLS = useTLSLower != "false" && useTLSLower != "0"
+		}
+
+		log.Infof("Connecting to Qdrant at %s:%d (TLS: %v)", qdrantHost, qdrantPort, qdrantUseTLS)
+
+		client, err := qdrant.NewClient(&qdrant.Config{
+			Host:   qdrantHost,
+			Port:   qdrantPort,
+			APIKey: qdrantAPIKey,
+			UseTLS: qdrantUseTLS,
+		})
+		if err != nil {
+			log.Errorf("Create qdrant client failed: %v", err)
+		} else {
+			qdrantRepository := qdrantRepo.NewQdrantRetrieveEngineRepository(client, nil)
+			if err := registry.Register(
+				retriever.NewKVHybridRetrieveEngine(
+					qdrantRepository, types.QdrantRetrieverEngineType,
+				),
+			); err != nil {
+				log.Errorf("Register qdrant retrieve engine failed: %v", err)
+			} else {
+				log.Infof("Register qdrant retrieve engine success")
+			}
+		}
+	}
 	if slices.Contains(retrieveDriver, "weaviate") {
 		weaviateHost := os.Getenv("WEAVIATE_HOST")
 		if weaviateHost == "" {
@@ -930,7 +1066,7 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 			}
 		}
 
-		dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
+		dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=true&loc=Local&interpolateParams=true",
 			dorisUsername, dorisPassword, dorisAddr, dorisDatabase)
 		dorisDB, err := sql.Open("mysql", dsn)
 		if err != nil {
@@ -988,7 +1124,7 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 	}
 	// ─── DB store registration (byStoreID) ───
 	if storeReg, ok := registry.(*retriever.RetrieveEngineRegistry); ok {
-		loadDBStoresIntoRegistry(storeReg, db, cfg)
+		loadDBStoresIntoRegistry(storeReg, db, cfg, auditSink)
 	}
 
 	return registry, nil
@@ -996,7 +1132,9 @@ func initRetrieveEngineRegistry(db *gorm.DB, cfg *config.Config) (interfaces.Ret
 
 // loadDBStoresIntoRegistry loads VectorStore records from DB and registers them
 // in the registry's byStoreID map. Failures are logged and skipped (non-fatal).
-func loadDBStoresIntoRegistry(storeRegistry interfaces.StoreRegistry, db *gorm.DB, cfg *config.Config) {
+func loadDBStoresIntoRegistry(
+	storeRegistry interfaces.StoreRegistry, db *gorm.DB, cfg *config.Config, auditSink openSearchRepo.AuditSink,
+) {
 	ctx := context.Background()
 	log := logger.GetLogger(ctx)
 
@@ -1013,7 +1151,7 @@ func loadDBStoresIntoRegistry(storeRegistry interfaces.StoreRegistry, db *gorm.D
 
 	log.Infof("Loading %d vector store(s) from database", len(stores))
 	for _, store := range stores {
-		svc, err := createEngineServiceFromStore(ctx, store, db, cfg)
+		svc, err := createEngineServiceFromStore(ctx, store, db, cfg, auditSink)
 		if err != nil {
 			log.Errorf("Failed to create engine for store %s (%s): %v", store.ID, store.Name, err)
 			continue
@@ -1054,19 +1192,6 @@ func registerPoolCleanup(pool *ants.Pool, cleaner interfaces.ResourceCleaner) {
 	cleaner.RegisterWithName("AntsPool", func() error {
 		pool.Release()
 		return nil
-	})
-}
-
-// registerTracerCleanup registers the tracer for cleanup
-// Ensures proper cleanup of the tracer when application shuts down
-// Parameters:
-//   - tracer: Tracer instance
-//   - cleaner: Resource cleaner
-func registerTracerCleanup(tracer *tracing.Tracer, cleaner interfaces.ResourceCleaner) {
-	// Register the cleanup function - actual context will be provided during cleanup
-	cleaner.RegisterWithName("Tracer", func() error {
-		// Create context for cleanup with longer timeout for tracer shutdown
-		return tracer.Cleanup(context.Background())
 	})
 }
 
@@ -1166,13 +1291,21 @@ func NewDuckDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open duckdb: %w", err)
 	}
 
-	bgCtx := context.Background()
-	for _, ext := range []string{"httpfs", "spatial", "excel"} {
-		if _, err := sqlDB.ExecContext(bgCtx, fmt.Sprintf("INSTALL %s;", ext)); err != nil {
-			logger.Warnf(bgCtx, "[DuckDB] Failed to install %s extension: %v", ext, err)
-		}
-		if _, err := sqlDB.ExecContext(bgCtx, fmt.Sprintf("LOAD %s;", ext)); err != nil {
-			logger.Warnf(bgCtx, "[DuckDB] Failed to load %s extension: %v", ext, err)
+	// Try to install and load required extensions unless explicitly disabled.
+	if strings.EqualFold(os.Getenv("DUCKDB_SKIP_EXTENSION_LOAD"), "true") ||
+		os.Getenv("DUCKDB_SKIP_EXTENSION_LOAD") == "1" {
+		logger.Infof(context.Background(),
+			"[DuckDB] Skipping spatial/excel extension install/load "+
+				"(DUCKDB_SKIP_EXTENSION_LOAD is set; xlsx ingest may fail without them)")
+	} else {
+		bgCtx := context.Background()
+		for _, ext := range []string{"spatial", "excel"} {
+			if _, err := sqlDB.ExecContext(bgCtx, fmt.Sprintf("INSTALL %s;", ext)); err != nil {
+				logger.Warnf(bgCtx, "[DuckDB] Failed to install %s extension: %v", ext, err)
+			}
+			if _, err := sqlDB.ExecContext(bgCtx, fmt.Sprintf("LOAD %s;", ext)); err != nil {
+				logger.Warnf(bgCtx, "[DuckDB] Failed to load %s extension: %v", ext, err)
+			}
 		}
 	}
 
@@ -1226,6 +1359,9 @@ func initConnectorRegistry() (*datasource.ConnectorRegistry, error) {
 	if err := registry.Register(yuqueConnector.NewConnector()); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("register yuque connector: %w", err))
 	}
+	if err := registry.Register(rssConnector.NewConnector()); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("register rss connector: %w", err))
+	}
 
 	// Future connectors will be registered here:
 	// if err := registry.Register(confluenceConnector.NewConnector()); err != nil { ... }
@@ -1245,6 +1381,43 @@ func startDataSourceScheduler(scheduler *datasource.Scheduler, cleaner interface
 
 	cleaner.RegisterWithName("DataSourceScheduler", func() error {
 		scheduler.Stop()
+		return nil
+	})
+}
+
+// startHousekeepingService starts the knowledge housekeeping cron and registers
+// cleanup. This is the safety net that recovers any knowledge stuck in
+// "processing" past a configurable threshold (see HousekeepingService for
+// rationale). Best-effort: a startup error is logged but does NOT abort the
+// container — the rest of the system stays usable.
+func startHousekeepingService(svc *service.HousekeepingService, cleaner interfaces.ResourceCleaner) {
+	if svc == nil {
+		return
+	}
+	if err := svc.Start(context.Background()); err != nil {
+		logger.Warnf(context.Background(), "[Container] housekeeping start failed: %v", err)
+	}
+	cleaner.RegisterWithName("KnowledgeHousekeeping", func() error {
+		svc.Stop()
+		return nil
+	})
+}
+
+// startAuditLogRetention spins up the daily audit_logs purge sweep
+// and registers shutdown cleanup. Mirrors the data-source-scheduler
+// pattern: container init kicks the goroutine, ResourceCleaner stops
+// it during graceful shutdown so a SIGTERM during a sweep doesn't
+// orphan the goroutine.
+//
+// retention_days <= 0 is the configured way to disable retention;
+// the runner short-circuits Start() on that path so we don't need
+// to gate the wiring here.
+func startAuditLogRetention(
+	runner *service.AuditLogRetentionRunner, cleaner interfaces.ResourceCleaner,
+) {
+	runner.Start(context.Background())
+	cleaner.RegisterWithName("AuditLogRetentionRunner", func() error {
+		runner.Stop()
 		return nil
 	})
 }

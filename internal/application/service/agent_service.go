@@ -503,8 +503,7 @@ func (s *agentService) registerTools(
 	// Deduplicate while preserving original order.
 	allowedTools = dedupStrings(allowedTools)
 
-	logger.Infof(ctx, "Registering tools: %v, webSearchEnabled: %v", allowedTools, config.WebSearchEnabled)
-	allowedTools = append(allowedTools, tools.ToolFinalAnswer)
+	// logger.Infof(ctx, "Registering tools: %v, webSearchEnabled: %v", allowedTools, config.WebSearchEnabled)
 	// Register each allowed tool
 	for _, toolName := range allowedTools {
 		var toolToRegister types.Tool
@@ -558,10 +557,6 @@ func (s *agentService) registerTools(
 		case tools.ToolDataSchema:
 			toolToRegister = tools.NewDataSchemaTool(s.knowledgeService, s.chunkService.GetRepository())
 			logger.Infof(ctx, "Registered data_schema tool")
-
-		case tools.ToolFinalAnswer:
-			toolToRegister = tools.NewFinalAnswerTool()
-			logger.Infof(ctx, "Registered final_answer tool")
 
 		// Wiki tools — only registered when wiki KBs are detected
 		case tools.ToolWikiReadPage:
@@ -687,7 +682,9 @@ func (s *agentService) getKnowledgeBaseInfos(ctx context.Context, kbIDs []string
 			pageResult, err := s.knowledgeService.ListPagedKnowledgeByKnowledgeBaseID(ctx, kbID, &types.Pagination{
 				Page:     1,
 				PageSize: 10,
-			}, types.KnowledgeListFilter{})
+			}, types.KnowledgeListFilter{
+				ParseStatus: types.ParseStatusCompleted,
+			})
 
 			if err == nil && pageResult != nil {
 				docCount = int(pageResult.Total)

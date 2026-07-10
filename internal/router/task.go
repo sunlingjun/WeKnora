@@ -1,6 +1,8 @@
 package router
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/service"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/middleware/asynqdl"
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -31,6 +34,25 @@ type AsynqTaskParams struct {
 	KnowledgePostProcess interfaces.TaskHandler `name:"knowledgePostProcess"`
 	WikiIngest           interfaces.TaskHandler `name:"wikiIngest"`
 	DeadLetterRepo       interfaces.TaskDeadLetterRepository
+	SpanTracker          service.SpanTracker
+}
+
+// defaultRedisOpTimeout is the previous hard-coded read timeout. The 100ms
+// floor was tight enough to cause spurious i/o timeout errors during bursty
+// workloads (large batch uploads, multimodal counter DECRs under load), so we
+// raise the default to 500ms while still allowing operators to tune via env.
+const defaultRedisOpTimeoutMs = 500
+
+// readRedisOpTimeoutMs reads WEKNORA_REDIS_OP_TIMEOUT_MS, falling back to
+// defaultRedisOpTimeoutMs on missing/invalid input. Kept as a separate helper
+// so both ReadTimeout and WriteTimeout share the same source of truth.
+func readRedisOpTimeoutMs() int {
+	if v := strings.TrimSpace(os.Getenv("WEKNORA_REDIS_OP_TIMEOUT_MS")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return defaultRedisOpTimeoutMs
 }
 
 // getAsynqRedisConnOpt 返回通用的 Redis 连接配置，支持单机和集群模式。
@@ -70,13 +92,13 @@ func getAsynqRedisConnOpt() asynq.RedisConnOpt {
 			db = parsed
 		}
 	}
-
+	timeoutMs := readRedisOpTimeoutMs()
 	return &asynq.RedisClientOpt{
 		Addr:         os.Getenv("REDIS_ADDR"),
 		Username:     username,
 		Password:     password,
-		ReadTimeout:  100 * time.Millisecond,
-		WriteTimeout: 200 * time.Millisecond,
+		ReadTimeout:  time.Duration(timeoutMs) * time.Millisecond,
+		WriteTimeout: time.Duration(timeoutMs*2) * time.Millisecond,
 		DB:           db,
 	}
 }
@@ -114,15 +136,30 @@ func asynqRetryDelayFunc(n int, e error, t *asynq.Task) time.Duration {
 	return asynq.DefaultRetryDelayFunc(n, e, t)
 }
 
-func NewAsynqServer() *asynq.Server {
+const defaultAsynqConcurrency = 32
+
+func NewAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
 	opt := getAsynqRedisConnOpt()
+	concurrency := defaultAsynqConcurrency
+	if svc != nil {
+		n := svc.GetInt(context.Background(), "asynq.concurrency", "WEKNORA_ASYNQ_CONCURRENCY", defaultAsynqConcurrency)
+		if n > 0 {
+			concurrency = int(n)
+		}
+	}
+	log.Printf("asynq server starting with concurrency=%d redis_op_timeout=%dms",
+		concurrency, readRedisOpTimeoutMs())
 	srv := asynq.NewServer(
 		opt,
 		asynq.Config{
+			Concurrency: concurrency,
 			Queues: map[string]int{
-				"critical": 6, // Highest priority queue
-				"default":  3, // Default priority queue
-				"low":      1, // Lowest priority queue
+				types.QueueCritical:   6, // Highest priority queue
+				types.QueueDefault:    3, // Default priority queue
+				types.QueueLow:        1, // Lowest priority queue
+				types.QueueMultimodal: 1, // Isolated lane for high-volume slow VLM image tasks
+				types.QueueGraph:      1, // Isolated lane for high-volume slow graph-extraction tasks
+				types.QueueQuestion:   1, // Isolated lane for high-volume slow question-generation tasks
 			},
 			RetryDelayFunc: asynqRetryDelayFunc,
 		},
@@ -141,7 +178,14 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	// failures by task type, scope, or tenant without scraping logs.
 	// Best-effort: a DB failure is logged and swallowed; the original task
 	// error always propagates upstream to asynq for retry/archival.
-	mux.Use(asynqdl.Middleware(params.DeadLetterRepo))
+	//
+	// The callback flips Knowledge.parse_status to "failed" the moment a
+	// document-related task exhausts its retry budget. Without this hook,
+	// a permanently-failing task left its parent knowledge stranded in
+	// "processing" until housekeeping cron caught it minutes later — the
+	// UI signal users actually see.
+	knowledgeFailer := newDeadLetterKnowledgeFailer(params.KnowledgeService, params.SpanTracker)
+	mux.Use(asynqdl.MiddlewareWithCallback(params.DeadLetterRepo, knowledgeFailer))
 
 	// Install Langfuse middleware BEFORE handler registration so every task
 	// type is automatically wrapped. When Langfuse is disabled the middleware
@@ -179,6 +223,9 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	// Register knowledge list delete handler
 	mux.HandleFunc(types.TypeKnowledgeListDelete, params.KnowledgeService.ProcessKnowledgeListDelete)
 
+	// Register knowledge list reparse handler
+	mux.HandleFunc(types.TypeKnowledgeListReparse, params.KnowledgeService.ProcessKnowledgeListReparse)
+
 	// Register index delete handler
 	mux.HandleFunc(types.TypeIndexDelete, params.TagService.ProcessIndexDelete)
 
@@ -204,4 +251,135 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 		}
 	}()
 	return mux
+}
+
+// deadLetterKnowledgePayload extracts only the field we need from any
+// document-related asynq payload. Kept narrow so we don't accidentally
+// depend on the full payload schema and survive future field churn.
+type deadLetterKnowledgePayload struct {
+	KnowledgeID string `json:"knowledge_id,omitempty"`
+	// Attempt threads through DocumentProcess / ManualProcess /
+	// KnowledgePostProcess payloads (added when span tracking shipped)
+	// — extracted here so the dead-letter callback can also close the
+	// matching root span as failed. Older in-flight payloads without
+	// this field decode as 0 and the tracker call no-ops.
+	Attempt int `json:"attempt,omitempty"`
+}
+
+// taskTypesAffectingKnowledgeStatus enumerates the asynq task types whose
+// dead-letter event should flip the parent Knowledge to "failed". Only
+// terminal task types are listed here:
+//
+//   - TypeDocumentProcess: the entry point of the parsing pipeline.
+//   - TypeImageMultimodal: a single image hitting dead-letter would have
+//     been counted by isFinalAsynqAttempt (see image_multimodal.go), so
+//     the parent might still complete via remaining images. We DO NOT mark
+//     the parent failed for this case — finalize-on-last-attempt already
+//     ensures progress.
+//   - TypeKnowledgePostProcess: terminal stage; failure here strands the
+//     knowledge in "processing".
+//   - TypeManualProcess: same shape as DocumentProcess for re-indexing.
+//
+// Question/Summary generation are NOT included: they run after parse_status
+// has already become "completed" and have their own status fields.
+var taskTypesAffectingKnowledgeStatus = map[string]struct{}{
+	types.TypeDocumentProcess:      {},
+	types.TypeKnowledgePostProcess: {},
+	types.TypeManualProcess:        {},
+}
+
+type deadLetterKnowledgeListDeletePayload struct {
+	KnowledgeIDs []string `json:"knowledge_ids,omitempty"`
+}
+
+// newDeadLetterKnowledgeFailer returns the callback wired into the asynq
+// dead-letter middleware. When a document-related task exhausts its retry
+// budget, this callback marks the corresponding Knowledge row as failed so
+// the UI surfaces the error instead of a perpetual spinner.
+//
+// All work is best-effort: missing payload, missing knowledge_id, or DB
+// errors are logged and swallowed. The dead-letter record is the source of
+// truth — this is purely a UX shortcut so users don't wait for the
+// housekeeping cron's next sweep.
+func newDeadLetterKnowledgeFailer(ks interfaces.KnowledgeService, tracker service.SpanTracker) asynqdl.OnDeadLetter {
+	if ks == nil {
+		return nil
+	}
+	repo := ks.GetRepository()
+	if repo == nil {
+		return nil
+	}
+	return func(ctx context.Context, t *asynq.Task, taskErr error) {
+		if t == nil {
+			return
+		}
+		if t.Type() == types.TypeKnowledgeListDelete {
+			markKnowledgeListDeleteFailed(ctx, repo, t, taskErr)
+			return
+		}
+		if _, ok := taskTypesAffectingKnowledgeStatus[t.Type()]; !ok {
+			return
+		}
+		var probe deadLetterKnowledgePayload
+		if err := json.Unmarshal(t.Payload(), &probe); err != nil || probe.KnowledgeID == "" {
+			return
+		}
+		errMsg := "task " + t.Type() + " exhausted retries: " + taskErr.Error()
+		// 8KB is the same cap the dead-letter row uses for last_error.
+		if len(errMsg) > 8192 {
+			errMsg = errMsg[:8192]
+		}
+		// Single UPDATE so we never end up with parse_status=failed but
+		// stale error_message (or vice versa) when the second write
+		// fails.
+		if err := repo.UpdateKnowledgeColumns(ctx, probe.KnowledgeID, map[string]interface{}{
+			"parse_status":  types.ParseStatusFailed,
+			"error_message": errMsg,
+		}); err != nil {
+			logger.Warnf(ctx, "dead-letter callback: failed to mark knowledge %s as failed: %v", probe.KnowledgeID, err)
+			return
+		}
+		// Close the matching root span so the timeline stops showing
+		// "进行中" after dead-letter exhaustion. Best-effort: nil
+		// tracker / missing attempt / missing root all no-op cleanly.
+		if tracker != nil && probe.Attempt > 0 {
+			tracker.FinalizeAttempt(ctx, probe.KnowledgeID, probe.Attempt,
+				types.SpanStatusFailed, nil, "TASK_TIMEOUT", errMsg)
+		}
+		logger.Infof(ctx, "dead-letter callback: marked knowledge %s as failed (task=%s)", probe.KnowledgeID, t.Type())
+	}
+}
+
+func markKnowledgeListDeleteFailed(
+	ctx context.Context,
+	repo interfaces.KnowledgeRepository,
+	t *asynq.Task,
+	taskErr error,
+) {
+	var payload deadLetterKnowledgeListDeletePayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil || len(payload.KnowledgeIDs) == 0 {
+		return
+	}
+	errMsg := "delete task exhausted retries: " + taskErr.Error()
+	if len(errMsg) > 8192 {
+		errMsg = errMsg[:8192]
+	}
+	for _, knowledgeID := range payload.KnowledgeIDs {
+		if knowledgeID == "" {
+			continue
+		}
+		updated, err := repo.UpdateActiveDeletingKnowledgeColumns(ctx, knowledgeID, map[string]interface{}{
+			"parse_status":  types.ParseStatusFailed,
+			"error_message": errMsg,
+		})
+		if err != nil {
+			logger.Warnf(ctx, "dead-letter callback: failed to mark delete failure for knowledge %s: %v", knowledgeID, err)
+			continue
+		}
+		if !updated {
+			logger.Infof(ctx, "dead-letter callback: skipped marking knowledge %s after delete task exhaustion because it is no longer active deleting", knowledgeID)
+			continue
+		}
+		logger.Infof(ctx, "dead-letter callback: marked knowledge %s as failed after delete task exhausted retries", knowledgeID)
+	}
 }

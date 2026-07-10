@@ -42,8 +42,8 @@ func fakeKBServer(t *testing.T, kbs []sdk.KnowledgeBase) *httptest.Server {
 
 func newFactory(currentCtx string, client *sdk.Client) *cmdutil.Factory {
 	cfg := &config.Config{
-		CurrentContext: currentCtx,
-		Contexts: map[string]config.Context{
+		CurrentProfile: currentCtx,
+		Profiles: map[string]config.Profile{
 			currentCtx: {Host: "https://example"},
 		},
 	}
@@ -65,13 +65,13 @@ func TestLink_ByID(t *testing.T) {
 
 	f := newFactory("default", nil)
 	opts := &Options{KB: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
-	require.NoError(t, runLink(context.Background(), opts, f))
+	require.NoError(t, runLink(context.Background(), opts, &cmdutil.FormatOptions{Mode: cmdutil.FormatText}, f))
 
 	linkPath := filepath.Join(dir, ".weknora", "project.yaml")
 	p, err := projectlink.Load(linkPath)
 	require.NoError(t, err)
 	assert.Equal(t, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", p.KBID)
-	assert.Equal(t, "default", p.Context)
+	assert.Equal(t, "default", p.Profile)
 	assert.Contains(t, out.String(), "✓")
 }
 
@@ -87,7 +87,7 @@ func TestLink_ByName(t *testing.T) {
 	cli := sdk.NewClient(srv.URL)
 	f := newFactory("default", cli)
 	opts := &Options{KB: "foo"}
-	require.NoError(t, runLink(context.Background(), opts, f))
+	require.NoError(t, runLink(context.Background(), opts, &cmdutil.FormatOptions{Mode: cmdutil.FormatText}, f))
 
 	p, err := projectlink.Load(filepath.Join(dir, ".weknora", "project.yaml"))
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestLink_KBNotFound(t *testing.T) {
 	cli := sdk.NewClient(srv.URL)
 	f := newFactory("default", cli)
 	opts := &Options{KB: "missing"}
-	err := runLink(context.Background(), opts, f)
+	err := runLink(context.Background(), opts, &cmdutil.FormatOptions{Mode: cmdutil.FormatText}, f)
 	require.Error(t, err)
 	var typed *cmdutil.Error
 	require.ErrorAs(t, err, &typed)
@@ -118,12 +118,12 @@ func TestLink_OverwritesExisting(t *testing.T) {
 	// Pre-existing link.
 	linkPath := filepath.Join(dir, ".weknora", "project.yaml")
 	require.NoError(t, projectlink.Save(linkPath, &projectlink.Project{
-		Context: "default", KBID: "11111111-1111-4111-8111-111111111111",
+		Profile: "default", KBID: "11111111-1111-4111-8111-111111111111",
 	}))
 
 	f := newFactory("default", nil)
 	opts := &Options{KB: "22222222-2222-4222-8222-222222222222"}
-	require.NoError(t, runLink(context.Background(), opts, f))
+	require.NoError(t, runLink(context.Background(), opts, &cmdutil.FormatOptions{Mode: cmdutil.FormatText}, f))
 
 	p, err := projectlink.Load(linkPath)
 	require.NoError(t, err)
@@ -140,7 +140,7 @@ func TestLink_NonInteractive_NoKB(t *testing.T) {
 
 	f := newFactory("default", nil)
 	opts := &Options{} // no KB
-	err := runLink(context.Background(), opts, f)
+	err := runLink(context.Background(), opts, &cmdutil.FormatOptions{Mode: cmdutil.FormatText}, f)
 	require.Error(t, err)
 	var typed *cmdutil.Error
 	require.ErrorAs(t, err, &typed)

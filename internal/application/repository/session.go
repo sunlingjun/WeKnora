@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	stderrors "errors"
 	"strings"
 	"time"
 
+	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"gorm.io/gorm"
@@ -13,6 +15,14 @@ import (
 // sessionRepository implements the SessionRepository interface
 type sessionRepository struct {
 	db *gorm.DB
+}
+
+func applySessionUserScope(db *gorm.DB, userID string) *gorm.DB {
+	if userID == "" {
+		return db
+	}
+	// Empty user_id rows are legacy/API-created tenant-level sessions.
+	return db.Where("(user_id = ? OR user_id IS NULL OR user_id = '')", userID)
 }
 
 // NewSessionRepository creates a new session repository instance
@@ -32,19 +42,28 @@ func (r *sessionRepository) Create(ctx context.Context, session *types.Session) 
 }
 
 // Get retrieves a session by ID
-func (r *sessionRepository) Get(ctx context.Context, tenantID uint64, id string) (*types.Session, error) {
+func (r *sessionRepository) Get(ctx context.Context, tenantID uint64, userID string, id string) (*types.Session, error) {
 	var session types.Session
-	err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).First(&session, "id = ?", id).Error
+	err := applySessionUserScope(
+		r.db.WithContext(ctx).Where("tenant_id = ? AND id = ?", tenantID, id),
+		userID,
+	).First(&session).Error
 	if err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrSessionNotFound
+		}
 		return nil, err
 	}
 	return &session, nil
 }
 
 // GetByTenantID retrieves all sessions for a tenant
-func (r *sessionRepository) GetByTenantID(ctx context.Context, tenantID uint64) ([]*types.Session, error) {
+func (r *sessionRepository) GetByTenantID(ctx context.Context, tenantID uint64, userID string) ([]*types.Session, error) {
 	var sessions []*types.Session
-	err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("updated_at DESC").Find(&sessions).Error
+	err := applySessionUserScope(
+		r.db.WithContext(ctx).Where("tenant_id = ?", tenantID),
+		userID,
+	).Order("updated_at DESC").Find(&sessions).Error
 	if err != nil {
 		return nil, err
 	}
@@ -53,20 +72,26 @@ func (r *sessionRepository) GetByTenantID(ctx context.Context, tenantID uint64) 
 
 // GetPagedByTenantID retrieves sessions for a tenant with pagination
 func (r *sessionRepository) GetPagedByTenantID(
-	ctx context.Context, tenantID uint64, page *types.Pagination,
+	ctx context.Context, tenantID uint64, userID string, page *types.Pagination,
 ) ([]*types.Session, int64, error) {
 	var sessions []*types.Session
 	var total int64
 
 	// First query the total count
-	err := r.db.WithContext(ctx).Model(&types.Session{}).Where("tenant_id = ?", tenantID).Count(&total).Error
+	baseQ := applySessionUserScope(
+		r.db.WithContext(ctx).Model(&types.Session{}).Where("tenant_id = ?", tenantID),
+		userID,
+	)
+	err := baseQ.Count(&total).Error
 	if err != nil {
 		return nil, 0, err
 	}
 
 	// Then query the paginated data
-	err = r.db.WithContext(ctx).
-		Where("tenant_id = ?", tenantID).
+	err = applySessionUserScope(
+		r.db.WithContext(ctx).Where("tenant_id = ?", tenantID),
+		userID,
+	).
 		Order("updated_at DESC").
 		Offset(page.Offset()).
 		Limit(page.Limit()).
@@ -111,16 +136,40 @@ func (r *sessionRepository) QueryPaged(
 	}
 
 	// LEFT JOIN IM mappings to surface origin fields and support source/agent filters.
-	joinClause := "LEFT JOIN im_channel_sessions ics ON ics.session_id = s.id AND ics.deleted_at IS NULL"
+	// Soft-deleted mappings are intentionally included: a session that was ever bound
+	// to an IM channel belongs to that platform, not "web". /clear and session
+	// recycling soft-delete the mapping (and start a fresh session), so filtering
+	// deleted mappings out here would mis-bucket those past IM conversations into the
+	// user's own web chats ("web" = ics.id IS NULL).
+	// Safe from row fan-out because the IM flow only ever creates a *fresh* session
+	// for a new mapping (never re-maps an existing one), so a session has at most one
+	// mapping row. If that ever changes, this JOIN would need a one-row-per-session
+	// guard (the unique index only constrains active mappings).
+	joinClause := "LEFT JOIN im_channel_sessions ics ON ics.session_id = s.id"
 
 	applySource := func(db *gorm.DB) *gorm.DB {
-		switch strings.ToLower(strings.TrimSpace(q.Source)) {
+		src := strings.TrimSpace(q.Source)
+		lower := strings.ToLower(src)
+		embedPrefix := types.EmbedSessionMarkerPrefix
+		switch lower {
 		case "":
 			return db
 		case "web":
-			return db.Where("ics.id IS NULL")
+			// User web chats only — exclude embed-widget sessions (same IM-null row).
+			return db.Where(
+				"ics.id IS NULL AND (s.description = '' OR s.description NOT LIKE ?)",
+				embedPrefix+"%",
+			)
+		case "embed":
+			return db.Where("ics.id IS NULL AND s.description LIKE ?", embedPrefix+"%")
 		default:
-			return db.Where("ics.platform = ?", strings.ToLower(q.Source))
+			if strings.HasPrefix(lower, "embed:") {
+				channelID := strings.TrimSpace(src[len("embed:"):])
+				if channelID != "" {
+					return db.Where("ics.id IS NULL AND s.description = ?", embedPrefix+channelID)
+				}
+			}
+			return db.Where("ics.platform = ?", lower)
 		}
 	}
 	applyAgent := func(db *gorm.DB) *gorm.DB {
@@ -201,32 +250,72 @@ func (r *sessionRepository) SetPinned(
 }
 
 // Update updates a session
-func (r *sessionRepository) Update(ctx context.Context, session *types.Session) error {
+func (r *sessionRepository) Update(ctx context.Context, session *types.Session, userID string) (int64, error) {
 	session.UpdatedAt = time.Now()
-	return r.db.WithContext(ctx).
+	res := applySessionUserScope(r.db.WithContext(ctx).
 		Model(&types.Session{}).
-		Where("tenant_id = ? AND id = ?", session.TenantID, session.ID).
+		Where("tenant_id = ? AND id = ?", session.TenantID, session.ID), userID).
 		Updates(map[string]interface{}{
 			"title":       session.Title,
 			"description": session.Description,
 			"updated_at":  session.UpdatedAt,
-		}).Error
+		})
+	return res.RowsAffected, res.Error
+}
+
+// UpdateLastRequestState writes only the agent_config column (used here to
+// store SessionLastRequestState) and bumps updated_at. We deliberately bypass
+// the regular Update path so the call doesn't perturb title/description and
+// stays cheap (single-row UPDATE by PK).
+func (r *sessionRepository) UpdateLastRequestState(
+	ctx context.Context, tenantID uint64, userID string, sessionID string,
+	state *types.SessionLastRequestState,
+) (int64, error) {
+	now := time.Now()
+	var stateValue interface{}
+	if state != nil {
+		v, err := state.Value()
+		if err != nil {
+			return 0, err
+		}
+		stateValue = v
+	}
+	res := applySessionUserScope(r.db.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("tenant_id = ? AND id = ?", tenantID, sessionID), userID).
+		Updates(map[string]interface{}{
+			"agent_config": stateValue,
+			"updated_at":   now,
+		})
+	return res.RowsAffected, res.Error
 }
 
 // Delete deletes a session
-func (r *sessionRepository) Delete(ctx context.Context, tenantID uint64, id string) error {
-	return r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Delete(&types.Session{}, "id = ?", id).Error
+func (r *sessionRepository) Delete(ctx context.Context, tenantID uint64, userID string, id string) (int64, error) {
+	res := applySessionUserScope(
+		r.db.WithContext(ctx).Where("tenant_id = ? AND id = ?", tenantID, id),
+		userID,
+	).Delete(&types.Session{})
+	return res.RowsAffected, res.Error
 }
 
 // BatchDelete deletes multiple sessions by IDs
-func (r *sessionRepository) BatchDelete(ctx context.Context, tenantID uint64, ids []string) error {
+func (r *sessionRepository) BatchDelete(ctx context.Context, tenantID uint64, userID string, ids []string) (int64, error) {
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
-	return r.db.WithContext(ctx).Where("tenant_id = ? AND id IN ?", tenantID, ids).Delete(&types.Session{}).Error
+	res := applySessionUserScope(
+		r.db.WithContext(ctx).Where("tenant_id = ? AND id IN ?", tenantID, ids),
+		userID,
+	).Delete(&types.Session{})
+	return res.RowsAffected, res.Error
 }
 
 // DeleteAllByTenantID deletes all sessions for a tenant
-func (r *sessionRepository) DeleteAllByTenantID(ctx context.Context, tenantID uint64) error {
-	return r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Delete(&types.Session{}).Error
+func (r *sessionRepository) DeleteAllByTenantID(ctx context.Context, tenantID uint64, userID string) (int64, error) {
+	res := applySessionUserScope(
+		r.db.WithContext(ctx).Where("tenant_id = ?", tenantID),
+		userID,
+	).Delete(&types.Session{})
+	return res.RowsAffected, res.Error
 }

@@ -16,17 +16,21 @@
               <div class="sidebar-header">
                 <h2 class="sidebar-title">{{ mode === 'create' ? $t('knowledgeEditor.titleCreate') : $t('knowledgeEditor.titleEdit') }}</h2>
               </div>
-              <div class="settings-nav">
-                <div 
-                  v-for="(item, index) in navItems" 
-                  :key="index"
-                  :class="['nav-item', { 'active': currentSection === item.key }]"
-                  @click="currentSection = item.key"
-                >
-                  <t-icon :name="item.icon" class="nav-icon" />
-                  <span class="nav-label">{{ item.label }}</span>
-                  <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
-                </div>
+              <div class="settings-nav" data-guide="kb-editor-sidebar">
+                <template v-for="group in navGroups" :key="group.key">
+                  <div class="nav-group-title">{{ group.label }}</div>
+                  <div
+                    v-for="(item, index) in group.items"
+                    :key="index"
+                    :class="['nav-item', { 'active': currentSection === item.key }]"
+                    :data-guide="`kb-editor-nav-${item.key}`"
+                    @click="currentSection = item.key"
+                  >
+                    <t-icon :name="item.icon" class="nav-icon" />
+                    <span class="nav-label">{{ item.label }}</span>
+                    <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
+                  </div>
+                </template>
               </div>
             </div>
 
@@ -41,11 +45,26 @@
                       <p class="section-desc">{{ $t('knowledgeEditor.basic.description') }}</p>
                     </div>
                     <div class="section-body">
+                      <div v-if="mode === 'edit' && props.kbId" class="form-item">
+                        <label class="form-label">{{ $t('knowledgeEditor.basic.kbId') }}</label>
+                        <p class="form-tip">{{ $t('knowledgeEditor.basic.kbIdDesc') }}</p>
+                        <div class="kb-id-field">
+                          <code class="kb-id-value" :title="props.kbId">{{ props.kbId }}</code>
+                          <t-tooltip :content="$t('common.copy')" placement="top">
+                            <t-button theme="default" size="small" variant="text" class="kb-id-copy"
+                              @click="copyKbId">
+                              <t-icon name="file-copy" />
+                            </t-button>
+                          </t-tooltip>
+                        </div>
+                      </div>
+
                       <div class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.basic.typeLabel') }}</label>
                         <t-radio-group
                           v-model="formData.type"
                           :disabled="mode === 'edit'"
+                          data-guide="kb-create-type"
                         >
                           <t-radio-button value="document">{{ $t('knowledgeEditor.basic.typeDocument') }}</t-radio-button>
                           <t-radio-button value="faq">{{ $t('knowledgeEditor.basic.typeFAQ') }}</t-radio-button>
@@ -57,7 +76,8 @@
                       <div v-if="!isFAQ" class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.indexing.title') }}</label>
                         <p class="form-tip">{{ $t('knowledgeEditor.indexing.description') }}</p>
-                        <div class="indexing-checks" :class="{ 'is-locked': isIndexingLocked }">
+                        <div class="indexing-checks" :class="{ 'is-locked': isIndexingLocked }"
+                          data-guide="kb-create-indexing">
                           <div
                             class="indexing-check-item"
                             :class="{ 'is-checked': formData.indexingStrategy.vectorEnabled, 'is-disabled': isIndexingLocked }"
@@ -115,7 +135,7 @@
                         <p class="form-tip granularity-hint">{{ granularityHint }}</p>
                       </div>
 
-                      <div class="form-item">
+                      <div class="form-item" data-guide="kb-create-name">
                         <label class="form-label required">{{ $t('knowledgeEditor.basic.nameLabel') }}</label>
                         <t-input 
                           v-model="formData.name" 
@@ -168,6 +188,20 @@
                   />
                 </div>
 
+                <!-- VectorStore 绑定 -->
+                <div v-show="currentSection === 'vectorStore'" class="section">
+                  <KBVectorStoreSettings
+                    v-if="formData"
+                    :mode="mode"
+                    :vector-store-id="formData.vectorStoreId"
+                    :bound-source="formData.vectorStoreInfo?.source"
+                    :bound-name="formData.vectorStoreInfo?.name"
+                    :bound-engine-type="formData.vectorStoreInfo?.engineType"
+                    :bound-status="formData.vectorStoreInfo?.status"
+                    @update:vector-store-id="handleVectorStoreIdUpdate"
+                  />
+                </div>
+
                 <!-- FAQ 配置 -->
                 <div v-if="isFAQ && formData" v-show="currentSection === 'faq'" class="section">
                   <div class="section-content">
@@ -204,7 +238,7 @@
                 </div>
 
                 <!-- 解析引擎 -->
-                <div v-if="!isFAQ && formData" v-show="currentSection === 'parser'" class="section">
+                <div v-if="!isFAQ && formData && currentSection === 'parser'" class="section">
                   <KBParserSettings
                     :parser-engine-rules="formData.chunkingConfig.parserEngineRules"
                     @update:parser-engine-rules="handleParserEngineRulesUpdate"
@@ -212,7 +246,7 @@
                 </div>
 
                 <!-- 存储引擎 -->
-                <div v-if="!isFAQ && formData" v-show="currentSection === 'storage'" class="section">
+                <div v-if="!isFAQ && formData && currentSection === 'storage'" class="section">
                   <KBStorageSettings
                     :storage-provider="formData.storageProvider"
                     :has-files="mode === 'edit' && hasFiles"
@@ -239,7 +273,7 @@
 
                     <div class="settings-group">
                       <!-- 多模态开关 -->
-                      <div class="setting-row">
+                      <div class="setting-row" data-guide="kb-create-multimodal-toggle">
                         <div class="setting-info">
                           <label>{{ $t('knowledgeEditor.advanced.multimodal.label') }}</label>
                           <p class="desc">{{ $t('knowledgeEditor.advanced.multimodal.description') }}</p>
@@ -254,7 +288,8 @@
                       </div>
 
                       <!-- VLLM 模型选择（多模态启用时） -->
-                      <div v-if="formData.multimodalConfig.enabled" class="setting-row">
+                      <div v-if="formData.multimodalConfig.enabled" class="setting-row"
+                        data-guide="kb-create-multimodal-vllm">
                         <div class="setting-info">
                           <label>{{ $t('knowledgeEditor.advanced.multimodal.vllmLabel') }} <span class="required">*</span></label>
                           <p class="desc">{{ $t('knowledgeEditor.advanced.multimodal.vllmDescription') }}</p>
@@ -319,7 +354,7 @@
                 </div>
 
                 <!-- 知识图谱 -->
-                <div v-if="!isFAQ" v-show="currentSection === 'graph'" class="section">
+                <div v-if="!isFAQ && currentSection === 'graph'" class="section">
                   <GraphSettings
                     v-if="formData"
                     :graph-extract="formData.nodeExtractConfig"
@@ -354,13 +389,13 @@
                 </div>
 
                 <!-- 数据源管理（仅编辑模式） -->
-                <div v-if="mode === 'edit' && kbId" v-show="currentSection === 'datasource'" class="section">
+                <div v-if="mode === 'edit' && kbId && currentSection === 'datasource'" class="section">
                   <DataSourceSettings :kb-id="kbId" @count="dsCount = $event" />
                 </div>
 
                 <!-- 共享设置（仅编辑模式） -->
-                <div v-if="mode === 'edit' && kbId" v-show="currentSection === 'share'" class="section">
-                  <KBShareSettings :kb-id="kbId" />
+                <div v-if="mode === 'edit' && kbId && currentSection === 'share'" class="section">
+                  <KBShareSettings :kb-id="kbId" :can-share="canShareKB" />
                 </div>
               </div>
 
@@ -369,7 +404,7 @@
                 <t-button theme="default" variant="outline" @click="handleClose">
                   {{ $t('common.cancel') }}
                 </t-button>
-                <t-button theme="primary" @click="handleSubmit" :loading="saving">
+                <t-button theme="primary" data-guide="kb-create-submit" @click="handleSubmit" :loading="saving">
                   {{ mode === 'create' ? $t('knowledgeEditor.buttons.create') : $t('knowledgeEditor.buttons.save') }}
                 </t-button>
               </div>
@@ -379,14 +414,21 @@
       </div>
     </Transition>
   </Teleport>
+
+  <KbCreateContextualGuide :when="visible && mode === 'create'" :is-faq="isFAQ"
+    :needs-embedding="kbCreateNeedsEmbedding" />
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import KbCreateContextualGuide from '@/components/KbCreateContextualGuide.vue'
+import { KB_EDITOR_FOCUS_SECTION_EVENT, markContextualGuideDone } from '@/config/contextualGuides'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { createKnowledgeBase, createSharedKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase, rebuildKBIndex } from '@/api/knowledge-base'
 import { updateKBConfig, type KBModelConfigRequest } from '@/api/initialization'
-import { listModels } from '@/api/model'
+import { type ModelConfig } from '@/api/model'
+import { useChatResourcesStore } from '@/stores/chatResources'
+import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import KBModelConfig from './settings/KBModelConfig.vue'
@@ -394,6 +436,7 @@ import KBParserSettings from './settings/KBParserSettings.vue'
 import KBStorageSettings from './settings/KBStorageSettings.vue'
 import KBChunkingSettings from './settings/KBChunkingSettings.vue'
 import KnowledgeBaseMembers from './settings/KnowledgeBaseMembers.vue'
+import KBVectorStoreSettings from './settings/KBVectorStoreSettings.vue'
 import KBAdvancedSettings from './settings/KBAdvancedSettings.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import GraphSettings from './settings/GraphSettings.vue'
@@ -403,6 +446,8 @@ import { useI18n } from 'vue-i18n'
 
 const uiStore = useUIStore()
 const authStore = useAuthStore()
+const chatResources = useChatResourcesStore()
+const editorResources = useEditorResourcesStore()
 const { t } = useI18n()
 
 // Props
@@ -419,15 +464,72 @@ const emit = defineEmits<{
   (e: 'success', kbId: string): void
 }>()
 
+const copyKbId = async () => {
+  const id = props.kbId
+  if (!id) return
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(id)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = id
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+    MessagePlugin.success(t('common.copied'))
+  } catch {
+    MessagePlugin.error(t('common.copyFailed'))
+  }
+}
+
 const currentSection = ref<string>('basic')
+
+const onKbEditorFocusSection = (event: Event) => {
+  const section = (event as CustomEvent<{ section?: string }>).detail?.section
+  if (section) {
+    currentSection.value = section
+  }
+}
+
+onMounted(() => {
+  window.addEventListener(KB_EDITOR_FOCUS_SECTION_EVENT, onKbEditorFocusSection)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(KB_EDITOR_FOCUS_SECTION_EVENT, onKbEditorFocusSection)
+})
 const saving = ref(false)
 const loading = ref(false)
 const allModels = ref<any[]>([])
 const hasFiles = ref(false)
 const kbInfo = ref<any>(null)
 const initialStorageProvider = ref<string>('')
+/** Tenant-wide default from Settings → Storage engine (used when creating a KB). */
+const tenantDefaultStorageProvider = ref('local')
 const initialIndexingStrategy = ref<any>(null)
 const dsCount = ref(0)
+// Identifier of the user who created this KB. Empty for older rows
+// that predate per-KB ownership tracking; those KBs have no "owner" and
+// only tenant Admin+ can mutate their share settings.
+const kbCreatorId = ref<string>('')
+
+// Backend gate for /knowledge-bases/:id/shares (POST/PUT/DELETE) is
+// g.OwnedKBOrAdmin(): only the KB creator or tenant Admin+ may mutate
+// shares. Org-admins on a shared KB do NOT pass this guard, so they
+// would only see 403s if we let them try. Mirror the matrix here so
+// the buttons disappear instead of failing.
+const canShareKB = computed(() => {
+  if (!props.kbId) return false
+  const userId = authStore.user?.id || ''
+  if (kbCreatorId.value && userId && kbCreatorId.value === userId) return true
+  return authStore.hasRole('admin')
+})
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
 const chunkingDirty = ref(false)
 
@@ -452,7 +554,11 @@ const DEFAULT_CHUNKING_PRESET = {
 const navItems = computed(() => {
   const items: { key: string; icon: string; label: string; badge?: number }[] = [
     { key: 'basic', icon: 'info-circle', label: t('knowledgeEditor.sidebar.basic') },
-    { key: 'models', icon: 'control-platform', label: t('knowledgeEditor.sidebar.models') }
+    { key: 'models', icon: 'control-platform', label: t('knowledgeEditor.sidebar.models') },
+    // VectorStore binding section — present in both create and edit
+    // modes. Create mode shows a dropdown; edit mode shows the bound
+    // store read-only with an immutability hint.
+    { key: 'vectorStore', icon: 'data-base', label: t('knowledgeEditor.sidebar.vectorStore') }
   ]
   if (formData.value?.type === 'faq') {
     items.push({ key: 'faq', icon: 'help-circle', label: t('knowledgeEditor.sidebar.faq') })
@@ -479,6 +585,35 @@ const navItems = computed(() => {
   return items
 })
 
+// 左侧导航分组（与 AgentEditorModal 对齐）
+const navGroups = computed(() => {
+  const itemMap = new Map(navItems.value.map((item) => [item.key, item]))
+  const pickItems = (keys: string[]) =>
+    keys.map((key) => itemMap.get(key)).filter(Boolean) as typeof navItems.value
+  return [
+    {
+      key: 'basic',
+      label: t('knowledgeEditor.navGroups.basic'),
+      items: pickItems(['basic', 'models', 'vectorStore', 'faq']),
+    },
+    {
+      key: 'processing',
+      label: t('knowledgeEditor.navGroups.processing'),
+      items: pickItems(['parser', 'chunking', 'multimodal', 'asr', 'graph', 'advanced']),
+    },
+    {
+      key: 'data',
+      label: t('knowledgeEditor.navGroups.data'),
+      items: pickItems(['storage', 'datasource']),
+    },
+    {
+      key: 'integration',
+      label: t('knowledgeEditor.navGroups.integration'),
+      items: pickItems(['share']),
+    },
+  ].filter((group) => group.items.length > 0)
+})
+
 // 模型配置引用
 const modelConfigRef = ref<InstanceType<typeof KBModelConfig>>()
 const advancedSettingsRef = ref<InstanceType<typeof KBAdvancedSettings>>()
@@ -486,6 +621,28 @@ const advancedSettingsRef = ref<InstanceType<typeof KBAdvancedSettings>>()
 // 表单数据
 const formData = ref<any>(null)
 const isFAQ = computed(() => formData.value?.type === 'faq')
+
+const kbCreateNeedsEmbedding = computed(() => {
+  if (!formData.value || formData.value.type === 'faq') return false
+  const s = formData.value.indexingStrategy
+  return Boolean(s?.vectorEnabled || s?.keywordEnabled)
+})
+
+const applyDefaultModelsIfEmpty = () => {
+  if (!formData.value || props.mode !== 'create') return
+  const pick = (type: ModelConfig['type']) => {
+    const list = allModels.value.filter((m) => m.type === type)
+    return list.find((m) => m.is_default) || list[0]
+  }
+  const chat = pick('KnowledgeQA')
+  const embedding = pick('Embedding')
+  if (!formData.value.modelConfig.llmModelId && chat?.id) {
+    formData.value.modelConfig.llmModelId = chat.id
+  }
+  if (!formData.value.modelConfig.embeddingModelId && embedding?.id) {
+    formData.value.modelConfig.embeddingModelId = embedding.id
+  }
+}
 
 watch(
   () => formData.value?.type,
@@ -574,14 +731,24 @@ const initFormData = (type: 'document' | 'faq' = 'document') => {
       wikiEnabled: false,
       graphEnabled: false,
     },
+    // Vector-store binding. Empty string means "use the env-configured
+    // store"; create mode defaults to that, edit mode loads the
+    // existing binding from the KB response below.
+    vectorStoreId: '' as string,
+    vectorStoreInfo: {
+      source: undefined as string | undefined,
+      name: undefined as string | undefined,
+      engineType: undefined as string | undefined,
+      status: undefined as string | undefined,
+    },
   }
 }
 
 // 加载所有模型
-const loadAllModels = async () => {
+const loadAllModels = async (force = false) => {
   try {
-    const models = await listModels()
-    allModels.value = models || []
+    await chatResources.ensureModels(force)
+    allModels.value = chatResources.allModels || []
   } catch (error) {
     console.error('Failed to load model list:', error)
     MessagePlugin.error(t('knowledgeEditor.messages.loadModelsFailed'))
@@ -595,9 +762,8 @@ const loadKBData = async () => {
   
   loading.value = true
   try {
-    const [kbRes, models, filesResult] = await Promise.all([
+    const [kbRes, filesResult] = await Promise.all([
       getKnowledgeBaseById(props.kbId),
-      loadAllModels(),
       listKnowledgeFiles(props.kbId, { page: 1, page_size: 1 })
     ])
     
@@ -616,7 +782,8 @@ const loadKBData = async () => {
       is_owner: resolvedOwner,
       isOwner: resolvedOwner,
     }
-    
+    kbCreatorId.value = (kb as any).creator_id || ''
+
     // 设置表单数据
     const kbType = (kb.type as 'document' | 'faq') || 'document'
     formData.value = {
@@ -688,6 +855,19 @@ const loadKBData = async () => {
         keywordEnabled: kb.indexing_strategy?.keyword_enabled ?? true,
         wikiEnabled: kb.indexing_strategy?.wiki_enabled ?? false,
         graphEnabled: kb.indexing_strategy?.graph_enabled ?? false,
+      },
+      // Vector-store binding. vectorStoreId is editor-only state; it
+      // is only included in the create request, never the update
+      // request, because the binding is immutable after creation.
+      // vectorStoreInfo carries the read-only display fields that the
+      // edit view renders below; they come straight from the KB
+      // response.
+      vectorStoreId: '',
+      vectorStoreInfo: {
+        source: kb.vector_store_source,
+        name: kb.vector_store_name,
+        engineType: kb.vector_store_engine_type,
+        status: kb.vector_store_status,
       },
     }
     initialStorageProvider.value = formData.value.storageProvider
@@ -817,7 +997,33 @@ const handleAddWikiModel = () => {
 
 const handleStorageProviderUpdate = (value: string) => {
   if (formData.value) {
-    formData.value.storageProvider = value || 'local'
+    formData.value.storageProvider = value || tenantDefaultStorageProvider.value || 'local'
+  }
+}
+
+async function loadTenantDefaultStorageProvider(force = false) {
+  try {
+    await editorResources.ensureStorageEngine(force)
+    tenantDefaultStorageProvider.value = editorResources.storageConfig?.default_provider || 'local'
+  } catch {
+    tenantDefaultStorageProvider.value = 'local'
+  }
+}
+
+/** Resolved storage provider for create payload (never silently default to local before tenant config loads). */
+function resolvedStorageProvider(): string {
+  const explicit = formData.value?.storageProvider?.trim()
+  if (explicit) return explicit
+  return tenantDefaultStorageProvider.value || 'local'
+}
+
+const handleVectorStoreIdUpdate = (id: string) => {
+  if (formData.value) {
+    // Empty string here means "use system default" (env-store fallback).
+    // The create-payload assembly below converts this back to `omit` so
+    // the backend stores NULL — keeping the wire shape identical to
+    // pre-Phase-2 clients.
+    formData.value.vectorStoreId = id || ''
   }
 }
 
@@ -897,7 +1103,6 @@ const buildSubmitData = () => {
       chunk_size: formData.value.chunkingConfig.chunkSize,
       chunk_overlap: formData.value.chunkingConfig.chunkOverlap,
       separators: formData.value.chunkingConfig.separators,
-      enable_multimodal: formData.value.multimodalConfig.enabled,
       enable_parent_child: formData.value.chunkingConfig.enableParentChild,
       parent_chunk_size: formData.value.chunkingConfig.parentChunkSize,
       child_chunk_size: formData.value.chunkingConfig.childChunkSize,
@@ -913,6 +1118,15 @@ const buildSubmitData = () => {
     },
     embedding_model_id: formData.value.modelConfig.embeddingModelId,
     summary_model_id: formData.value.modelConfig.llmModelId
+  }
+
+  // Vector-store binding. Only attach the field when the user actively
+  // selected a non-default store. The server treats an empty string as
+  // NULL, but keeping the field absent on the wire matches what a
+  // client that doesn't know about this binding would send — which
+  // makes A/B response diffs easier to read.
+  if (formData.value.vectorStoreId) {
+    data.vector_store_id = formData.value.vectorStoreId
   }
 
   // 添加多模态配置
@@ -934,11 +1148,12 @@ const buildSubmitData = () => {
 
   // 存储引擎：仅传 provider，参数从全局设置读取
   // Write to storage_provider_config (authoritative) + storage_config (legacy dual-write)
+  const storageProvider = resolvedStorageProvider()
   data.storage_provider_config = {
-    provider: formData.value.storageProvider || 'local'
+    provider: storageProvider
   }
   data.storage_config = {
-    provider: formData.value.storageProvider || 'local'
+    provider: storageProvider
   }
 
   // 添加知识图谱配置 — now synced via indexingStrategy.graphEnabled
@@ -1044,6 +1259,7 @@ const doSubmit = async () => {
         throw new Error(result.message || t('knowledgeEditor.messages.createFailed'))
       }
       MessagePlugin.success(t('knowledgeEditor.messages.createSuccess'))
+      markContextualGuideDone('kbCreate')
       emit('success', result.data.id)
     } else {
       // 编辑模式：分别更新基本信息和配置
@@ -1161,7 +1377,23 @@ const doSubmit = async () => {
     handleClose()
   } catch (error: any) {
     console.error('Knowledge base operation failed:', error)
-    MessagePlugin.error(error?.message || t('common.operationFailed'))
+    // Vector-store-binding error codes from the server. Both indicate
+    // the selected store cannot be used: 2200 is "the binding itself
+    // is invalid" (e.g. unknown id, foreign tenant), 2201 is "the
+    // store is currently unreachable". For either, swap in a localized
+    // message and jump the user back to the Vector Store section so
+    // they can pick a different store or fall back to the system
+    // default.
+    const code = error?.response?.data?.error?.code ?? error?.code
+    if (code === 2200) {
+      MessagePlugin.error(t('knowledgeEditor.errors.vectorStoreBindingInvalid'))
+      currentSection.value = 'vectorStore'
+    } else if (code === 2201) {
+      MessagePlugin.error(t('knowledgeEditor.errors.vectorStoreUnavailable'))
+      currentSection.value = 'vectorStore'
+    } else {
+      MessagePlugin.error(error?.message || t('common.operationFailed'))
+    }
   } finally {
     saving.value = false
   }
@@ -1174,10 +1406,12 @@ const resetState = () => {
   kbInfo.value = null
   hasFiles.value = false
   initialStorageProvider.value = ''
+  tenantDefaultStorageProvider.value = 'local'
   initialIndexingStrategy.value = null
   saving.value = false
   loading.value = false
   chunkingDirty.value = false
+  kbCreatorId.value = ''
 }
 
 // 关闭弹窗
@@ -1199,16 +1433,18 @@ watch(() => props.visible, async (newVal) => {
       currentSection.value = uiStore.kbEditorInitialSection
     }
     
-    // 加载模型列表
-    await loadAllModels()
+    // 加载模型列表与租户默认存储引擎（创建 KB 时即使用，不依赖是否打开「存储引擎」Tab）
+    await Promise.all([loadAllModels(), loadTenantDefaultStorageProvider()])
     
     // 根据模式加载数据
     if (props.mode === 'edit' && props.kbId) {
       await loadKBData()
     } else {
-      // 创建模式：初始化空表单
+      // 创建模式：初始化空表单，并预填租户默认存储引擎
       formData.value = initFormData(props.initialType || 'document')
+      formData.value.storageProvider = tenantDefaultStorageProvider.value
       hasFiles.value = false
+      applyDefaultModelsIfEmpty()
     }
   } else {
     // 关闭弹窗时，延迟重置状态（等待动画结束）
@@ -1224,7 +1460,7 @@ watch(
   () => uiStore.showSettingsModal,
   async (visible, previous) => {
     if (!visible && previous && props.visible) {
-      await loadAllModels()
+      await loadAllModels(true)
     }
   }
 )
@@ -1286,68 +1522,89 @@ watch(
 .settings-container {
   display: flex;
   height: 100%;
+  width: 100%;
   overflow: hidden;
 }
 
+/* 左侧导航：与 AgentEditorModal 对齐 */
 .settings-sidebar {
-  width: 200px;
-  background: var(--td-bg-color-settings-modal);
+  width: 208px;
+  background-color: var(--td-bg-color-settings-modal);
   border-right: 1px solid var(--td-component-stroke);
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .sidebar-header {
-  padding: 24px 20px;
+  padding: 16px 14px 12px;
   border-bottom: 1px solid var(--td-component-stroke);
+  flex-shrink: 0;
 }
 
 .sidebar-title {
   margin: 0;
-  font-family: var(--app-font-family);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--td-text-color-primary);
 }
 
 .settings-nav {
   flex: 1;
-  padding: 12px 8px;
+  padding: 8px 8px 12px;
   overflow-y: auto;
+  min-height: 0;
+}
+
+.nav-group-title {
+  padding: 6px 14px 2px;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+
+  .settings-nav > &:first-child {
+    padding-top: 2px;
+  }
+
+  .settings-nav > &:not(:first-child) {
+    padding-top: 8px;
+  }
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
-  margin-bottom: 4px;
+  padding: 6px 12px;
+  margin-bottom: 2px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-family: var(--app-font-family);
   font-size: 14px;
-  color: var(--td-text-color-secondary);
+  color: var(--td-text-color-primary);
+  user-select: none;
 
   &:hover {
-    background: var(--td-bg-color-secondarycontainer-hover);
+    background-color: var(--td-bg-color-container-hover);
     color: var(--td-text-color-primary);
   }
 
   &.active {
-    background: var(--td-brand-color-light);
+    background-color: var(--td-bg-color-secondarycontainer);
     color: var(--td-brand-color);
     font-weight: 500;
   }
 }
 
 .nav-icon {
-  margin-right: 8px;
-  font-size: 18px;
+  margin-right: 9px;
+  font-size: 16px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: inherit;
 }
 
 .nav-label {
@@ -1355,24 +1612,16 @@ watch(
 }
 
 .nav-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  font-size: 11px;
-  font-weight: 600;
-  background: var(--td-bg-color-component);
-  color: var(--td-text-color-secondary);
-  line-height: 1;
   flex-shrink: 0;
-}
-
-.nav-item.active .nav-badge {
-  background: var(--td-brand-color);
-  color: #fff;
+  margin-left: 2px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  text-align: center;
 }
 
 .settings-content {
@@ -1398,11 +1647,11 @@ watch(
 
 .section-content {
   .section-header {
-    margin-bottom: 20px;
+    margin-bottom: 16px;
   }
 
   .section-title {
-    margin: 0 0 8px 0;
+    margin: 0 0 6px 0;
     font-family: var(--app-font-family);
     font-size: 20px;
     font-weight: 600;
@@ -1449,6 +1698,44 @@ watch(
   margin-top: 6px;
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+}
+
+.kb-id-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 480px;
+  margin-top: 8px;
+  padding: 6px 8px 6px 12px;
+  background: var(--td-bg-color-secondarycontainer);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+
+  .kb-id-value {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: none;
+    font-family: var(--app-font-family-mono);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--td-text-color-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .kb-id-copy {
+    flex-shrink: 0;
+    color: var(--td-text-color-secondary);
+
+    &:hover {
+      color: var(--td-brand-color);
+    }
+  }
 }
 
 .granularity-radio-group {
@@ -1587,13 +1874,13 @@ watch(
   width: 100%;
 
   .section-header {
-    margin-bottom: 32px;
+    margin-bottom: 20px;
 
     h2 {
       font-size: 20px;
       font-weight: 600;
       color: var(--td-text-color-primary);
-      margin: 0 0 8px 0;
+      margin: 0 0 6px 0;
     }
 
     .section-description {
@@ -1613,7 +1900,7 @@ watch(
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    padding: 20px 0;
+    padding: 16px 0;
     border-bottom: 1px solid var(--td-component-stroke);
 
     &:last-child {

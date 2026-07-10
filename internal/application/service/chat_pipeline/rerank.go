@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/models/rerank"
 	"github.com/Tencent/WeKnora/internal/searchutil"
+	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -83,9 +84,7 @@ func (p *PluginRerank) OnEvent(ctx context.Context,
 			})
 			continue
 		}
-		// 合并Content和ImageInfo的文本内容
 		passage := getEnrichedPassage(ctx, result)
-		// Skip passages that become empty after cleaning
 		if strings.TrimSpace(passage) == "" {
 			pipelineInfo(ctx, "Rerank", "empty_passage_skip", map[string]interface{}{
 				"chunk_id": result.ID,
@@ -96,6 +95,31 @@ func (p *PluginRerank) OnEvent(ctx context.Context,
 		candidatesToRerank = append(candidatesToRerank, result)
 	}
 
+	passagesPreview := langfuse.SummarizePassagePreviews(candidatesToRerank, passages, 25)
+	rerankCtx, rerankSpan := langfuse.GetManager().StartSpan(ctx, langfuse.SpanOptions{
+		Name: "rerank",
+		Input: map[string]interface{}{
+			"query":             chatManage.RewriteQuery,
+			"candidate_count":   len(candidatesToRerank),
+			"direct_load_count": len(directLoadResults),
+			"rerank_model_id":   chatManage.RerankModelID,
+			"threshold":         chatManage.RerankThreshold,
+			"rerank_top_k":      chatManage.RerankTopK,
+			"faq_priority":      chatManage.FAQPriorityEnabled,
+			"faq_score_boost":   chatManage.FAQScoreBoost,
+			"passages_preview":  passagesPreview,
+		},
+		Metadata: map[string]interface{}{
+			"session_id": chatManage.SessionID,
+		},
+	})
+	ctx = rerankCtx
+	spanOutput := map[string]interface{}{}
+	var spanErr error
+	defer func() {
+		rerankSpan.Finish(spanOutput, nil, spanErr)
+	}()
+
 	pipelineInfo(ctx, "Rerank", "build_passages", map[string]interface{}{
 		"total_cnt":     len(chatManage.SearchResult),
 		"candidate_cnt": len(candidatesToRerank),
@@ -103,15 +127,36 @@ func (p *PluginRerank) OnEvent(ctx context.Context,
 	})
 
 	var rerankResp []rerank.RankResult
+	var rawRerankResp []rerank.RankResult
+	thresholdDegraded := false
 
 	// Only call rerank model if there are candidates
 	if len(candidatesToRerank) > 0 {
 		// Single rerank call with RewriteQuery, use threshold degradation if no results
 		originalThreshold := chatManage.RerankThreshold
-		rerankResp = p.rerank(ctx, chatManage, rerankModel, chatManage.RewriteQuery, passages, candidatesToRerank)
+		var rerankErr error
+		rerankResp, rerankErr = p.rerank(ctx, chatManage, rerankModel, chatManage.RewriteQuery, passages, candidatesToRerank)
+
+		if rerankErr != nil {
+			// Rerank API failed — fallback to original retrieval results so the
+			// pipeline can still return something useful to the caller.
+			pipelineWarn(ctx, "Rerank", "api_error_fallback", map[string]interface{}{
+				"error":         rerankErr.Error(),
+				"candidate_cnt": len(candidatesToRerank),
+			})
+			chatManage.SearchResult = append(directLoadResults, candidatesToRerank...)
+			spanOutput = map[string]interface{}{
+				"stage":           "api_error_fallback",
+				"candidate_count": len(candidatesToRerank),
+				"error":           rerankErr.Error(),
+			}
+			return next()
+		}
+		rawRerankResp = append([]rerank.RankResult(nil), rerankResp...)
 
 		// If no results and threshold is high enough, try with lower threshold
 		if len(rerankResp) == 0 && originalThreshold > 0.3 {
+			thresholdDegraded = true
 			degradedThreshold := originalThreshold * 0.7
 			if degradedThreshold < 0.3 {
 				degradedThreshold = 0.3
@@ -123,9 +168,24 @@ func (p *PluginRerank) OnEvent(ctx context.Context,
 				"reason":        "no results above original threshold, retrying with lower threshold",
 			})
 			chatManage.RerankThreshold = degradedThreshold
-			rerankResp = p.rerank(ctx, chatManage, rerankModel, chatManage.RewriteQuery, passages, candidatesToRerank)
+			rerankResp, rerankErr = p.rerank(ctx, chatManage, rerankModel, chatManage.RewriteQuery, passages, candidatesToRerank)
 			// Restore original threshold
 			chatManage.RerankThreshold = originalThreshold
+			if rerankErr != nil {
+				pipelineWarn(ctx, "Rerank", "api_error_fallback", map[string]interface{}{
+					"error":         rerankErr.Error(),
+					"candidate_cnt": len(candidatesToRerank),
+				})
+				chatManage.SearchResult = append(directLoadResults, candidatesToRerank...)
+				spanOutput = map[string]interface{}{
+					"stage":              "api_error_fallback",
+					"candidate_count":    len(candidatesToRerank),
+					"threshold_degraded": thresholdDegraded,
+					"error":              rerankErr.Error(),
+				}
+				return next()
+			}
+			rawRerankResp = append([]rerank.RankResult(nil), rerankResp...)
 		}
 	}
 
@@ -149,6 +209,7 @@ func (p *PluginRerank) OnEvent(ctx context.Context,
 		base := sr.Score
 		sr.Metadata["base_score"] = fmt.Sprintf("%.4f", base)
 		modelScore := rr.RelevanceScore
+		sr.Metadata["model_score"] = fmt.Sprintf("%.4f", modelScore)
 		sr.Score = compositeScore(sr, modelScore, base)
 
 		// Apply FAQ score boost if enabled
@@ -173,8 +234,9 @@ func (p *PluginRerank) OnEvent(ctx context.Context,
 	for _, sr := range directLoadResults {
 		base := sr.Score
 		sr.Metadata["base_score"] = fmt.Sprintf("%.4f", base)
-		// Assign high model score for direct load items
 		modelScore := 1.0
+		sr.Metadata["model_score"] = fmt.Sprintf("%.4f", modelScore)
+		// Assign high model score for direct load items
 		sr.Score = compositeScore(sr, modelScore, base)
 		reranked = append(reranked, sr)
 	}
@@ -196,20 +258,89 @@ func (p *PluginRerank) OnEvent(ctx context.Context,
 		pipelineWarn(ctx, "Rerank", "output", map[string]interface{}{
 			"filtered_cnt": 0,
 		})
+		spanOutput = buildRerankSpanOutput(
+			candidatesToRerank,
+			passages,
+			directLoadResults,
+			rawRerankResp,
+			reranked,
+			nil,
+			chatManage,
+			thresholdDegraded,
+		)
 		return ErrSearchNothing
 	}
 
+	spanOutput = buildRerankSpanOutput(
+		candidatesToRerank,
+		passages,
+		directLoadResults,
+		rawRerankResp,
+		reranked,
+		chatManage.RerankResult,
+		chatManage,
+		thresholdDegraded,
+	)
 	pipelineInfo(ctx, "Rerank", "output", map[string]interface{}{
 		"filtered_cnt": len(chatManage.RerankResult),
 	})
 	return next()
 }
 
+func buildRerankSpanOutput(
+	candidates []*types.SearchResult,
+	passages []string,
+	directLoad []*types.SearchResult,
+	modelScores []rerank.RankResult,
+	composite []*types.SearchResult,
+	final []*types.SearchResult,
+	chatManage *types.ChatManage,
+	thresholdDegraded bool,
+) map[string]interface{} {
+	modelRows := make([]map[string]interface{}, 0, len(modelScores))
+	for i, rr := range modelScores {
+		row := map[string]interface{}{
+			"rank":        i + 1,
+			"index":       rr.Index,
+			"model_score": rr.RelevanceScore,
+		}
+		if rr.Index >= 0 && rr.Index < len(candidates) {
+			row["chunk_id"] = candidates[rr.Index].ID
+			row["knowledge_id"] = candidates[rr.Index].KnowledgeID
+			row["knowledge_title"] = candidates[rr.Index].KnowledgeTitle
+			row["match_type"] = candidates[rr.Index].MatchType
+			row["retrieval_score"] = candidates[rr.Index].Score
+			if rr.Index < len(passages) {
+				row["preview"] = langfuse.TruncateRunes(passages[rr.Index], 160)
+			}
+		}
+		modelRows = append(modelRows, row)
+	}
+
+	out := map[string]interface{}{
+		"candidate_count":    len(candidates),
+		"direct_load_count":  len(directLoad),
+		"model_result_count": len(modelScores),
+		"composite_count":    len(composite),
+		"final_count":        len(final),
+		"threshold":          chatManage.RerankThreshold,
+		"rerank_top_k":       chatManage.RerankTopK,
+		"threshold_degraded": thresholdDegraded,
+		"model_scores":       langfuse.SummarizeRankScores(modelRows, 50),
+		"composite_results":  langfuse.SummarizeSearchResults(composite, 25),
+		"final_results":      langfuse.SummarizeSearchResults(final, 25),
+	}
+	if len(modelScores) > 50 {
+		out["model_scores_truncated"] = len(modelScores) - 50
+	}
+	return out
+}
+
 // rerank performs the actual reranking operation with given query and passages
 func (p *PluginRerank) rerank(ctx context.Context,
 	chatManage *types.ChatManage, rerankModel rerank.Reranker, query string, passages []string,
 	candidates []*types.SearchResult,
-) []rerank.RankResult {
+) ([]rerank.RankResult, error) {
 	pipelineInfo(ctx, "Rerank", "model_call", map[string]interface{}{
 		"query_variant": query,
 		"passages":      len(passages),
@@ -230,7 +361,7 @@ func (p *PluginRerank) rerank(ctx context.Context,
 		pipelineInfo(ctx, "Rerank", "model_call_skip", map[string]interface{}{
 			"reason": "all_passages_empty",
 		})
-		return nil
+		return nil, nil
 	}
 	passages = cleanPassages
 	candidates = cleanCandidates
@@ -241,7 +372,7 @@ func (p *PluginRerank) rerank(ctx context.Context,
 			"query_variant": query,
 			"error":         err.Error(),
 		})
-		return nil
+		return nil, err
 	}
 
 	// Log top scores for debugging
@@ -300,7 +431,7 @@ func (p *PluginRerank) rerank(ctx context.Context,
 		})
 	}
 
-	return rankFilter
+	return rankFilter, nil
 }
 
 // ensureMetadata ensures the metadata is not nil

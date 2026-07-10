@@ -194,6 +194,7 @@ type wikiIngestService struct {
 	wikiService    interfaces.WikiPageService
 	kbService      interfaces.KnowledgeBaseService
 	knowledgeSvc   interfaces.KnowledgeService
+	knowledgeRepo  interfaces.KnowledgeRepository
 	chunkRepo      interfaces.ChunkRepository
 	modelService   interfaces.ModelService
 	task           interfaces.TaskEnqueuer
@@ -201,6 +202,13 @@ type wikiIngestService struct {
 	pendingRepo    interfaces.TaskPendingOpsRepository
 	deadLetterRepo interfaces.TaskDeadLetterRepository
 	redisClient    *redis.Client // nil in Lite mode (no Redis)
+	// spanTracker lets per-document map work surface as a
+	// postprocess.wiki subspan in the knowledge trace tree. Async
+	// batch design means we look up the parent attempt by knowledge
+	// id at run-time (LatestAttempt) rather than carrying it in the
+	// asynq payload, which is per-KB and would otherwise be ambiguous
+	// for the 5-docs-per-batch fan-out.
+	spanTracker SpanTracker
 	// liteLocks provides per-KB mutual exclusion in Lite mode (no Redis).
 	// Keys are kbID strings; values are unused (presence = locked).
 	liteLocks sync.Map
@@ -211,6 +219,7 @@ func NewWikiIngestService(
 	wikiService interfaces.WikiPageService,
 	kbService interfaces.KnowledgeBaseService,
 	knowledgeSvc interfaces.KnowledgeService,
+	knowledgeRepo interfaces.KnowledgeRepository,
 	chunkRepo interfaces.ChunkRepository,
 	modelService interfaces.ModelService,
 	task interfaces.TaskEnqueuer,
@@ -218,11 +227,13 @@ func NewWikiIngestService(
 	pendingRepo interfaces.TaskPendingOpsRepository,
 	deadLetterRepo interfaces.TaskDeadLetterRepository,
 	redisClient *redis.Client,
+	spanTracker SpanTracker,
 ) interfaces.TaskHandler {
 	svc := &wikiIngestService{
 		wikiService:    wikiService,
 		kbService:      kbService,
 		knowledgeSvc:   knowledgeSvc,
+		knowledgeRepo:  knowledgeRepo,
 		chunkRepo:      chunkRepo,
 		modelService:   modelService,
 		task:           task,
@@ -230,8 +241,43 @@ func NewWikiIngestService(
 		pendingRepo:    pendingRepo,
 		deadLetterRepo: deadLetterRepo,
 		redisClient:    redisClient,
+		spanTracker:    spanTracker,
 	}
 	return svc
+}
+
+// tracker returns a non-nil span tracker so callers don't have to
+// nil-check on every Begin/End. Matches the noopSpanTracker pattern
+// used elsewhere (see knowledgeService.tracker, KnowledgePostProcessService.tracker).
+func (s *wikiIngestService) tracker() SpanTracker {
+	if s.spanTracker == nil {
+		return noopSpanTracker{}
+	}
+	return s.spanTracker
+}
+
+// beginWikiSubspan opens a postprocess.wiki subspan for this document
+// under the knowledge's most recent attempt. Returns nil when there is
+// no parse attempt to attach to (e.g. a wiki ingest fired from a manual
+// reparse path that never went through the tracker) — callers must
+// pair every begin with a tolerant end / fail / skip below.
+//
+// Lookups are by `LatestAttempt(knowledgeID)` because the asynq task
+// payload (WikiIngestPayload) is KB-scoped and carries no per-doc
+// attempt — see the type's comment for the batch architecture.
+func (s *wikiIngestService) beginWikiSubspan(ctx context.Context, knowledgeID string, input types.JSONMap) *Span {
+	if knowledgeID == "" {
+		return nil
+	}
+	attempt := s.tracker().LatestAttempt(ctx, knowledgeID)
+	if attempt <= 0 {
+		return nil
+	}
+	parent := s.tracker().LookupStage(ctx, knowledgeID, attempt, types.StagePostProcess)
+	if parent == nil {
+		return nil
+	}
+	return s.tracker().BeginSubSpan(ctx, parent, "postprocess.wiki", types.SpanKindSubSpan, input)
 }
 
 // EnqueueWikiIngest queues a document for wiki ingestion.
@@ -463,6 +509,25 @@ func (s *wikiIngestService) trimPendingList(ctx context.Context, ids []int64) {
 	}
 }
 
+// finalizeWikiSubtask releases this knowledge's slot in the finalizing
+// counter once its wiki op reaches a terminal state (mapped successfully
+// or dead-lettered). The matching +1 is seeded by
+// KnowledgePostProcess.SetFinalizing when willSpawnWiki is true. Callers
+// must only invoke this for ingest ops — retract ops are for deleted
+// knowledge that has no counter to drain.
+//
+// Safe to call on a row that is already completed or whose counter is
+// already zero: FinalizeSubtask guards both the decrement (count > 0) and
+// the promote (parse_status = finalizing AND count = 0), so an op enqueued
+// before this accounting shipped is a harmless no-op.
+func (s *wikiIngestService) finalizeWikiSubtask(ctx context.Context, knowledgeID string) {
+	// Wiki is only finalized when its op reaches a terminal state, so this is
+	// always an intended drain (retErr=nil, final=true). Detached context: the
+	// wiki batch worker may be mid-shutdown or have a cancelled ctx when this
+	// runs; a swallowed failure would strand the parent in "finalizing".
+	finalizeSubtaskDetached(ctx, s.knowledgeRepo, knowledgeID, "wiki", nil, false, true)
+}
+
 // requeueFailedOps records in-batch failures.
 //
 // For each failed op:
@@ -501,7 +566,14 @@ func (s *wikiIngestService) requeueFailedOps(ctx context.Context, payload WikiIn
 			continue
 		}
 
-		// Exhausted in-batch retries — archive and remove.
+		// Exhausted in-batch retries — archive and remove. This is the
+		// terminal failure point for the op, so release its slot in the
+		// knowledge's finalizing counter (ingest ops only; retracts are
+		// for deleted knowledge that has no counter to drain). The
+		// matching +1 was seeded by KnowledgePostProcess.SetFinalizing.
+		if op.Op == WikiOpIngest {
+			s.finalizeWikiSubtask(ctx, op.KnowledgeID)
+		}
 		logger.Warnf(ctx, "wiki ingest: dropping op %s (%s) after %d failures (limit %d)", op.KnowledgeID, op.DocTitle, count, wikiMaxFailRetries)
 		if s.deadLetterRepo != nil {
 			payloadBytes, _ := json.Marshal(op)
@@ -533,6 +605,20 @@ type docIngestResult struct {
 	// the slug (for navigation / retract lookups) and the human-readable
 	// title captured at ingest time (for the log feed's display layer).
 	Pages []types.WikiLogPageRef
+	// MapStats are the per-doc map-phase metrics captured at the moment
+	// mapOneDocument finishes. Surfaced into the postprocess.wiki span's
+	// output so the trace viewer can show "what the map phase produced"
+	// even though the span itself stays open until the batch's reduce +
+	// cleanup phases complete (so the user-visible duration covers the
+	// whole pipeline for this doc, not just LLM extraction).
+	MapStats types.JSONMap
+	// WikiSpan is the postprocess.wiki subspan opened at the start of
+	// mapOneDocument. ProcessWikiIngest holds it open across the reduce
+	// + cleanup phases and closes it once this doc's pages have all
+	// been materialised — see the EndSpan call near the end of
+	// ProcessWikiIngest. nil when no parent attempt was found, in which
+	// case the tracker helpers are all no-ops anyway.
+	WikiSpan *Span
 }
 
 // WikiBatchContext holds shared data across Map and Reduce phases.
@@ -572,6 +658,16 @@ type WikiBatchContext struct {
 	// Already Normalize()'d — consumers can assume it is one of the
 	// three valid values.
 	ExtractionGranularity types.WikiExtractionGranularity
+
+	// PlannedFolderID holds the per-slug wiki_folders.id assigned by the batch
+	// taxonomy planning pass (planBatchTaxonomy + folder resolution), keyed by
+	// page slug. Reduce applies it only to pages that aren't already filed
+	// (FolderID == ""), so the whole batch lands on one coherent tree without
+	// churning user-curated placements. The folders themselves are created
+	// sequentially before reduce, so the parallel reduce phase only assigns
+	// pre-resolved ids and never races on folder creation. Read-only during
+	// reduce.
+	PlannedFolderID map[string]string
 }
 
 // SlugUpdate represents a single update operation for a specific slug
@@ -634,6 +730,93 @@ func previewStringSlice(items []string, limit int) string {
 		return fmt.Sprintf("[%s ...(+%d)]", strings.Join(out, ", "), n-limit)
 	}
 	return fmt.Sprintf("[%s]", strings.Join(out, ", "))
+}
+
+// previewExtractedItems returns a JSON-friendly preview of the first
+// `limit` extracted entities or concepts so the trace viewer's
+// postprocess.wiki.extract span shows actual names/slugs/descriptions
+// instead of bare counts. Each item is trimmed to a small fixed
+// budget — these end up serialised into the spans table's JSONB
+// output column, so the cumulative size matters more than per-item
+// fidelity.
+func previewExtractedItems(items []extractedItem, limit int) []map[string]string {
+	if limit <= 0 {
+		limit = 1
+	}
+	n := len(items)
+	if n > limit {
+		items = items[:limit]
+	}
+	out := make([]map[string]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, map[string]string{
+			"name":        previewText(it.Name, 60),
+			"slug":        it.Slug,
+			"description": previewText(it.Description, 120),
+		})
+	}
+	return out
+}
+
+// topCitedSlugs returns the top `limit` slugs by chunk-citation count.
+// Used by postprocess.wiki.classify so the trace surfaces which
+// candidate slugs the citation pass attached the most chunks to —
+// useful when triaging "this LLM run extracted weird things" without
+// having to open and diff full chunk lists.
+func topCitedSlugs(citations map[string][]string, limit int) []map[string]any {
+	if len(citations) == 0 {
+		return nil
+	}
+	type entry struct {
+		slug  string
+		count int
+	}
+	entries := make([]entry, 0, len(citations))
+	for slug, ids := range citations {
+		entries = append(entries, entry{slug: slug, count: len(ids)})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].count != entries[j].count {
+			return entries[i].count > entries[j].count
+		}
+		return entries[i].slug < entries[j].slug
+	})
+	if limit > 0 && len(entries) > limit {
+		entries = entries[:limit]
+	}
+	out := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, map[string]any{
+			"slug":   e.slug,
+			"chunks": e.count,
+		})
+	}
+	return out
+}
+
+// previewNewSlugs returns a JSON-friendly preview of the first
+// `limit` slugs that the citation pass discovered (i.e. did not appear
+// in pass-0's candidate list). Surfacing these makes "the citation
+// LLM kept inventing entries" trivially diagnosable from the trace
+// viewer.
+func previewNewSlugs(items []newSlugFromCitation, limit int) []map[string]string {
+	if limit <= 0 {
+		limit = 1
+	}
+	n := len(items)
+	if n > limit {
+		items = items[:limit]
+	}
+	out := make([]map[string]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, map[string]string{
+			"name":   previewText(it.Name, 60),
+			"slug":   it.Slug,
+			"type":   it.Type,
+			"chunks": fmt.Sprintf("%d", len(it.SourceChunks)),
+		})
+	}
+	return out
 }
 
 // wikiLinkRE matches `[[slug]]` and `[[slug|display text]]` references
@@ -1024,6 +1207,100 @@ func collectLinkRefs(pages []*types.WikiPage) []linkRef {
 	return refs
 }
 
+// wikiTaxonomyPromptMaxPaths caps how many existing folders are rendered into a
+// planning prompt as the set to reuse. Reached only for pathologically large
+// taxonomies; the similarity preprocessing keeps the fed set well under it.
+const wikiTaxonomyPromptMaxPaths = 150
+
+// wikiTaxonomyFolderPoolMax bounds the existing folders pulled from the DB as the
+// candidate pool for similarity selection. Distinct folders are few even for
+// large KBs, so this only guards against a degenerate taxonomy.
+const wikiTaxonomyFolderPoolMax = 400
+
+// wikiTaxonomyFeedAllMaxFolders is the folder count at or below which the whole
+// folder set is fed to the planner as-is: a healthy navigation directory is
+// small, so feeding everything gives perfect reuse recall with no embedding cost
+// (similarity preprocessing only earns its keep once folders are numerous).
+const wikiTaxonomyFeedAllMaxFolders = 60
+
+// wikiTaxonomyRelevantTopK is how many nearest existing deeper folders each item
+// contributes to the reuse set when similarity preprocessing kicks in.
+const wikiTaxonomyRelevantTopK = 3
+
+// wikiTaxonomyPlanChunkSize caps how many items go into a single planning call.
+// Larger batches are split into chunks; folders assigned by earlier chunks are
+// fed forward as "existing folders" so later chunks converge onto the same tree.
+const wikiTaxonomyPlanChunkSize = 60
+
+const wikiTaxonomyEmptyTreeHint = "(none yet — this knowledge base has no folders, design a fresh directory)"
+
+type wikiTaxonomyNode struct {
+	children map[string]*wikiTaxonomyNode
+}
+
+func insertWikiTaxonomyPath(root *wikiTaxonomyNode, path []string) {
+	if root == nil || len(path) == 0 {
+		return
+	}
+	cur := root
+	for _, part := range path {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if cur.children == nil {
+			cur.children = make(map[string]*wikiTaxonomyNode)
+		}
+		child := cur.children[part]
+		if child == nil {
+			child = &wikiTaxonomyNode{}
+			cur.children[part] = child
+		}
+		cur = child
+	}
+}
+
+func appendWikiTaxonomyNode(buf *strings.Builder, label string, node *wikiTaxonomyNode, depth int) {
+	if label != "" {
+		fmt.Fprintf(buf, "%s%s\n", strings.Repeat("  ", depth), label)
+	}
+	if node == nil || len(node.children) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(node.children))
+	for k := range node.children {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		appendWikiTaxonomyNode(buf, k, node.children[k], depth+1)
+	}
+}
+
+// formatExistingTaxonomyForPrompt renders distinct category_path values as an
+// indented folder tree for LLM extraction prompts.
+func formatExistingTaxonomyForPrompt(paths [][]string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	root := &wikiTaxonomyNode{}
+	for _, path := range paths {
+		insertWikiTaxonomyPath(root, path)
+	}
+	if len(root.children) == 0 {
+		return ""
+	}
+	var buf strings.Builder
+	keys := make([]string, 0, len(root.children))
+	for k := range root.children {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		appendWikiTaxonomyNode(&buf, k, root.children[k], 0)
+	}
+	return strings.TrimSpace(buf.String())
+}
 // getExistingPageSlugsForKnowledge returns all page slugs that currently
 // reference a given knowledge ID in their source_refs. Used to snapshot
 // state before re-ingest so the reduce phase can reconcile additions vs
@@ -1520,8 +1797,10 @@ func (s *wikiIngestService) generateWithTemplate(ctx context.Context, chatModel 
 		return "", fmt.Errorf("parse template: %w", err)
 	}
 
+	maskedData, urlMap := maskTemplateDataImageURLs(data)
+
 	var buf strings.Builder
-	if err := tmpl.Execute(&buf, data); err != nil {
+	if err := tmpl.Execute(&buf, maskedData); err != nil {
 		return "", fmt.Errorf("execute template: %w", err)
 	}
 
@@ -1537,7 +1816,7 @@ func (s *wikiIngestService) generateWithTemplate(ctx context.Context, chatModel 
 			Thinking:    &thinking,
 		})
 		if err == nil {
-			return response.Content, nil
+			return unmaskImageURLs(response.Content, urlMap), nil
 		}
 		lastErr = err
 
@@ -1642,7 +1921,11 @@ func (s *wikiIngestService) isKnowledgeGone(ctx context.Context, kbID, knowledge
 	if err != nil || kn == nil {
 		return true
 	}
-	return kn.ParseStatus == types.ParseStatusDeleting
+	switch kn.ParseStatus {
+	case types.ParseStatusDeleting, types.ParseStatusCancelled:
+		return true
+	}
+	return false
 }
 
 // filterLiveUpdates drops additions/summaries whose source knowledge has been
@@ -1701,47 +1984,8 @@ func reconstructContent(chunks []*types.Chunk) string {
 		}
 	}
 
-	// Sort by StartAt, then ChunkIndex
-	sort.Slice(textChunks, func(i, j int) bool {
-		if textChunks[i].StartAt == textChunks[j].StartAt {
-			return textChunks[i].ChunkIndex < textChunks[j].ChunkIndex
-		}
-		return textChunks[i].StartAt < textChunks[j].StartAt
-	})
-
-	var sb strings.Builder
-	lastEndAt := -1
-	for _, c := range textChunks {
-		toAppend := c.Content
-
-		if c.StartAt > lastEndAt || c.EndAt == 0 {
-			// Non-overlapping or missing position info
-			if sb.Len() > 0 {
-				sb.WriteString("\n")
-			}
-			sb.WriteString(toAppend)
-			if c.EndAt > 0 {
-				lastEndAt = c.EndAt
-			}
-		} else if c.EndAt > lastEndAt {
-			// Partial overlap
-			contentRunes := []rune(toAppend)
-			offset := len(contentRunes) - (c.EndAt - lastEndAt)
-			if offset >= 0 && offset < len(contentRunes) {
-				sb.WriteString(string(contentRunes[offset:]))
-			} else {
-				// Fallback if offset calculation is invalid
-				if sb.Len() > 0 {
-					sb.WriteString("\n")
-				}
-				sb.WriteString(toAppend)
-			}
-			lastEndAt = c.EndAt
-		}
-		// If c.EndAt <= lastEndAt, it's fully contained, so skip appending text
-	}
-
-	return sb.String()
+	// 重叠去重与排序统一交给公共逻辑（按文本匹配，兼容补写表头 / HTML 实体）。
+	return searchutil.MergeTextChunks(textChunks, "\n")
 }
 
 // reconstructEnrichedContent rebuilds document text and inlines image_info
@@ -1861,7 +2105,159 @@ var (
 	// <image_caption>...</image_caption> blocks, and stripping the content
 	// would silently destroy the very text we want to keep.
 	imageWrapperTagRE = regexp.MustCompile(`(?i)</?image[a-z_]*\b[^>]*/?>`)
+
+	// Markdown image references with the URL captured separately so LLM-bound
+	// image URLs can be frozen while captions remain editable.
+	mdImageURLRE = regexp.MustCompile(`!\[[^\]]*\]\(([^)]*)\)`)
+
+	// Enriched image blocks store the original object URL as an attribute,
+	// e.g. <image url="...">. Capture both double- and single-quoted forms.
+	imageURLAttrRE = regexp.MustCompile(`(?i)<image\b[^>]*\surl\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+
+	imagePlaceholderTokenRE = regexp.MustCompile(`wkimg:[A-Za-z0-9_-]+`)
 )
+
+func maskTemplateDataImageURLs(data map[string]string) (map[string]string, map[string]string) {
+	if len(data) == 0 {
+		return data, nil
+	}
+
+	masked := make(map[string]string, len(data))
+	urlToToken := make(map[string]string)
+	tokenToURL := make(map[string]string)
+
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		masked[key] = maskImageURLsWithState(data[key], urlToToken, tokenToURL)
+	}
+
+	return masked, tokenToURL
+}
+
+// maskImageURLs replaces image URLs with low-entropy placeholders. It only
+// freezes URLs; alt/caption text remains in place for the LLM to edit.
+func maskImageURLs(s string) (string, map[string]string) {
+	urlToToken := make(map[string]string)
+	tokenToURL := make(map[string]string)
+	return maskImageURLsWithState(s, urlToToken, tokenToURL), tokenToURL
+}
+
+func maskImageURLsWithState(s string, urlToToken, tokenToURL map[string]string) string {
+	urls := collectMaskableImageURLs(s)
+	if len(urls) == 0 {
+		return s
+	}
+
+	for _, url := range urls {
+		if _, ok := urlToToken[url]; ok {
+			continue
+		}
+		token := fmt.Sprintf("wkimg:%04d", len(tokenToURL)+1)
+		urlToToken[url] = token
+		tokenToURL[token] = url
+	}
+
+	replaceURLs := append([]string(nil), urls...)
+	sort.SliceStable(replaceURLs, func(i, j int) bool {
+		return len(replaceURLs[i]) > len(replaceURLs[j])
+	})
+
+	masked := s
+	for _, url := range replaceURLs {
+		masked = strings.ReplaceAll(masked, url, urlToToken[url])
+	}
+	return masked
+}
+
+func collectMaskableImageURLs(s string) []string {
+	seen := make(map[string]struct{})
+	var urls []string
+
+	addURL := func(url string) {
+		url = strings.TrimSpace(url)
+		if url == "" {
+			return
+		}
+		if _, ok := seen[url]; ok {
+			return
+		}
+		seen[url] = struct{}{}
+		urls = append(urls, url)
+	}
+
+	for _, match := range mdImageURLRE.FindAllStringSubmatch(s, -1) {
+		addURL(match[1])
+	}
+	for _, match := range imageURLAttrRE.FindAllStringSubmatch(s, -1) {
+		if match[1] != "" {
+			addURL(match[1])
+			continue
+		}
+		addURL(match[2])
+	}
+
+	return urls
+}
+
+// unmaskImageURLs restores known placeholders and drops any corrupted or
+// invented image placeholders so broken image links never reach storage.
+func unmaskImageURLs(out string, urlMap map[string]string) string {
+	out = mdImageURLRE.ReplaceAllStringFunc(out, func(match string) string {
+		parts := mdImageURLRE.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return match
+		}
+		url := strings.TrimSpace(parts[1])
+		if realURL, ok := urlMap[url]; ok {
+			idx := strings.LastIndex(match, "(")
+			if idx < 0 {
+				return match
+			}
+			return match[:idx+1] + realURL + ")"
+		}
+		if strings.HasPrefix(url, "wkimg:") {
+			return ""
+		}
+		return match
+	})
+
+	return replaceImagePlaceholderTokensOutsideMarkdown(out, urlMap)
+}
+
+func replaceImagePlaceholderTokensOutsideMarkdown(s string, urlMap map[string]string) string {
+	matches := mdImageURLRE.FindAllStringIndex(s, -1)
+	if len(matches) == 0 {
+		return replaceImagePlaceholderTokens(s, urlMap)
+	}
+
+	var b strings.Builder
+	last := 0
+	for _, match := range matches {
+		if match[0] > last {
+			b.WriteString(replaceImagePlaceholderTokens(s[last:match[0]], urlMap))
+		}
+		b.WriteString(s[match[0]:match[1]])
+		last = match[1]
+	}
+	if last < len(s) {
+		b.WriteString(replaceImagePlaceholderTokens(s[last:], urlMap))
+	}
+	return b.String()
+}
+
+func replaceImagePlaceholderTokens(s string, urlMap map[string]string) string {
+	return imagePlaceholderTokenRE.ReplaceAllStringFunc(s, func(token string) string {
+		if realURL, ok := urlMap[token]; ok {
+			return realURL
+		}
+		return ""
+	})
+}
 
 // stripImageMarkup removes image-only placeholders (Markdown image refs,
 // <img> tags, <image_original> redundancy blocks) and unwraps the

@@ -2,14 +2,57 @@ import { fileURLToPath, URL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { existsSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { defineConfig } from 'vite'
-import type { ServerOptions } from 'vite'
+import { defineConfig, type Plugin, type ServerOptions } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 // 获取当前文件所在目录（ESM 模块方式）
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
+
+const pkg = require('./package.json') as { version?: string }
+const FRONTEND_VERSION = pkg.version ?? 'unknown'
+
+function resolveFrontendCommit(): string {
+  const fromEnv = process.env.VITE_FRONTEND_COMMIT || process.env.GITHUB_SHA
+  if (fromEnv) {
+    return fromEnv.slice(0, 7)
+  }
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim()
+  } catch {
+    return 'unknown'
+  }
+}
+
+const FRONTEND_COMMIT = resolveFrontendCommit()
+
+/** Dev parity with nginx: serve embed.html for /embed/:channelId (not the main SPA). */
+function embedHtmlDevFallback(): Plugin {
+  return {
+    name: 'embed-html-dev-fallback',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const raw = req.url ?? ''
+        const qIdx = raw.indexOf('?')
+        const path = qIdx >= 0 ? raw.slice(0, qIdx) : raw
+        const qs = qIdx >= 0 ? raw.slice(qIdx) : ''
+        if (path.startsWith('/embed/') && path !== '/embed.html' && !path.includes('.')) {
+          req.url = `/embed.html${qs}`
+        }
+        next()
+      })
+    },
+  }
+}
+const DEV_PROXY_TARGET =
+  process.env.VITE_DEV_PROXY_TARGET ||
+  process.env.FRONTEND_BACKEND_URL ||
+  process.env.BACKEND_URL ||
+  'https://zsk.t.nxin.com:8080'
 
 function resolveVueOfficePptxEntry(): string {
   try {
@@ -61,9 +104,58 @@ function getHttpsConfig(): ServerOptions['https'] {
 }
 
 export default defineConfig({
+  define: {
+    __FRONTEND_VERSION__: JSON.stringify(FRONTEND_VERSION),
+    __FRONTEND_COMMIT__: JSON.stringify(FRONTEND_COMMIT),
+  },
+  build: {
+    modulePreload: {
+      resolveDependencies(_filename, deps, { hostId }) {
+        // Embed iframe bootstraps with token exchange only; defer heavy chat chunks.
+        if (hostId?.includes('embed')) {
+          return deps.filter((dep) => !(
+            dep.includes('vendor-mermaid')
+            || dep.includes('vendor-highlight')
+            || dep.includes('vendor-markdown')
+            || dep.includes('vendor-tdesign')
+            || dep.includes('botmsg')
+            || dep.includes('usermsg')
+            || dep.includes('EmbedBotMessage')
+            || dep.includes('EmbedUserMessage')
+            || dep.includes('AgentStreamDisplay')
+            || dep.includes('EmbedChatCore')
+            || dep.includes('vendor-markdown')
+            || dep.includes('fonts-')
+          ))
+        }
+        return deps
+      },
+    },
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        embed: resolve(__dirname, 'embed.html'),
+      },
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('mermaid') || id.includes('/dagre') || id.includes('cytoscape')) {
+            return 'vendor-mermaid'
+          }
+          if (id.includes('marked') || id.includes('katex')) {
+            return 'vendor-markdown'
+          }
+          if (id.includes('highlight.js')) {
+            return 'vendor-highlight'
+          }
+        },
+      },
+    },
+  },
   plugins: [
     vue(),
     vueJsx(),
+    embedHtmlDevFallback(),
   ],
   resolve: {
     alias: {
@@ -97,14 +189,14 @@ export default defineConfig({
     // 代理配置，用于开发环境
     proxy: {
       '/api': {
-        target: process.env.BACKEND_URL || 'https://zsk.t.nxin.com:8080', // 本地开发使用 HTTP
+        target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false, // 本地开发使用 secure: false（允许自签名证书）
         // 如果需要重写路径，可以取消注释下面的配置
         // rewrite: (path) => path.replace(/^\/api/, '')
       },
       '/files': {
-          target: process.env.BACKEND_URL || 'https://zsk.t.nxin.com:8080', // 本地开发使用 HTTP
+        target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
       }

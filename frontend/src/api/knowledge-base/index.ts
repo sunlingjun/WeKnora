@@ -1,11 +1,56 @@
 import { get, post, put, del, postUpload, getDown } from "../../utils/request";
+import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess';
 
 // 知识库管理 API（列表、创建、获取、更新、删除、复制）
-export function listKnowledgeBases(params?: { agent_id?: string }) {
+export function listKnowledgeBases(params?: {
+  agent_id?: string;
+  /**
+   * Optional creator filter. Server-side semantics:
+   *   - "mine"   → only KBs whose creator_id matches the caller
+   *   - "others" → only KBs created by someone else in this tenant
+   *   - omitted/"all" → no filter
+   * KBs predating the RBAC backfill (creator_id="") never match
+   * mine/others — they fall out of both views by design.
+   */
+  creator?: 'all' | 'mine' | 'others';
+}) {
   const query = new URLSearchParams();
   if (params?.agent_id) query.set('agent_id', params.agent_id);
+  if (params?.creator && params.creator !== 'all') query.set('creator', params.creator);
   const qs = query.toString();
   return get(qs ? `/api/v1/knowledge-bases?${qs}` : '/api/v1/knowledge-bases');
+}
+
+// Read-only vector-store binding metadata enriched onto every KB
+// response (list, create, get, update, pin). Source carries where the
+// binding points; status reports whether that target is currently
+// reachable by the server.
+//
+//   - source 'env'    → KB uses the tenant's env-configured store
+//                       (RETRIEVE_DRIVER). vector_store_id is null and
+//                       vector_store_name is the localized "System
+//                       default" label; vector_store_engine_type still
+//                       reports the underlying engine (e.g. "postgres").
+//   - source 'user'   → KB is bound to a tenant-owned VectorStore.
+//                       vector_store_id / name / engine_type are real.
+//   - source 'shared' → KB belongs to a different tenant and is
+//                       readable via cross-organization sharing. The
+//                       server strips vector_store_id and engine_type
+//                       to avoid leaking the owner tenant's store
+//                       inventory; only this source marker arrives.
+//   - status 'unavailable' → the binding cannot be reached right now
+//                       (deleted row, registry miss, transient infra
+//                       failure). Operators recover via the global
+//                       Vector Stores settings page.
+export type VectorStoreSource = 'env' | 'user' | 'shared' | 'unavailable';
+export type VectorStoreStatus = 'available' | 'unavailable';
+
+export interface KnowledgeBaseStoreView {
+  vector_store_id?: string | null;
+  vector_store_name?: string;
+  vector_store_engine_type?: string;
+  vector_store_source?: VectorStoreSource;
+  vector_store_status?: VectorStoreStatus;
 }
 
 export function createKnowledgeBase(data: {
@@ -16,6 +61,11 @@ export function createKnowledgeBase(data: {
   chunking_config?: any;
   embedding_model_id?: string;
   summary_model_id?: string;
+  // Opt-in binding to a specific tenant-owned VectorStore. Omit (or
+  // send undefined / empty string) to fall back to the env-configured
+  // store. Immutable after creation — UpdateKnowledgeBase intentionally
+  // does not accept this field.
+  vector_store_id?: string;
   vlm_config?: {
     enabled: boolean;
     model_id?: string;
@@ -135,7 +185,7 @@ export function updateKnowledgeBase(id: string, data: {
     };
   }
 }) {
-  return put(`/api/v1/knowledge-bases/${id}` , data);
+  return put(`/api/v1/knowledge-bases/${id}`, data);
 }
 
 export function rebuildKBIndex(kbId: string) {
@@ -175,27 +225,54 @@ export function togglePinKnowledgeBase(id: string) {
 }
 
 // 知识文件 API（基于具体知识库）
-// data.tag_id: 可选，指定知识所属的分类ID
-export function uploadKnowledgeFile(kbId: string, data: { file: File; tag_id?: string; [key: string]: any } = { file: new File([], '') }, onProgress?: (progressEvent: any) => void) {
+// data.tag_ids: 可选，指定知识所属的多个标签 ID
+export function uploadKnowledgeFile(
+  kbId: string,
+  data: {
+    file: File
+    tag_ids?: string[]
+    fileName?: string
+    process_config?: KnowledgeProcessOverrides | string
+    [key: string]: any
+  } = { file: new File([], '') },
+  onProgress?: (progressEvent: any) => void,
+) {
   const formData = new FormData();
   Object.keys(data).forEach(key => {
-    if (data[key] !== undefined) formData.append(key, data[key]);
+    const value = data[key];
+    if (value === undefined) return;
+    if (key === 'tag_ids' && Array.isArray(value)) {
+      formData.append(key, value.join(','));
+    } else if (key === 'process_config' && value && typeof value !== 'string') {
+      formData.append(key, JSON.stringify(value));
+    } else {
+      formData.append(key, value);
+    }
   });
   return postUpload(`/api/v1/knowledge-bases/${kbId}/knowledge/file`, formData, onProgress);
 }
 
 // 从URL创建知识
-// data.tag_id: 可选，指定知识所属的分类ID
+// data.tag_ids: 可选，指定知识所属的多个标签 ID
 export function createKnowledgeFromURL(
   kbId: string,
-  data: { url: string; title: string; enable_multimodel?: boolean; tag_id?: string; channel?: string },
+  data: { url: string; enable_multimodel?: boolean; tag_ids?: string[]; process_config?: KnowledgeProcessOverrides },
 ) {
   return post(`/api/v1/knowledge-bases/${kbId}/knowledge/url`, data);
 }
 
 // 手工创建知识
-// data.tag_id: 可选，指定知识所属的分类ID
-export function createManualKnowledge(kbId: string, data: { title: string; content: string; status: string; tag_id?: string }) {
+// data.tag_ids: 可选，指定知识所属的标签 ID
+export function createManualKnowledge(
+  kbId: string,
+  data: {
+    title: string
+    content: string
+    status: string
+    tag_ids?: string[]
+    process_config?: KnowledgeProcessOverrides
+  },
+) {
   return post(`/api/v1/knowledge-bases/${kbId}/knowledge/manual`, data);
 }
 
@@ -204,7 +281,7 @@ export function listKnowledgeFiles(
   params: {
     page: number;
     page_size: number;
-    tag_id?: string;
+    tag_ids?: string;
     keyword?: string;
     file_type?: string;
     parse_status?: string;
@@ -216,7 +293,7 @@ export function listKnowledgeFiles(
   const query = new URLSearchParams();
   query.append('page', String(params.page));
   query.append('page_size', String(params.page_size));
-  if (params.tag_id) query.append('tag_id', params.tag_id);
+  if (params.tag_ids) query.append('tag_ids', params.tag_ids);
   if (params.keyword) query.append('keyword', params.keyword);
   if (params.file_type) query.append('file_type', params.file_type);
   if (params.parse_status) query.append('parse_status', params.parse_status);
@@ -234,12 +311,24 @@ export function getKnowledgeDetails(id: string, options?: { agent_id?: string })
   return get(qs ? `/api/v1/knowledge/${id}?${qs}` : `/api/v1/knowledge/${id}`);
 }
 
-export function updateManualKnowledge(id: string, data: { title: string; content: string; status: string }) {
+export function updateManualKnowledge(
+  id: string,
+  data: { title: string; content: string; status: string; process_config?: KnowledgeProcessOverrides },
+) {
   return put(`/api/v1/knowledge/manual/${id}`, data);
 }
 
-export function reparseKnowledge(id: string) {
-  return post(`/api/v1/knowledge/${id}/reparse`);
+export function reparseKnowledge(id: string, data?: { process_config?: KnowledgeProcessOverrides }) {
+  return post(`/api/v1/knowledge/${id}/reparse`, data);
+}
+
+export function cancelKnowledgeParse(id: string) {
+  return post(`/api/v1/knowledge/${id}/cancel-parse`);
+}
+
+export function getKnowledgeSpans(id: string, attempt?: number) {
+  const qs = attempt ? `?attempt=${attempt}` : '';
+  return get(`/api/v1/knowledge/${id}/spans${qs}`);
 }
 
 export function delKnowledgeDetails(id: string) {
@@ -309,7 +398,7 @@ export function deleteKnowledgeBaseTag(kbId: string, tagSeqId: number, params?: 
   return del(`/api/v1/knowledge-bases/${kbId}/tags/${tagSeqId}${forceQuery}`);
 }
 
-export function updateKnowledgeTagBatch(data: { updates: Record<string, string | null> }) {
+export function updateKnowledgeTagBatch(data: { updates: Record<string, string[]> }) {
   return put(`/api/v1/knowledge/tags`, data);
 }
 
@@ -436,16 +525,19 @@ export function searchKnowledge(
   offset = 0,
   limit = 20,
   fileTypes?: string[],
-  options?: { agent_id?: string }
+  options?: { agent_id?: string; recent?: boolean }
 ) {
   const query = new URLSearchParams();
-  query.set('keyword', keyword);
+  if (keyword) {
+    query.set('keyword', keyword);
+  }
   query.set('offset', String(offset));
   query.set('limit', String(limit));
   if (fileTypes && fileTypes.length > 0) {
     query.set('file_types', fileTypes.join(','));
   }
   if (options?.agent_id) query.set('agent_id', options.agent_id);
+  if (options?.recent) query.set('recent', 'true');
   return get(`/api/v1/knowledge/search?${query.toString()}`);
 }
 
@@ -455,4 +547,12 @@ export function knowledgeSemanticSearch(data: {
   knowledge_ids?: string[];
 }) {
   return post('/api/v1/knowledge-search', data);
+}
+
+export function batchReparseKnowledge(kbId: string, ids: string[], processConfig?: KnowledgeProcessOverrides) {
+  return post(`/api/v1/knowledge/batch-reparse`, {
+    kb_id: kbId,
+    ids,
+    process_config: processConfig,
+  });
 }

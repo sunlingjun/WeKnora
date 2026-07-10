@@ -184,7 +184,7 @@ func (s *sessionService) KnowledgeQA(
 	} else {
 		// RAG — dynamically assemble based on feature flags.
 		pipeline = types.NewPipelineBuilder().
-			Add(types.LOAD_HISTORY).
+			AddIf(hasHistory, types.LOAD_HISTORY).
 			Add(types.QUERY_UNDERSTAND).
 			Add(types.CHUNK_SEARCH_PARALLEL).
 			Add(types.CHUNK_RERANK).
@@ -214,21 +214,6 @@ func (s *sessionService) KnowledgeQA(
 			"session_id": req.Session.ID,
 		})
 		return err
-	}
-
-	// Emit references event if we have search results
-	if len(chatManage.MergeResult) > 0 {
-		logger.Infof(ctx, "Emitting references event with %d results", len(chatManage.MergeResult))
-		if err := eventBus.Emit(ctx, event.Event{
-			ID:        generateEventID("references"),
-			Type:      event.EventAgentReferences,
-			SessionID: req.Session.ID,
-			Data: event.AgentReferencesData{
-				References: chatManage.MergeResult,
-			},
-		}); err != nil {
-			logger.Errorf(ctx, "Failed to emit references event: %v", err)
-		}
 	}
 
 	// Note: Answer events are now emitted directly by chat_completion_stream plugin
@@ -389,7 +374,8 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 			userIDVal := ctx.Value(types.UserIDContextKey)
 			if userIDVal != nil {
 				if userID, ok := userIDVal.(string); ok && userID != "" && s.kbShareService != nil {
-					sharedList, err := s.kbShareService.ListSharedKnowledgeBases(ctx, userID, tenantID)
+					callerTenantRole := types.TenantRoleFromContext(ctx)
+					sharedList, err := s.kbShareService.ListSharedKnowledgeBases(ctx, tenantID, callerTenantRole)
 					if err != nil {
 						logger.Warnf(ctx, "Failed to list shared knowledge bases: %v", err)
 					} else {
@@ -455,6 +441,7 @@ func (s *sessionService) buildSearchTargets(
 	fullKBSet := make(map[string]bool)
 
 	// First pass: batch-fetch KBs, then resolve tenant per ID (tenant scope already set by caller)
+	callerTenantRole := types.TenantRoleFromContext(ctx)
 	if len(knowledgeBaseIDs) > 0 {
 		kbs, _ := s.knowledgeBaseService.GetKnowledgeBasesByIDsOnly(ctx, knowledgeBaseIDs)
 		kbByID := make(map[string]*types.KnowledgeBase, len(kbs))
@@ -472,10 +459,9 @@ func (s *sessionService) buildSearchTargets(
 			} else if kb.TenantID == tenantID {
 				kbTenantMap[kbID] = tenantID
 			} else if userID != "" {
-				// Cross-tenant KB: org share OR square/member-based shared KB (joined via /join).
 				hasAccess := false
 				if s.kbShareService != nil {
-					hasAccess, _ = s.kbShareService.HasKBPermission(ctx, kbID, userID, types.OrgRoleViewer)
+					hasAccess, _ = s.kbShareService.HasTenantKBPermission(ctx, kbID, tenantID, callerTenantRole, types.OrgRoleViewer)
 				}
 				if !hasAccess && s.sharedKBService != nil {
 					role, _ := s.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID)
@@ -559,6 +545,11 @@ func (s *sessionService) KnowledgeQAByEvent(ctx context.Context,
 	logger.Infof(ctx, "Trigger event list: %v", methods)
 
 	pipelineStart := time.Now()
+	lastRetrievalStage := chatpipeline.LastConsolidatedRetrievalStage(eventList, chatManage)
+	var retrievalProgress *chatpipeline.StageProgress
+	var retrievalStart time.Time
+	var understandProgress *chatpipeline.StageProgress
+	var understandStart time.Time
 	for _, eventType := range eventList {
 		stageStart := time.Now()
 		// Wrap each pipeline stage in a Langfuse span so the trace timeline
@@ -584,7 +575,30 @@ func (s *sessionService) KnowledgeQAByEvent(ctx context.Context,
 				},
 			})
 		}
+		if eventType == types.QUERY_UNDERSTAND && chatpipeline.ShouldEmitQueryUnderstandProgress(chatManage) {
+			understandStart = stageStart
+			understandProgress = chatpipeline.BeginQueryUnderstandProgress(stageCtx, chatManage)
+		}
+		if chatpipeline.IsConsolidatedRetrievalStage(eventType, chatManage) && retrievalProgress == nil {
+			retrievalStart = stageStart
+			retrievalProgress = chatpipeline.BeginRetrievalProgress(stageCtx, chatManage)
+		}
+		// Emit references before answer streaming so the SSE client receives
+		// them while the connection is still open. Previously references were
+		// emitted after the pipeline returned — by then the `complete` event had
+		// already closed the stream, so the frontend only saw citations on refresh.
+		if eventType == types.CHAT_COMPLETION_STREAM {
+			emitKnowledgeReferencesEvent(ctx, chatManage)
+		}
 		err := s.eventManager.Trigger(stageCtx, eventType, chatManage)
+		if understandProgress != nil && eventType == types.QUERY_UNDERSTAND {
+			chatpipeline.EndQueryUnderstandProgress(stageCtx, chatManage, understandProgress, understandStart, err)
+			understandProgress = nil
+		}
+		if retrievalProgress != nil && eventType == lastRetrievalStage {
+			chatpipeline.EndRetrievalProgress(stageCtx, chatManage, retrievalProgress, retrievalStart, err)
+			retrievalProgress = nil
+		}
 		stageDuration := time.Since(stageStart)
 		var spanErr error
 		if err != nil && err != chatpipeline.ErrSearchNothing {
@@ -594,6 +608,24 @@ func (s *sessionService) KnowledgeQAByEvent(ctx context.Context,
 			stageSpan.Finish(map[string]interface{}{
 				"duration_ms": stageDuration.Milliseconds(),
 			}, nil, spanErr)
+		}
+
+		// If the user stopped generation, the context is cancelled. A cancelled
+		// retrieval stage surfaces as ErrSearchNothing (the search goroutines
+		// return no results when their embedding/vector calls are aborted), so
+		// this check MUST come before the ErrSearchNothing handling below.
+		// Otherwise we would persist the fixed fallback response ("Sorry, I am
+		// unable to answer this question.") over the intentionally-empty stopped
+		// message, and the user would see the fallback text after refreshing.
+		// This is not single-machine specific: the stop arrives via the shared
+		// StreamManager and cancels asyncCtx on whichever node is generating.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			common.PipelineWarn(ctx, "Pipeline", "stage_cancelled", map[string]interface{}{
+				"event":       string(eventType),
+				"duration_ms": stageDuration.Milliseconds(),
+				"reason":      ctxErr.Error(),
+			})
+			return ctxErr
 		}
 
 		if err == chatpipeline.ErrSearchNothing {
@@ -974,6 +1006,26 @@ func (s *sessionService) consumeFallbackStream(
 	if !streamCompleted {
 		logger.Warnf(ctx, "Fallback stream closed without completion, emitting final event with fixed response")
 		s.emitFallbackAnswer(ctx, chatManage, chatManage.FallbackResponse)
+	}
+}
+
+// emitKnowledgeReferencesEvent streams retrieved chunks to the client as a
+// `references` SSE event. Must run before CHAT_COMPLETION_STREAM so citations
+// arrive while the connection is still open (complete closes the stream).
+func emitKnowledgeReferencesEvent(ctx context.Context, chatManage *types.ChatManage) {
+	if chatManage == nil || chatManage.EventBus == nil || len(chatManage.MergeResult) == 0 {
+		return
+	}
+	logger.Infof(ctx, "Emitting references event with %d results (pre-answer)", len(chatManage.MergeResult))
+	if err := chatManage.EventBus.Emit(ctx, types.Event{
+		ID:        generateEventID("references"),
+		Type:      types.EventType(event.EventAgentReferences),
+		SessionID: chatManage.SessionID,
+		Data: event.AgentReferencesData{
+			References: chatManage.MergeResult,
+		},
+	}); err != nil {
+		logger.Errorf(ctx, "Failed to emit references event: %v", err)
 	}
 }
 

@@ -2,16 +2,16 @@
 
 package sandbox
 
-import "os/exec"
+import (
+	"os/exec"
+)
 
-func setProcessGroup(cmd *exec.Cmd) {
-	// Windows syscall.SysProcAttr has no Setpgid; rely on CommandContext and Process.Kill.
-	_ = cmd
+func setupProcessGroup(cmd *exec.Cmd) {
+	// Windows does not support Setpgid; process groups are managed via Job Objects
 }
 
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process == nil {
-		return
+	if cmd.Process != nil {
+		cmd.Process.Kill()
 	}
-	_ = cmd.Process.Kill()
 }

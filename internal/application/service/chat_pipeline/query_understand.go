@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/Tencent/WeKnora/internal/config"
-	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
-	"github.com/google/uuid"
 )
 
 // PluginQueryUnderstand performs query rewriting and intent classification.
@@ -115,23 +112,8 @@ func (p *PluginQueryUnderstand) OnEvent(ctx context.Context,
 		maxTokens = 500
 	}
 
-	// --- Emit progress event for image analysis ---
-	var toolCallID string
-	if useImages && chatManage.EventBus != nil {
-		toolCallID = uuid.New().String()
-		chatManage.EventBus.Emit(ctx, types.Event{
-			Type:      types.EventType(event.EventAgentToolCall),
-			SessionID: chatManage.SessionID,
-			Data: event.AgentToolCallData{
-				ToolCallID: toolCallID,
-				ToolName:   "image_analysis",
-			},
-		})
-	}
-
 	// --- Call model ---
 	thinking := false
-	vlmStart := time.Now()
 	response, err := rewriteModel.Chat(ctx, []chat.Message{
 		{Role: "system", Content: systemContent},
 		userMsg,
@@ -141,39 +123,11 @@ func (p *PluginQueryUnderstand) OnEvent(ctx context.Context,
 		Thinking:            &thinking,
 	})
 	if err != nil {
-		if toolCallID != "" && chatManage.EventBus != nil {
-			chatManage.EventBus.Emit(ctx, types.Event{
-				Type:      types.EventType(event.EventAgentToolResult),
-				SessionID: chatManage.SessionID,
-				Data: event.AgentToolResultData{
-					ToolCallID: toolCallID,
-					ToolName:   "image_analysis",
-					Output:     "图片分析失败",
-					Success:    false,
-					Duration:   time.Since(vlmStart).Milliseconds(),
-				},
-			})
-		}
 		pipelineError(ctx, "QueryUnderstand", "model_call", map[string]interface{}{
 			"session_id": chatManage.SessionID,
 			"error":      err.Error(),
 		})
 		return next()
-	}
-
-	// --- Emit completion event for image analysis ---
-	if toolCallID != "" && chatManage.EventBus != nil {
-		chatManage.EventBus.Emit(ctx, types.Event{
-			Type:      types.EventType(event.EventAgentToolResult),
-			SessionID: chatManage.SessionID,
-			Data: event.AgentToolResultData{
-				ToolCallID: toolCallID,
-				ToolName:   "image_analysis",
-				Output:     "已分析图片内容",
-				Success:    true,
-				Duration:   time.Since(vlmStart).Milliseconds(),
-			},
-		})
 	}
 
 	// --- Parse structured output ---
@@ -187,8 +141,7 @@ func (p *PluginQueryUnderstand) OnEvent(ctx context.Context,
 
 	// --- Apply intent-specific system prompt override ---
 	if !chatManage.NeedsRetrieval() {
-		if prompt, ok := p.config.Conversation.IntentSystemPrompts[string(chatManage.Intent)]; ok {
-			chatManage.SystemPromptOverride = prompt
+		if applyIntentPromptOverride(chatManage, p.config.Conversation.IntentSystemPrompts) {
 			pipelineInfo(ctx, "QueryUnderstand", "prompt_override", map[string]interface{}{
 				"session_id": chatManage.SessionID,
 				"intent":     chatManage.Intent,
@@ -237,10 +190,15 @@ func (p *PluginQueryUnderstand) updateUserMessageImageCaption(ctx context.Contex
 
 // loadHistory fetches and processes conversation history for rewrite context.
 func (p *PluginQueryUnderstand) loadHistory(ctx context.Context, chatManage *types.ChatManage) []*types.History {
-	maxRounds := p.config.Conversation.MaxRounds
-	if chatManage.MaxRounds > 0 {
-		maxRounds = chatManage.MaxRounds
+	// Honor the multi-turn-disabled signal: chatManage.MaxRounds == 0 is set
+	// explicitly by applyAgentOverridesToChatManage when the custom agent has
+	// MultiTurnEnabled=false. We must not silently fall back to the global
+	// default, otherwise rewrite + image analysis would still pull old turns
+	// into the context and leak through chatManage.History.
+	if chatManage.MaxRounds <= 0 {
+		return nil
 	}
+	maxRounds := chatManage.MaxRounds
 
 	historyList, err := loadAndProcessHistory(ctx, p.messageService, chatManage.SessionID, maxRounds, 20)
 	if err != nil {
@@ -462,6 +420,24 @@ func mergeImageDescAndOCR(desc, ocr string) (string, bool) {
 		return desc, true
 	}
 	return desc + "\n\n[OCR]\n" + ocr, true
+}
+
+// applyIntentPromptOverride resolves the system-prompt override for the current
+// non-retrieval intent. Agent-level overrides take precedence; otherwise the
+// tenant/global IntentSystemPrompts map is consulted. Whitespace-only agent
+// overrides are treated as unset and fall through to the global default. Returns
+// true when a non-empty override was applied.
+func applyIntentPromptOverride(chatManage *types.ChatManage, globalPrompts map[string]string) bool {
+	intentKey := string(chatManage.Intent)
+	if raw, ok := chatManage.IntentPromptOverrides[intentKey]; ok && strings.TrimSpace(raw) != "" {
+		chatManage.SystemPromptOverride = raw
+	}
+	if chatManage.SystemPromptOverride == "" {
+		if prompt, ok := globalPrompts[intentKey]; ok {
+			chatManage.SystemPromptOverride = prompt
+		}
+	}
+	return chatManage.SystemPromptOverride != ""
 }
 
 // formatConversationHistory formats conversation history for prompt template.

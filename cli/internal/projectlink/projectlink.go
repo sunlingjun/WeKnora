@@ -1,12 +1,12 @@
 // Package projectlink reads and writes the per-project link file
-// .weknora/project.yaml that anchors a working directory to a context+KB.
+// .weknora/project.yaml that anchors a working directory to a profile+KB.
 //
 // Discovery walks up from the start directory until either (a) a
 // .weknora/project.yaml is found, (b) the filesystem root is reached, or
 // (c) the walk exceeds a 64-level depth limit (cycle protection for
 // pathological symlink setups). Pattern matches `cargo`, `npm`, and `git`
-// — find-the-project's-root walks; mount-boundary crossing is allowed
-// (npm/cargo behave the same — a project may straddle a bind-mount).
+// - find-the-project's-root walks; mount-boundary crossing is allowed
+// (npm/cargo behave the same - a project may straddle a bind-mount).
 package projectlink
 
 import (
@@ -22,7 +22,7 @@ import (
 
 // Project is the on-disk schema of .weknora/project.yaml.
 type Project struct {
-	Context   string    `yaml:"context,omitempty"`
+	Profile   string    `yaml:"profile,omitempty"`
 	KBID      string    `yaml:"kb_id"`
 	CreatedAt time.Time `yaml:"created_at"`
 }
@@ -50,7 +50,7 @@ func Discover(startDir string) (string, bool, error) {
 			return candidate, true, nil
 		}
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			// Permission errors etc. — keep walking up; missing read access
+			// Permission errors etc. - keep walking up; missing read access
 			// to a parent dir doesn't necessarily mean the project starts
 			// here. Cargo/npm have the same behavior.
 			// Fall through to parent walk.
@@ -82,4 +82,14 @@ func Load(path string) (*Project, error) {
 // Creates parent .weknora/ directory if missing.
 func Save(path string, p *Project) error {
 	return xdg.WriteAtomicYAML(path, p)
+}
+
+// Remove deletes the project link at path. A missing file is reported as
+// success so callers can stay idempotent under concurrent-removal races
+// - the post-condition (no file at path) holds in either case.
+func Remove(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove project link: %w", err)
+	}
+	return nil
 }

@@ -125,7 +125,7 @@ type wikiNode struct {
 	NodeToken      string `json:"node_token"`
 	ObjToken       string `json:"obj_token"` // document token
 	ObjType        string `json:"obj_type"`  // "doc", "sheet", "mindnote", "bitable", "file", "docx", "slides"
-	ParentNodeID   string `json:"parent_node_id"`
+	ParentNodeID   string `json:"parent_node_token"`
 	NodeType       string `json:"node_type"` // "origin" or "shortcut"
 	OriginNodeID   string `json:"origin_node_id"`
 	OriginSpaceID  string `json:"origin_space_id"`

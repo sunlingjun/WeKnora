@@ -20,8 +20,9 @@ type KnowledgeService interface {
 		metadata map[string]string,
 		enableMultimodel *bool,
 		customFileName string,
-		tagID string,
+		tagIDs []string,
 		channel string,
+		processOverrides *types.KnowledgeProcessOverrides,
 	) (*types.Knowledge, error)
 	// CreateKnowledgeFromURL creates knowledge from a URL.
 	// When fileName or fileType is provided (or the URL path has a known file extension),
@@ -35,8 +36,9 @@ type KnowledgeService interface {
 		fileType string,
 		enableMultimodel *bool,
 		title string,
-		tagID string,
+		tagIDs []string,
 		channel string,
+		processOverrides *types.KnowledgeProcessOverrides,
 	) (*types.Knowledge, error)
 	// CreateKnowledgeFromPassage creates knowledge from text passages.
 	// channel identifies the ingestion channel; empty defaults to "web".
@@ -55,6 +57,14 @@ type KnowledgeService interface {
 	GetKnowledgeByID(ctx context.Context, id string) (*types.Knowledge, error)
 	// GetKnowledgeByIDOnly retrieves knowledge by ID without tenant filter (for permission resolution).
 	GetKnowledgeByIDOnly(ctx context.Context, id string) (*types.Knowledge, error)
+	// GetOwningKBCreatorID resolves a knowledge ID to the CreatorID of its
+	// owning KnowledgeBase, scoped to the caller's tenant. Used by the
+	// per-KB ownership lookups in handler/rbac_lookups.go (PR 5, #1303) so
+	// chunk and knowledge sub-resource routes can inherit the same
+	// "creator-of-the-KB OR Admin+" gate that KB-level routes already use.
+	// Returns the underlying repository sentinel errors unchanged so
+	// callers can map them to middleware.ErrResourceNotFound.
+	GetOwningKBCreatorID(ctx context.Context, knowledgeID string) (string, error)
 	// GetKnowledgeBatch retrieves a batch of knowledge by IDs.
 	GetKnowledgeBatch(ctx context.Context, tenantID uint64, ids []string) ([]*types.Knowledge, error)
 	// GetKnowledgeBatchWithSharedAccess retrieves knowledge by IDs including items from shared KBs the user has access to.
@@ -86,7 +96,21 @@ type KnowledgeService interface {
 		payload *types.ManualKnowledgePayload,
 	) (*types.Knowledge, error)
 	// ReparseKnowledge deletes existing document content and re-parses the knowledge asynchronously.
-	ReparseKnowledge(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
+	// When processOverrides is non-nil, it is validated and persisted to the knowledge metadata
+	// before re-parsing, letting callers adjust parse config on reparse; nil keeps stored overrides.
+	ReparseKnowledge(
+		ctx context.Context,
+		knowledgeID string,
+		processOverrides *types.KnowledgeProcessOverrides,
+	) (*types.Knowledge, error)
+	// CancelKnowledgeParse marks an in-progress parse as cancelled by the
+	// user. The knowledge row and any partially written chunks/index are
+	// kept; downstream queued tasks for the same knowledge are best-effort
+	// dequeued and active workers are signalled to stop at their next
+	// checkpoint. Idempotent — returns the existing row when the knowledge
+	// is already cancelled. Returns an error when the knowledge is in a
+	// terminal state (completed / failed) or being deleted.
+	CancelKnowledgeParse(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
 	// CloneKnowledgeBase clones knowledge to another knowledge base.
 	CloneKnowledgeBase(ctx context.Context, srcID, dstID string) error
 	// UpdateImageInfo updates image information for a knowledge chunk.
@@ -128,7 +152,11 @@ type KnowledgeService interface {
 	// UpdateKnowledgeTagBatch updates tag for document knowledge items in batch.
 	// authorizedKBID restricts all updates to knowledge items belonging to this KB;
 	// pass empty string to skip (caller must ensure authorization by other means).
-	UpdateKnowledgeTagBatch(ctx context.Context, authorizedKBID string, updates map[string]*string) error
+	UpdateKnowledgeTagBatch(ctx context.Context, authorizedKBID string, updates map[string][]string) error
+	// SetKnowledgeTags replaces all tags for a single knowledge entry.
+	SetKnowledgeTags(ctx context.Context, knowledgeID string, tagIDs []string) error
+	// GetKnowledgeTags returns tags for multiple knowledge IDs.
+	GetKnowledgeTags(ctx context.Context, knowledgeIDs []string) (map[string][]*types.KnowledgeTag, error)
 	// UpdateFAQEntryTagBatch updates tag for FAQ entries in batch.
 	// Key: entry seq_id, Value: tag seq_id (nil to remove tag)
 	UpdateFAQEntryTagBatch(ctx context.Context, kbID string, updates map[int64]*int64) error
@@ -150,6 +178,8 @@ type KnowledgeService interface {
 	ProcessKnowledgeMove(ctx context.Context, t *asynq.Task) error
 	// ProcessKnowledgeListDelete handles Asynq knowledge list delete tasks
 	ProcessKnowledgeListDelete(ctx context.Context, t *asynq.Task) error
+	// ProcessKnowledgeListReparse handles Asynq knowledge list reparse tasks
+	ProcessKnowledgeListReparse(ctx context.Context, t *asynq.Task) error
 	// GetKBCloneProgress retrieves the progress of a knowledge base clone task
 	GetKBCloneProgress(ctx context.Context, taskID string) (*types.KBCloneProgress, error)
 	// SaveKBCloneProgress saves the progress of a knowledge base clone task
@@ -202,6 +232,24 @@ type KnowledgeRepository interface {
 	// AminusB returns the difference set of A and B.
 	AminusB(ctx context.Context, Atenant uint64, A string, Btenant uint64, B string) ([]string, error)
 	UpdateKnowledgeColumn(ctx context.Context, id string, column string, value interface{}) error
+	// UpdateKnowledgeColumns updates multiple columns of a knowledge row in a single
+	// statement so callers that flip several related fields (e.g. parse_status +
+	// error_message) cannot leave the row in a half-updated state.
+	UpdateKnowledgeColumns(ctx context.Context, id string, values map[string]interface{}) error
+	// UpdateActiveDeletingKnowledgeColumns updates an active, non-deleted knowledge row
+	// only when it is still in the transient deleting state.
+	UpdateActiveDeletingKnowledgeColumns(ctx context.Context, id string, values map[string]interface{}) (bool, error)
+	// FinalizeSubtask atomically decrements pending_subtasks_count for the
+	// given knowledge and promotes parse_status from "finalizing" to
+	// "completed" when the count reaches zero. Returns the post-decrement
+	// count, whether this caller's UPDATE was the one that promoted the
+	// row, and any error.
+	FinalizeSubtask(ctx context.Context, id string) (int, bool, error)
+	// SetFinalizing atomically transitions a row from "processing" to
+	// "finalizing" and writes the initial pending_subtasks_count. Returns
+	// whether the transition took place (false when the row's parse_status
+	// was no longer "processing", e.g. user cancelled / deleted in flight).
+	SetFinalizing(ctx context.Context, id string, expectedSubtasks int) (bool, error)
 	// CountKnowledgeByKnowledgeBaseID counts the number of knowledge items in a knowledge base.
 	CountKnowledgeByKnowledgeBaseID(ctx context.Context, tenantID uint64, kbID string) (int64, error)
 	// CountKnowledgeByStatus counts the number of knowledge items with the specified parse status.
@@ -215,6 +263,12 @@ type KnowledgeRepository interface {
 	FindByMetadataKey(ctx context.Context, tenantID uint64, kbID string, key string, value string) (*types.Knowledge, error)
 	// SearchKnowledgeInScopes searches knowledge items by keyword within the given (tenant_id, kb_id) scopes (own + shared).
 	SearchKnowledgeInScopes(ctx context.Context, scopes []types.KnowledgeSearchScope, keyword string, offset, limit int, fileTypes []string) ([]*types.Knowledge, bool, error)
-	// ListIDsByTagID returns all knowledge IDs that have the specified tag ID.
-	ListIDsByTagID(ctx context.Context, tenantID uint64, kbID, tagID string) ([]string, error)
+	// ListIDsByTagIDs returns all knowledge IDs that have any of the specified tag IDs (OR semantics).
+	ListIDsByTagIDs(ctx context.Context, tenantID uint64, kbID string, tagIDs []string) ([]string, error)
+	// SetKnowledgeTags replaces all tags for a single knowledge entry (deletes old, inserts new).
+	SetKnowledgeTags(ctx context.Context, knowledgeID string, tagIDs []string) error
+	// GetKnowledgeTags returns tags for multiple knowledge IDs.
+	GetKnowledgeTags(ctx context.Context, knowledgeIDs []string) (map[string][]*types.KnowledgeTag, error)
+	// DeleteKnowledgeTagRelations deletes all tag relations for a knowledge entry.
+	DeleteKnowledgeTagRelations(ctx context.Context, knowledgeID string) error
 }

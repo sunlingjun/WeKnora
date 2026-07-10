@@ -89,32 +89,24 @@ func (s *sessionService) AgentQA(
 		return fmt.Errorf("failed to get chat model: %w", err)
 	}
 
-	// Get rerank model from custom agent config (only required when knowledge_search is allowed)
+	// Get rerank model from custom agent config only when knowledge_search can
+	// actually run. A disabled KB scope makes all KB tools ineffective, so it
+	// must not force users to configure an otherwise-unused rerank model.
 	var rerankModel rerank.Reranker
-	hasKnowledgeSearchTool := false
-	for _, tool := range agentConfig.AllowedTools {
-		if tool == tools.ToolKnowledgeSearch {
-			hasKnowledgeSearchTool = true
-			break
-		}
-	}
-
-	if hasKnowledgeSearchTool {
-		// Resolve rerank model: agent-level first, then fall back to tenant default
-		// (ConversationConfig.RerankModelID). This lets users leave rerank empty when
-		// their KB scope currently has no RAG-type KB, while still working correctly
-		// if a RAG-type KB is added later.
+	if agentRequiresRerankModel(req.CustomAgent) {
+		// Rerank model is resolved purely from the agent config now.
+		// We used to fall back to ConversationConfig.RerankModelID at
+		// the tenant level, but that path encouraged "leave rerank
+		// blank on the agent and inherit silently" which made debugging
+		// retrieval quality a guessing game across tenant settings vs
+		// agent settings. Forcing the agent to declare its own rerank
+		// model puts the configuration where the user actually edits
+		// the agent. If a Wiki-only agent doesn't need reranking,
+		// agentRequiresRerankModel() below already lets it pass.
 		rerankModelID := req.CustomAgent.Config.RerankModelID
-		if rerankModelID == "" && tenantInfo != nil && tenantInfo.ConversationConfig != nil {
-			rerankModelID = tenantInfo.ConversationConfig.RerankModelID
-			if rerankModelID != "" {
-				logger.Infof(ctx, "Custom agent %s has no rerank model; falling back to tenant default rerank model %s",
-					req.CustomAgent.ID, rerankModelID)
-			}
-		}
 		if rerankModelID == "" {
-			logger.Warnf(ctx, "No rerank model configured for custom agent %s (and no tenant default), but knowledge_search tool is enabled", req.CustomAgent.ID)
-			return errors.New("rerank model is not configured: please set rerank_model_id on the agent or configure a tenant default rerank model")
+			logger.Warnf(ctx, "No rerank model configured for custom agent %s, but knowledge_search tool is enabled", req.CustomAgent.ID)
+			return errors.New("rerank model is not configured: please set rerank_model_id on the agent")
 		}
 
 		rerankModel, err = s.modelService.GetRerankModel(ctx, rerankModelID)
@@ -123,7 +115,7 @@ func (s *sessionService) AgentQA(
 			return fmt.Errorf("failed to get rerank model: %w", err)
 		}
 	} else {
-		logger.Infof(ctx, "knowledge_search tool not enabled, skipping rerank model initialization")
+		logger.Infof(ctx, "knowledge_search is unavailable for the effective agent scope, skipping rerank model initialization")
 	}
 
 	// Load multi-turn history directly from DB (the single source of truth).
@@ -325,19 +317,19 @@ func (s *sessionService) configureSkillsFromAgent(
 		logger.Infof(ctx, "Sandbox is disabled: skills are not available")
 		return
 	}
-
+	dir := getPreloadedSkillsDir()
 	switch customAgent.Config.SkillsSelectionMode {
 	case "all":
 		// Enable all preloaded skills
 		agentConfig.SkillsEnabled = true
-		agentConfig.SkillDirs = []string{DefaultPreloadedSkillsDir}
+		agentConfig.SkillDirs = []string{dir}
 		agentConfig.AllowedSkills = nil // Empty means all skills allowed
 		logger.Infof(ctx, "SkillsSelectionMode=all: enabled all preloaded skills")
 	case "selected":
 		// Enable only selected skills
 		if len(customAgent.Config.SelectedSkills) > 0 {
 			agentConfig.SkillsEnabled = true
-			agentConfig.SkillDirs = []string{DefaultPreloadedSkillsDir}
+			agentConfig.SkillDirs = []string{dir}
 			agentConfig.AllowedSkills = customAgent.Config.SelectedSkills
 			logger.Infof(ctx, "SkillsSelectionMode=selected: enabled %d selected skills: %v",
 				len(customAgent.Config.SelectedSkills), customAgent.Config.SelectedSkills)

@@ -120,7 +120,7 @@ curl --location --request POST 'http://localhost:8080/api/v1/vector-stores/test'
 | connection_config | object | 是   | 连接配置（与所选引擎的 `connection_fields` 对应）                |
 | index_config      | object | 否   | 索引配置（与所选引擎的 `index_fields` 对应）                     |
 
-> Tencent VectorDB 使用 `engine_type: "tencent_vectordb"`。`connection_config` 中 `addr`、`username`、`api_key` 必填，`database` 可选；`index_config.collection_name` 表示集合名前缀，实际集合会按向量维度追加后缀（例如 `weknora_embeddings_768`）。该适配器同时支持向量检索和基于 BM25 sparse vector 的关键词检索；旧版本已创建且没有 `sparse_vector` 索引的集合需要重建并重新导入数据后才能启用关键词检索。
+> Tencent VectorDB 使用 `engine_type: "tencent_vectordb"`。`connection_config` 中 `addr`、`username`、`api_key` 必填，`database` 可选；`index_config.collection_name` 表示集合名前缀，实际集合会按向量维度追加后缀（例如 `weknora_embeddings_768`）；`index_config.replica_number` 表示创建集合时使用的副本数。该适配器同时支持向量检索和基于 BM25 sparse vector 的关键词检索；旧版本已创建且没有 `sparse_vector` 索引的集合需要重建并重新导入数据后才能启用关键词检索。
 
 **请求**:
 
@@ -158,7 +158,8 @@ curl --location 'http://localhost:8080/api/v1/vector-stores' \
         "database": "weknora"
     },
     "index_config": {
-        "collection_name": "weknora_embeddings"
+        "collection_name": "weknora_embeddings",
+        "replica_number": 1
     }
 }'
 ```
@@ -332,6 +333,10 @@ curl --location --request PUT 'http://localhost:8080/api/v1/vector-stores/550e84
 
 对 DB 中的存储执行软删除。环境变量存储不可删除（返回 `400`）。
 
+**Phase 2 — 绑定保护**：
+
+删除请求在事务中执行，并按 `(tenant_id, vector_store_id)` 复合索引统计当前租户中仍绑定到该存储的活跃知识库数量。**只要存在任意绑定的知识库（已软删除的 KB 不计入），删除即被拒绝**，调用者必须先解绑或删除这些知识库才能继续。在 PostgreSQL 上，事务期间会对 `vector_stores` 行加 `SELECT … FOR UPDATE` 行锁，阻止并发的知识库创建请求悄悄落到正在被删除的存储上（SQLite 上则依赖 WAL + 单写入序列化达成同样语义）。
+
 **路径参数**:
 
 | 字段 | 类型   | 必填 | 说明           |
@@ -345,13 +350,27 @@ curl --location --request DELETE 'http://localhost:8080/api/v1/vector-stores/550
 --header 'X-API-Key: sk-xxxxx'
 ```
 
-**响应**:
+**响应（成功）**:
 
 ```json
 {
     "success": true
 }
 ```
+
+**响应（绑定保护触发）**:
+
+```json
+{
+    "success": false,
+    "error": {
+        "code": 1000,
+        "message": "vector store still has 3 knowledge base(s) bound to it; unbind or delete them before removing the store"
+    }
+}
+```
+
+HTTP `400`。错误消息中包含具体的知识库数量（便于运营定位），但不包含任何 KB 的 ID/名称，以避免跨租户信息泄漏。删除被拒绝时，DB 中的存储行保持原状，进程内引擎注册表也不会被清除。
 
 ## POST `/vector-stores/:id/test` - 测试已保存或环境变量存储的连接
 
@@ -399,13 +418,20 @@ curl --location --request POST 'http://localhost:8080/api/v1/vector-stores/550e8
 - **readonly**：`true`
 - **不可修改/删除**：`PUT` 和 `DELETE` 返回 `400`
 - **可测试连通性**：`POST /vector-stores/:id/test` 正常工作
+- **被知识库绑定时**：未指定 `vector_store_id` 创建的知识库默认使用环境变量存储；这种知识库在响应中显示为 `vector_store_name="System default"` + `vector_store_source="env"`。
+
+Tencent VectorDB 环境变量存储可通过 `TENCENT_VECTORDB_REPLICA_NUMBER` 覆盖默认集合副本数。默认值为 `1`；单节点 QA 环境可设为 `0`，生产环境可按 Tencent VectorDB 集群规模调整。
 
 ## 错误码
 
-| HTTP 状态码 | 含义                                                |
-| ----------- | --------------------------------------------------- |
-| 400         | 请求参数错误、校验失败、尝试修改环境变量存储           |
-| 401         | 未认证（缺少租户上下文或 API Key）                    |
-| 404         | 向量存储不存在                                       |
-| 409         | 同一 endpoint + index 组合已存在                     |
-| 500         | 内部服务器错误                                       |
+| HTTP 状态码 | code | 含义                                                |
+| ----------- | ---- | --------------------------------------------------- |
+| 400         | 1000 | 请求参数错误、校验失败、尝试修改环境变量存储、删除时仍有知识库绑定 |
+| 400         | 2200 | 知识库创建时引用的 `vector_store_id` 无效（不存在或属于其他租户） |
+| 400         | 2201 | 知识库创建时引用的存储当前不可用（DB 中存在但未注册到引擎） |
+| 401         | 1001 | 未认证（缺少租户上下文或 API Key）                    |
+| 404         | 1003 | 向量存储不存在                                       |
+| 409         | 1005 | 同一 endpoint + index 组合已存在                     |
+| 500         | 1007 | 内部服务器错误                                       |
+
+> `2200` / `2201` 由 `POST /knowledge-bases` 等知识库创建路径返回（详见 [knowledge-base.md](./knowledge-base.md)），列于此处仅为完整覆盖与向量存储相关的所有错误码。

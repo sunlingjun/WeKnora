@@ -2,10 +2,7 @@ package middleware
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -13,85 +10,63 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Tencent/WeKnora/internal/config"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 )
 
 // 无需认证的API列表
 var noAuthAPI = map[string][]string{
-	"/health":                         {"GET"},
-	"/api/v1/open/knowledge/retrieve": {"POST"},
-	"/api/v1/auth/register":           {"POST"},
-	"/api/v1/auth/login":              {"POST"},
-	"/api/v1/auth/auto-setup":         {"POST"},
+	"/health":                 {"GET"},
+	"/api/v1/auth/register":   {"POST"},
+	"/api/v1/auth/login":      {"POST"},
+	"/api/v1/auth/auto-setup": {"POST"},
+	// Share-link surfaces accept a plaintext invite token from anonymous
+	// callers (an invitee who hasn't registered yet). They are registered
+	// as public routes in RegisterAuthRoutes and rate-limited by IP, so the
+	// global Auth middleware must let them through — otherwise opening a
+	// share link while logged out 401s and the frontend bounces the user to
+	// /login instead of the register page (issue #1617).
+	"/api/v1/auth/invitations/lookup": {"POST"},
+	"/api/v1/auth/register-by-invite": {"POST"},
+	"/api/v1/auth/config":             {"GET"},
 	"/api/v1/auth/oidc/config":        {"GET"},
 	"/api/v1/auth/oidc/url":           {"GET"},
 	"/api/v1/auth/oidc/callback":      {"GET"},
+	// MCP OAuth provider redirect: the third-party authorization server
+	// redirects the browser here without a WeKnora bearer token. The request
+	// is authenticated by the opaque, single-use `state` parameter instead.
+	"/api/v1/mcp-oauth/callback": {"GET"},
 	"/api/v1/auth/refresh":            {"POST"},
-	"/api/v1/files/presigned":         {"GET"},
-	"/api/v1/cas/validate":            {"GET"}, // CAS 会话验证（认证过程本身）
-}
-
-// normalizeRequestPath trims space and trailing slashes (except "/") so
-// /api/v1/foo/ matches the registered no-auth path /api/v1/foo.
-func normalizeRequestPath(p string) string {
-	p = strings.TrimSpace(p)
-	for len(p) > 1 && strings.HasSuffix(p, "/") {
-		p = strings.TrimSuffix(p, "/")
-	}
-	if p == "" {
-		return "/"
-	}
-	return p
+	// IM platforms (Feishu, Slack, etc.) commonly issue a HEAD request
+	// before GET to validate Content-Type / Content-Length when rendering
+	// image previews — both verbs must be allowed for image links to work.
+	"/api/v1/files/presigned": {"GET", "HEAD"},
 }
 
 // 检查请求是否在无需认证的API列表中
 func isNoAuthAPI(path string, method string) bool {
-	path = normalizeRequestPath(path)
-	method = strings.ToUpper(strings.TrimSpace(method))
 	for api, methods := range noAuthAPI {
 		// 如果以*结尾，按照前缀匹配，否则按照全路径匹配
 		if strings.HasSuffix(api, "*") {
-			prefix := normalizeRequestPath(strings.TrimSuffix(api, "*"))
-			if strings.HasPrefix(path, prefix) && slices.Contains(methods, method) {
+			if strings.HasPrefix(path, strings.TrimSuffix(api, "*")) && slices.Contains(methods, method) {
 				return true
 			}
-		} else if normalizeRequestPath(api) == path && slices.Contains(methods, method) {
+		} else if path == api && slices.Contains(methods, method) {
 			return true
 		}
 	}
 	return false
 }
 
-// canAccessTenant checks if a user can access a target tenant
-func canAccessTenant(user *types.User, targetTenantID uint64, cfg *config.Config) bool {
-	// 1. 检查功能是否启用
-	if cfg == nil || cfg.Tenant == nil || !cfg.Tenant.EnableCrossTenantAccess {
-		return false
-	}
-	// 2. 检查用户权限
-	if !user.CanAccessAllTenants {
-		return false
-	}
-	// 3. 如果目标租户是用户自己的租户，允许访问
-	if user.TenantID == targetTenantID {
-		return true
-	}
-	// 4. 用户有跨租户权限，允许访问（具体验证在中间件中完成）
-	return true
-}
-
 // Auth 认证中间件
 func Auth(
 	tenantService interfaces.TenantService,
 	userService interfaces.UserService,
-	casAuthService interfaces.CASAuthService,
-	redisClient redis.UniversalClient,
+	memberService interfaces.TenantMemberService,
 	cfg *config.Config,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -111,40 +86,58 @@ func Auth(
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 			token := strings.TrimPrefix(authHeader, "Bearer ")
-			user, err := userService.ValidateToken(c.Request.Context(), token)
+			user, jwtTenantID, err := userService.ValidateToken(c.Request.Context(), token)
 			if err == nil && user != nil {
 				// JWT Token认证成功
-				// 检查是否有跨租户访问请求
-				targetTenantID := user.TenantID
+				// 默认 target = JWT 里的 tenant_id（来自登录或 /auth/switch-tenant），
+				// 兼容 ValidateToken 的 fallback：claim 缺失时 jwtTenantID == user.TenantID。
+				targetTenantID := jwtTenantID
+				if targetTenantID == 0 {
+					targetTenantID = user.TenantID
+				}
+				crossTenantSwitch := targetTenantID != user.TenantID
 				tenantHeader := c.GetHeader("X-Tenant-ID")
 				if tenantHeader != "" {
-					// 解析目标租户ID
+					// 解析目标租户ID。畸形 / 零值必须显式拒绝：静默忽略会让坏掉的
+					// 前端/SDK 悄悄写错租户，反而看不到问题。与 RequirePathTenantMatch
+					// 中对 :id 的校验保持一致（非空、可解析、>0）。
 					parsedTenantID, err := strconv.ParseUint(tenantHeader, 10, 64)
-					if err == nil {
-						// 检查用户是否有跨租户访问权限
-						if canAccessTenant(user, parsedTenantID, cfg) {
-							// 验证目标租户是否存在
-							targetTenant, err := tenantService.GetTenantByID(c.Request.Context(), parsedTenantID)
-							if err == nil && targetTenant != nil {
-								targetTenantID = parsedTenantID
-								log.Printf("User %s switching to tenant %d", user.ID, targetTenantID)
-							} else {
-								log.Printf("Error getting target tenant by ID: %v, tenantID: %d", err, parsedTenantID)
-								c.JSON(http.StatusBadRequest, gin.H{
-									"error": "Invalid target tenant ID",
-								})
-								c.Abort()
-								return
-							}
+					if err != nil || parsedTenantID == 0 {
+						logger.Warnf(c.Request.Context(),
+							"Invalid X-Tenant-ID header from user=%s: %q (err=%v)",
+							user.ID, tenantHeader, err)
+						c.JSON(http.StatusBadRequest, gin.H{
+							"error": "Invalid X-Tenant-ID header",
+						})
+						c.Abort()
+						return
+					}
+					// 检查用户是否有权限访问目标租户：自家租户、跨租户超管、或
+					// 有 active membership 行——三选一，由 IsTenantAccessible
+					// 统一判定。
+					if IsTenantAccessible(c.Request.Context(), user, parsedTenantID, memberService, cfg) {
+						// 验证目标租户是否存在
+						targetTenant, err := tenantService.GetTenantByID(c.Request.Context(), parsedTenantID)
+						if err == nil && targetTenant != nil {
+							targetTenantID = parsedTenantID
+							crossTenantSwitch = parsedTenantID != user.TenantID
+							log.Printf("User %s switching to tenant %d", user.ID, targetTenantID)
 						} else {
-							// 用户没有权限访问目标租户
-							log.Printf("User %s attempted to access tenant %d without permission", user.ID, parsedTenantID)
-							c.JSON(http.StatusForbidden, gin.H{
-								"error": "Forbidden: insufficient permissions to access target tenant",
+							log.Printf("Error getting target tenant by ID: %v, tenantID: %d", err, parsedTenantID)
+							c.JSON(http.StatusBadRequest, gin.H{
+								"error": "Invalid target tenant ID",
 							})
 							c.Abort()
 							return
 						}
+					} else {
+						// 用户没有权限访问目标租户
+						log.Printf("User %s attempted to access tenant %d without permission", user.ID, parsedTenantID)
+						c.JSON(http.StatusForbidden, gin.H{
+							"error": "Forbidden: insufficient permissions to access target tenant",
+						})
+						c.Abort()
+						return
 					}
 				}
 
@@ -159,27 +152,38 @@ func Auth(
 					return
 				}
 
-				// 存储用户和租户信息到上下文（同时设置 UserContextKey 与 UserInfoContextKey 以兼容上下游）
+				// 解析当前租户内的角色 (issue #1303)
+				role, ok := resolveTenantRole(c.Request.Context(), memberService, user, targetTenantID, crossTenantSwitch, cfg)
+				if !ok {
+					// 强制 RBAC 时，缺少 active membership 即拒绝；fail-open 路径已在
+					// resolveTenantRole 内部处理。
+					logger.Warnf(c.Request.Context(),
+						"User %s has no active membership in tenant %d", user.ID, targetTenantID)
+					c.JSON(http.StatusForbidden, gin.H{
+						"error": "Forbidden: not a member of the target tenant",
+					})
+					c.Abort()
+					return
+				}
+
+				// 存储用户和租户信息到上下文
+				logger.Infof(c.Request.Context(),
+					"[auth] resolved role=%s for user=%s in tenant=%d (jwt_tenant=%d, header=%q, cross_switch=%v)",
+					role, user.ID, targetTenantID, jwtTenantID, tenantHeader, crossTenantSwitch)
 				c.Set(types.TenantIDContextKey.String(), targetTenantID)
 				c.Set(types.TenantInfoContextKey.String(), tenant)
 				c.Set(types.UserContextKey.String(), user)
 				c.Set(types.UserIDContextKey.String(), user.ID)
-				c.Set(types.UserInfoContextKey.String(), user)
-				c.Request = c.Request.WithContext(
-					context.WithValue(
-						context.WithValue(
-							context.WithValue(
-								context.WithValue(
-									context.WithValue(c.Request.Context(), types.TenantIDContextKey, targetTenantID),
-									types.TenantInfoContextKey, tenant,
-								),
-								types.UserContextKey, user,
-							),
-							types.UserIDContextKey, user.ID,
-						),
-						types.UserInfoContextKey, user,
-					),
-				)
+				c.Set(types.TenantRoleContextKey.String(), role)
+				c.Set(types.SystemAdminContextKey.String(), user.IsSystemAdmin)
+				ctx := c.Request.Context()
+				ctx = context.WithValue(ctx, types.TenantIDContextKey, targetTenantID)
+				ctx = context.WithValue(ctx, types.TenantInfoContextKey, tenant)
+				ctx = context.WithValue(ctx, types.UserContextKey, user)
+				ctx = context.WithValue(ctx, types.UserIDContextKey, user.ID)
+				ctx = context.WithValue(ctx, types.TenantRoleContextKey, role)
+				ctx = context.WithValue(ctx, types.SystemAdminContextKey, user.IsSystemAdmin)
+				c.Request = c.Request.WithContext(ctx)
 				c.Next()
 				return
 			}
@@ -230,6 +234,12 @@ func Auth(
 			// 确保所有依赖 UserContextKey 的下游 handler 正常工作。
 			user, err := userService.GetUserByTenantID(c.Request.Context(), tenantID)
 			if err != nil || user == nil {
+				// Synthetic user. The "system-<tenantID>" shape is recognised
+				// by types.IsSyntheticUserID, which RBAC service-layer code
+				// uses to skip recording these IDs as a resource creator.
+				// Do NOT change the prefix or numeric suffix without
+				// updating that helper, otherwise KB/Agent CreatorID will
+				// silently start pointing at the synthetic user again.
 				user = &types.User{
 					ID:       fmt.Sprintf("system-%d", tenantID),
 					Username: fmt.Sprintf("system-%d", tenantID),
@@ -239,20 +249,25 @@ func Auth(
 				}
 				log.Printf("No user found for tenant %d via API key, using synthetic system user %s", tenantID, user.ID)
 			}
+			// API-Key 走的是程序化全租户访问，固定授予 Admin 角色：可以做几乎所有事情，
+			// 但保留 Owner-only 操作（删除租户、修改租户级配置）的边界。
+			//
+			// 显式拒绝 SystemAdmin：API key 通常被存放在 CI / IaC / sidecar 里，
+			// 泄露面比 JWT 大得多。即便 key 关联的 user 在 DB 里恰好是 SystemAdmin
+			// （例如部署里只有一个用户、自己创建了 tenant 又生成了 API key），
+			// 也绝不允许通过这条通道走平台级管理操作（promote/revoke、全局设置）。
+			// 平台管理必须走交互式 JWT 登录，留下可追责的人类身份。
 			c.Set(types.UserContextKey.String(), user)
 			c.Set(types.UserIDContextKey.String(), user.ID)
-			ctx = context.WithValue(
-				context.WithValue(ctx, types.UserContextKey, user),
-				types.UserIDContextKey, user.ID,
-			)
+			c.Set(types.TenantRoleContextKey.String(), types.TenantRoleAdmin)
+			c.Set(types.SystemAdminContextKey.String(), false)
+			ctx = context.WithValue(ctx, types.UserContextKey, user)
+			ctx = context.WithValue(ctx, types.UserIDContextKey, user.ID)
+			ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleAdmin)
+			ctx = context.WithValue(ctx, types.SystemAdminContextKey, false)
 
 			c.Request = c.Request.WithContext(ctx)
 			c.Next()
-			return
-		}
-
-		// NXIN CAS鉴权（仅在开启时生效）
-		if tryNXINCASAuth(c, tenantService, userService, casAuthService, redisClient, cfg) {
 			return
 		}
 
@@ -262,179 +277,110 @@ func Auth(
 	}
 }
 
-type nxinCASAuthCacheEntry struct {
-	UserID   string `json:"user_id"`
-	TenantID uint64 `json:"tenant_id"`
-}
-
-func tryNXINCASAuth(
-	c *gin.Context,
-	tenantService interfaces.TenantService,
-	userService interfaces.UserService,
-	casAuthService interfaces.CASAuthService,
-	redisClient redis.UniversalClient,
+// resolveTenantRole determines the caller's TenantRole inside targetTenantID.
+//
+// Order of resolution:
+//  1. Active TenantMember row → return that role.
+//  2. Cross-tenant superuser switch (X-Tenant-ID with CanAccessAllTenants=true)
+//     → grant Admin in the target tenant. Org admins are intentionally not
+//     promoted to Owner; tenant deletion / API-key rotation should always
+//     stay with a real Owner inside the target tenant. Cross-tenant access
+//     is also never allowed to trigger the orphan-tenant auto-promotion
+//     below — a superuser only visits, never claims ownership.
+//  3. No membership but the tenant currently has zero active members AND
+//     the caller is authenticating into their own home tenant (i.e.
+//     targetTenantID == user.TenantID and this is not a cross-tenant
+//     switch). This is the API-key-only orphan-tenant self-heal path:
+//     the registrant becomes Owner of the tenant their own user record
+//     points to. Any other path (cross-tenant switch, JWT minted for a
+//     foreign tenant, etc.) is intentionally excluded to avoid silent
+//     ownership grabs.
+//  4. Otherwise → return ok=false. Caller decides:
+//     - When EnableRBAC=true (or cfg unavailable): treat as 403.
+//     - When EnableRBAC=false: fail open with Admin so existing deployments
+//     don't break in the rollout window where memberships might lag user
+//     records.
+//
+// The boolean second return value reports whether enforcement should reject
+// the request. It is true whenever a usable role was found OR fail-open
+// applies; false only when we want callers to abort with 403.
+func resolveTenantRole(
+	ctx context.Context,
+	memberService interfaces.TenantMemberService,
+	user *types.User,
+	targetTenantID uint64,
+	crossTenantSwitch bool,
 	cfg *config.Config,
-) bool {
-	if casAuthService == nil || redisClient == nil || cfg == nil || cfg.Auth == nil || cfg.Auth.NXINCASAuth == nil || !cfg.Auth.NXINCASAuth.Enabled {
-		return false
+) (types.TenantRole, bool) {
+	// 1. 正常成员关系
+	member, err := memberService.GetMembership(ctx, user.ID, targetTenantID)
+	if err == nil && member != nil && member.Status == types.TenantMemberStatusActive {
+		logger.Infof(ctx,
+			"[auth] resolveTenantRole step1 hit: user=%s tenant=%d row_role=%s row_status=%s",
+			user.ID, targetTenantID, member.Role, member.Status)
+		return member.Role, true
 	}
-	if !isNXINCASAuthPathAllowed(c.Request.URL.Path, cfg.Auth.NXINCASAuth.AllowedPathGlobs) {
-		return false
-	}
-	if cfg.Auth.NXINCASAuth.RequireHTTPS && !isRequestHTTPS(c) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: HTTPS required for NXIN CAS auth"})
-		c.Abort()
-		return true
-	}
-	if cfg.CAS == nil {
-		return false
-	}
-	casEnv := cfg.CAS.GetCurrentConfig()
-	if casEnv == nil {
-		return false
-	}
-	casSid, _ := c.Cookie(casEnv.CookieSID)
-	casUid, _ := c.Cookie(casEnv.CookieUID)
-	if casSid == "" || casUid == "" {
-		return false
+	if err != nil {
+		logger.Warnf(ctx, "tenant_members lookup failed user=%s tenant=%d: %v",
+			user.ID, targetTenantID, err)
+		// Fall through; treat lookup errors the same as "no membership
+		// found" so a transient DB hiccup doesn't lock everyone out.
+	} else {
+		var statusInfo string
+		if member == nil {
+			statusInfo = "no_row"
+		} else {
+			statusInfo = "row_exists status=" + string(member.Status) + " role=" + string(member.Role)
+		}
+		logger.Warnf(ctx,
+			"[auth] resolveTenantRole step1 miss: user=%s tenant=%d (%s)",
+			user.ID, targetTenantID, statusInfo)
 	}
 
-	cacheTTL := time.Duration(cfg.Auth.NXINCASAuth.CacheTTLSeconds) * time.Second
-	cacheKey := buildNXINCASAuthCacheKey(casEnv.APIHost, casSid, casUid)
+	// 2. 跨租户超管直通：CanAccessAllTenants 用户切到别的租户时不强制要求 membership。
+	//    注意：这里只授予临时 Admin 角色，不写入 tenant_members，避免"看一眼别人租户"
+	//    意外升级为持久化所有权。
+	if crossTenantSwitch && user.CanAccessAllTenants {
+		logger.Infof(ctx,
+			"[auth] resolveTenantRole step2 (cross-tenant superuser) -> Admin: user=%s tenant=%d",
+			user.ID, targetTenantID)
+		return types.TenantRoleAdmin, true
+	}
 
-	if entry, ok := getNXINCASAuthCache(c.Request.Context(), redisClient, cacheKey); ok {
-		user, err := userService.GetUserByID(c.Request.Context(), entry.UserID)
-		if err == nil && user != nil && user.IsActive {
-			tenant, err := tenantService.GetTenantByID(c.Request.Context(), entry.TenantID)
-			if err == nil && tenant != nil {
-				setAuthContext(c, user, tenant, entry.TenantID)
-				c.Next()
-				return true
+	// 3. 孤儿租户自愈：仅当用户登录的是自己的 home tenant、且该租户尚无任何活跃成员时
+	//    允许自动晋升为 Owner。跨租户 switch / JWT 指向他人租户的场景一律不进入此分支，
+	//    防止越权获得他人租户的 Owner 权限。
+	isHomeTenant := !crossTenantSwitch && targetTenantID == user.TenantID
+	if isHomeTenant {
+		hasAny, anyErr := memberService.HasAnyMembers(ctx, targetTenantID)
+		if anyErr == nil && !hasAny {
+			if _, e := memberService.AddMember(
+				ctx, user.ID, targetTenantID, types.TenantRoleOwner, nil,
+			); e == nil {
+				logger.Infof(ctx,
+					"[audit] Auto-promoted user %s to Owner of orphan tenant %d (home_tenant=true)",
+					user.ID, targetTenantID,
+				)
+				return types.TenantRoleOwner, true
+			} else {
+				logger.Warnf(ctx, "Failed to auto-promote user %s in tenant %d: %v",
+					user.ID, targetTenantID, e)
 			}
 		}
 	}
 
-	referer := buildCASReferer(c, casEnv.LoginHost)
-	casUserInfo, err := casAuthService.ValidateCASSession(c.Request.Context(), casSid, casUid, referer)
-	if err != nil {
-		log.Printf("NXIN CAS auth validate failed: %v", err)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: invalid CAS session"})
-		c.Abort()
-		return true
+	// 4. 兜底：根据 EnableRBAC 决定 fail-closed 还是 fail-open
+	if cfg != nil && cfg.Tenant.IsRBACEnforced() {
+		logger.Warnf(ctx,
+			"[auth] resolveTenantRole step4 fail-closed (EnableRBAC=true): user=%s tenant=%d",
+			user.ID, targetTenantID)
+		return "", false
 	}
-	user, err := casAuthService.AutoBindUser(c.Request.Context(), casUserInfo)
-	if err != nil {
-		log.Printf("NXIN CAS auth bind user failed: %v", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Auth provider unavailable"})
-		c.Abort()
-		return true
-	}
-	tenant, err := casAuthService.AutoBindTenant(c.Request.Context(), casUserInfo, user)
-	if err != nil {
-		log.Printf("NXIN CAS auth bind tenant failed: %v", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Auth provider unavailable"})
-		c.Abort()
-		return true
-	}
-
-	setAuthContext(c, user, tenant, tenant.ID)
-	_ = setNXINCASAuthCache(c.Request.Context(), redisClient, cacheKey, nxinCASAuthCacheEntry{
-		UserID:   user.ID,
-		TenantID: tenant.ID,
-	}, cacheTTL)
-	c.Next()
-	return true
-}
-
-func isNXINCASAuthPathAllowed(path string, patterns []string) bool {
-	for _, pattern := range patterns {
-		pattern = strings.TrimSpace(pattern)
-		if pattern == "" {
-			continue
-		}
-		if strings.HasSuffix(pattern, "*") {
-			prefix := strings.TrimSuffix(pattern, "*")
-			if strings.HasPrefix(path, prefix) {
-				return true
-			}
-			continue
-		}
-		if path == pattern {
-			return true
-		}
-	}
-	return false
-}
-
-func isRequestHTTPS(c *gin.Context) bool {
-	if c.Request.TLS != nil {
-		return true
-	}
-	return strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
-}
-
-func buildCASReferer(c *gin.Context, loginHost string) string {
-	referer := c.GetHeader("Referer")
-	if referer != "" {
-		return referer
-	}
-	origin := c.GetHeader("Origin")
-	if origin != "" {
-		return origin + "/"
-	}
-	return fmt.Sprintf("https://%s/", loginHost)
-}
-
-func buildNXINCASAuthCacheKey(apiHost, casSid, casUid string) string {
-	raw := apiHost + "|" + casSid + "|" + casUid
-	sum := sha256.Sum256([]byte(raw))
-	return "auth:nxin_cas_auth:" + hex.EncodeToString(sum[:])
-}
-
-func getNXINCASAuthCache(ctx context.Context, redisClient redis.UniversalClient, key string) (*nxinCASAuthCacheEntry, bool) {
-	raw, err := redisClient.Get(ctx, key).Result()
-	if err != nil || raw == "" {
-		return nil, false
-	}
-	var entry nxinCASAuthCacheEntry
-	if err := json.Unmarshal([]byte(raw), &entry); err != nil {
-		return nil, false
-	}
-	if entry.UserID == "" || entry.TenantID == 0 {
-		return nil, false
-	}
-	return &entry, true
-}
-
-func setNXINCASAuthCache(ctx context.Context, redisClient redis.UniversalClient, key string, entry nxinCASAuthCacheEntry, ttl time.Duration) error {
-	data, err := json.Marshal(entry)
-	if err != nil {
-		return err
-	}
-	return redisClient.Set(ctx, key, data, ttl).Err()
-}
-
-func setAuthContext(c *gin.Context, user *types.User, tenant *types.Tenant, targetTenantID uint64) {
-	c.Set(types.TenantIDContextKey.String(), targetTenantID)
-	c.Set(types.TenantInfoContextKey.String(), tenant)
-	c.Set(types.UserContextKey.String(), user)
-	c.Set(types.UserIDContextKey.String(), user.ID)
-	c.Set(types.UserInfoContextKey.String(), user)
-	c.Request = c.Request.WithContext(
-		context.WithValue(
-			context.WithValue(
-				context.WithValue(
-					context.WithValue(
-						context.WithValue(c.Request.Context(), types.TenantIDContextKey, targetTenantID),
-						types.TenantInfoContextKey, tenant,
-					),
-					types.UserContextKey, user,
-				),
-				types.UserIDContextKey, user.ID,
-			),
-			types.UserInfoContextKey, user,
-		),
-	)
+	logger.Warnf(ctx,
+		"[auth] resolveTenantRole step4 fail-open (EnableRBAC=false) -> Admin: user=%s tenant=%d",
+		user.ID, targetTenantID)
+	// fail-open 期间保持现有行为（每个登录用户在自己租户里都是"管理员"）。
+	return types.TenantRoleAdmin, true
 }
 
 // GetTenantIDFromContext helper function to get tenant ID from context

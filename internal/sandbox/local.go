@@ -87,7 +87,7 @@ func (s *LocalSandbox) Execute(ctx context.Context, config *ExecuteConfig) (*Exe
 	// Setup minimal environment
 	cmd.Env = s.buildEnvironment(config.Env)
 
-	setProcessGroup(cmd)
+	setupProcessGroup(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -109,7 +109,9 @@ func (s *LocalSandbox) Execute(ctx context.Context, config *ExecuteConfig) (*Exe
 
 	if err != nil {
 		if execCtx.Err() == context.DeadlineExceeded {
-			killProcessGroup(cmd)
+			if cmd.Process != nil {
+				killProcessGroup(cmd)
+			}
 			result.Killed = true
 			result.Error = ErrTimeout.Error()
 			result.ExitCode = -1

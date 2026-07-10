@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCASStore } from '@/stores/cas'
-import { autoSetup, getCurrentUser } from '@/api/auth'
+import { autoSetup, getCurrentUser, userInfoFromApi } from '@/api/auth'
 
 /** Lite /桌面 WebView 硬刷新时可能只打开 `/`，用 session 记住上次页面以便恢复 */
 const LITE_LAST_PATH_KEY = 'weknora_lite_last_path'
@@ -49,6 +49,18 @@ const router = createRouter({
     {
       path: "/login",
       name: "login",
+      component: () => import("../views/auth/Login.vue"),
+      meta: { requiresAuth: false, requiresInit: false }
+    },
+    // Embed chat is a separate entry (embed.html + embed-main.ts), not this SPA.
+    {
+      path: "/register",
+      name: "registerByInvite",
+      // Share-link landing page reuses the Login form: the same Vue
+      // component renders both modes and detects ?token=xxx on mount
+      // to switch into invite-register flow. Avoids a parallel page
+      // that would duplicate the OIDC / language-switch / styling
+      // surface for one extra field.
       component: () => import("../views/auth/Login.vue"),
       meta: { requiresAuth: false, requiresInit: false }
     },
@@ -130,6 +142,12 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
+          path: "integrations",
+          name: "integrations",
+          component: () => import("../views/platform/RoutePlaceholder.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
           path: "creatChat",
           name: "globalCreatChat",
           component: () => import("../views/creatChat/creatChat.vue"),
@@ -153,6 +171,28 @@ const router = createRouter({
           component: () => import("../views/organization/OrganizationList.vue"),
           meta: { requiresInit: true, requiresAuth: true }
         },
+        // Compatibility redirects for legacy /platform/system/* URLs.
+        // The whole system administration surface — global settings
+        // and the system-admin roster — now lives as a single section
+        // inside the standard Settings modal. We keep the routes
+        // around so old bookmarks / external links don't 404.
+        {
+          path: "system",
+          redirect: { path: "/platform/settings", query: { section: "system-global" } },
+          meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
+        },
+        {
+          path: "system/settings",
+          name: "systemSettings",
+          redirect: { path: "/platform/settings", query: { section: "system-global" } },
+          meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
+        },
+        {
+          path: "system/admins",
+          name: "systemAdmins",
+          redirect: { path: "/platform/settings", query: { section: "system-global" } },
+          meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
+        },
       ],
     },
     // Dev-only markdown rendering test page
@@ -168,16 +208,7 @@ const router = createRouter({
 // 持久化 auto-setup / login 返回的认证信息到 store
 function persistLoginResponse(authStore: ReturnType<typeof useAuthStore>, response: any) {
   if (response.user && response.tenant && response.token) {
-    authStore.setUser({
-      id: response.user.id || '',
-      username: response.user.username || '',
-      email: response.user.email || '',
-      avatar: response.user.avatar,
-      tenant_id: String(response.tenant.id) || '',
-      can_access_all_tenants: response.user.can_access_all_tenants || false,
-      created_at: response.user.created_at || new Date().toISOString(),
-      updated_at: response.user.updated_at || new Date().toISOString()
-    })
+    authStore.setUser(userInfoFromApi(response.user, response.tenant.id))
     authStore.setToken(response.token)
     if (response.refresh_token) {
       authStore.setRefreshToken(response.refresh_token)
@@ -213,16 +244,7 @@ async function hydrateSessionFromToken(authStore: ReturnType<typeof useAuthStore
       return false
     }
 
-    authStore.setUser({
-      id: user.id || '',
-      username: user.username || '',
-      email: user.email || '',
-      avatar: user.avatar,
-      tenant_id: String(user.tenant_id || response.data?.tenant?.id || ''),
-      can_access_all_tenants: user.can_access_all_tenants || false,
-      created_at: user.created_at || new Date().toISOString(),
-      updated_at: user.updated_at || new Date().toISOString(),
-    })
+    authStore.setUser(userInfoFromApi(user, response.data?.tenant?.id))
 
     const tenant = response.data?.tenant
     if (tenant) {
@@ -239,6 +261,16 @@ async function hydrateSessionFromToken(authStore: ReturnType<typeof useAuthStore
         created_at: tenant.created_at || new Date().toISOString(),
         updated_at: tenant.updated_at || new Date().toISOString(),
       })
+    }
+
+    // Refresh memberships on every page load — same reason as
+    // App.vue's syncOIDCUserContext: without this the auth store
+    // would only ever see the snapshot from the original /auth/login
+    // call, so role changes (and tenant-switch role lookups) would
+    // be silently stale until the user logged out and back in.
+    const memberships = response.data?.memberships
+    if (Array.isArray(memberships)) {
+      authStore.setMemberships(memberships)
     }
 
     return true
@@ -330,6 +362,17 @@ router.beforeEach(async (to, from, next) => {
         return
       }
       next()
+      return
+    }
+  }
+
+  // SystemAdmin gate — checked AFTER auth so a non-admin who's logged
+  // out gets redirected to /login first (consistent with how the rest
+  // of the auth flow works), and only an authenticated non-admin sees
+  // the bounce. This is UI-only; the server enforces the real check.
+  if (to.meta.requiresSystemAdmin === true) {
+    if (!authStore.isSystemAdmin) {
+      next('/platform/knowledge-bases')
       return
     }
   }

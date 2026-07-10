@@ -129,15 +129,17 @@ func (s *knowledgeBaseService) listChunksByIDWithShared(ctx context.Context,
 
 // userCanAccessSharedKB: org-shared KB or square/member-based shared KB.
 func (s *knowledgeBaseService) userCanAccessSharedKB(ctx context.Context, kbID, userID string) bool {
-	if kbID == "" || userID == "" {
+	if kbID == "" {
 		return false
 	}
+	tenantID, _ := ctx.Value(types.TenantIDContextKey).(uint64)
+	callerTenantRole := types.TenantRoleFromContext(ctx)
 	if s.kbShareService != nil {
-		if ok, _ := s.kbShareService.HasKBPermission(ctx, kbID, userID, types.OrgRoleViewer); ok {
+		if ok, _ := s.kbShareService.HasTenantKBPermission(ctx, kbID, tenantID, callerTenantRole, types.OrgRoleViewer); ok {
 			return true
 		}
 	}
-	if s.sharedKBService != nil {
+	if userID != "" && s.sharedKBService != nil {
 		if role, _ := s.sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID); role != "" {
 			return true
 		}

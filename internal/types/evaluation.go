@@ -2,29 +2,33 @@ package types
 
 import (
 	"encoding/json"
-	"sync"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/yanyiwu/gojieba"
 )
 
-var (
-	// jiebaOnce ensures Jieba is initialized only once
-	jiebaOnce sync.Once
-	// Jieba is a global instance of Chinese text segmentation tool
-	Jieba *gojieba.Jieba
-)
+// Jieba is a global instance of Chinese text segmentation tool
+var Jieba *gojieba.Jieba = newJieba()
 
-// initJieba initializes the Jieba instance lazily
-func initJieba() {
-	jiebaOnce.Do(func() {
-		Jieba = gojieba.NewJieba()
-	})
+func newJieba() *gojieba.Jieba {
+	dictDir := os.Getenv("JIEBA_DICT_DIR")
+	if dictDir == "" {
+		return gojieba.NewJieba()
+	}
+
+	return gojieba.NewJieba(
+		filepath.Join(dictDir, "jieba.dict.utf8"),
+		filepath.Join(dictDir, "hmm_model.utf8"),
+		filepath.Join(dictDir, "user.dict.utf8"),
+		filepath.Join(dictDir, "idf.utf8"),
+		filepath.Join(dictDir, "stop_words.utf8"),
+	)
 }
 
-// GetJieba returns the Jieba instance, initializing it if necessary
+// GetJieba returns the global Jieba instance (backward-compatible accessor).
 func GetJieba() *gojieba.Jieba {
-	initJieba()
 	return Jieba
 }
 

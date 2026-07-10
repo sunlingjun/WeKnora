@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/Tencent/WeKnora/internal/datasource"
+	"github.com/Tencent/WeKnora/internal/handler/dto"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/gin-gonic/gin"
@@ -83,7 +84,7 @@ func (h *DataSourceHandler) getOwnedDataSource(
 // @Param request body types.DataSource true "Data source configuration"
 // @Success 201 {object} types.DataSource
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource [post]
+// @Router /datasource [post]
 func (h *DataSourceHandler) CreateDataSource(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -114,7 +115,7 @@ func (h *DataSourceHandler) CreateDataSource(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, ds)
+	c.JSON(http.StatusCreated, dto.NewDataSourceResponse(ds))
 }
 
 // GetDataSource godoc
@@ -125,7 +126,7 @@ func (h *DataSourceHandler) CreateDataSource(c *gin.Context) {
 // @Param id path string true "Data source ID"
 // @Success 200 {object} types.DataSource
 // @Failure 404 {object} map[string]string
-// @Router /api/v1/datasource/{id} [get]
+// @Router /datasource/{id} [get]
 func (h *DataSourceHandler) GetDataSource(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -142,7 +143,7 @@ func (h *DataSourceHandler) GetDataSource(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ds)
+	c.JSON(http.StatusOK, dto.NewDataSourceResponse(ds))
 }
 
 // ListDataSources godoc
@@ -153,7 +154,7 @@ func (h *DataSourceHandler) GetDataSource(c *gin.Context) {
 // @Param kb_id query string true "Knowledge base ID"
 // @Success 200 {object} []types.DataSource
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource [get]
+// @Router /datasource [get]
 func (h *DataSourceHandler) ListDataSources(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -179,7 +180,7 @@ func (h *DataSourceHandler) ListDataSources(c *gin.Context) {
 	if dataSources == nil {
 		dataSources = make([]*types.DataSource, 0)
 	}
-	c.JSON(http.StatusOK, dataSources)
+	c.JSON(http.StatusOK, dto.NewDataSourceResponses(dataSources))
 }
 
 // UpdateDataSource godoc
@@ -192,7 +193,7 @@ func (h *DataSourceHandler) ListDataSources(c *gin.Context) {
 // @Param request body types.DataSource true "Updated configuration"
 // @Success 200 {object} types.DataSource
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource/{id} [put]
+// @Router /datasource/{id} [put]
 func (h *DataSourceHandler) UpdateDataSource(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -224,7 +225,7 @@ func (h *DataSourceHandler) UpdateDataSource(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ds)
+	c.JSON(http.StatusOK, dto.NewDataSourceResponse(ds))
 }
 
 // DeleteDataSource godoc
@@ -234,7 +235,7 @@ func (h *DataSourceHandler) UpdateDataSource(c *gin.Context) {
 // @Param id path string true "Data source ID"
 // @Success 204
 // @Failure 404 {object} map[string]string
-// @Router /api/v1/datasource/{id} [delete]
+// @Router /datasource/{id} [delete]
 func (h *DataSourceHandler) DeleteDataSource(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -265,7 +266,7 @@ func (h *DataSourceHandler) DeleteDataSource(c *gin.Context) {
 // @Param id path string true "Data source ID"
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource/{id}/validate [post]
+// @Router /datasource/{id}/validate [post]
 func (h *DataSourceHandler) ValidateConnection(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -302,7 +303,7 @@ func (h *DataSourceHandler) ValidateConnection(c *gin.Context) {
 // @Param request body object true "type and credentials"
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource/validate-credentials [post]
+// @Router /datasource/validate-credentials [post]
 func (h *DataSourceHandler) ValidateCredentials(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -329,14 +330,53 @@ func (h *DataSourceHandler) ValidateCredentials(c *gin.Context) {
 }
 
 // @Summary List available resources in data source
-// @Description List resources available for sync in the external system
+// @Description List resources available for sync in the external system. Pass parent_id to lazily load the direct children of a resource (used for large hierarchical sources such as Feishu wiki).
 // @Tags DataSource
 // @Produce json
 // @Param id path string true "Data source ID"
+// @Param parent_id query string false "Parent resource ExternalID; empty lists the top level"
 // @Success 200 {object} []types.Resource
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource/{id}/resources [get]
+// @Router /datasource/{id}/resources [get]
 func (h *DataSourceHandler) ListAvailableResources(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID := h.getTenantID(c)
+	if tenantID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	id := c.Param("id")
+	parentID := c.Query("parent_id")
+
+	if _, status, msg := h.getOwnedDataSource(ctx, tenantID, id); status != http.StatusOK {
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	resources, err := h.service.ListAvailableResources(ctx, id, parentID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if resources == nil {
+		resources = make([]types.Resource, 0)
+	}
+	c.JSON(http.StatusOK, resources)
+}
+
+// @Summary Resolve resource ancestors
+// @Description Resolve the ancestor ExternalIDs that must be expanded to reveal the given (possibly deeply nested) resources in a lazily-loaded picker. Used to restore an existing selection when editing a data source.
+// @Tags DataSource
+// @Accept json
+// @Produce json
+// @Param id path string true "Data source ID"
+// @Param request body resolveAncestorsRequest true "Resource IDs to resolve"
+// @Success 200 {object} map[string][]string
+// @Failure 400 {object} map[string]string
+// @Router /datasource/{id}/resource-ancestors [post]
+func (h *DataSourceHandler) ResolveResourceAncestors(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
 	if tenantID == 0 {
@@ -351,16 +391,27 @@ func (h *DataSourceHandler) ListAvailableResources(c *gin.Context) {
 		return
 	}
 
-	resources, err := h.service.ListAvailableResources(ctx, id)
+	var req resolveAncestorsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ancestors, err := h.service.ResolveResourceAncestors(ctx, id, req.ResourceIDs)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if resources == nil {
-		resources = make([]types.Resource, 0)
+	if ancestors == nil {
+		ancestors = make([]string, 0)
 	}
-	c.JSON(http.StatusOK, resources)
+	c.JSON(http.StatusOK, gin.H{"ancestors": ancestors})
+}
+
+// resolveAncestorsRequest is the body for ResolveResourceAncestors.
+type resolveAncestorsRequest struct {
+	ResourceIDs []string `json:"resource_ids"`
 }
 
 // ManualSync godoc
@@ -370,7 +421,7 @@ func (h *DataSourceHandler) ListAvailableResources(c *gin.Context) {
 // @Param id path string true "Data source ID"
 // @Success 200 {object} types.SyncLog
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource/{id}/sync [post]
+// @Router /datasource/{id}/sync [post]
 func (h *DataSourceHandler) ManualSync(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -402,7 +453,7 @@ func (h *DataSourceHandler) ManualSync(c *gin.Context) {
 // @Param id path string true "Data source ID"
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource/{id}/pause [post]
+// @Router /datasource/{id}/pause [post]
 func (h *DataSourceHandler) PauseDataSource(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -433,7 +484,7 @@ func (h *DataSourceHandler) PauseDataSource(c *gin.Context) {
 // @Param id path string true "Data source ID"
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource/{id}/resume [post]
+// @Router /datasource/{id}/resume [post]
 func (h *DataSourceHandler) ResumeDataSource(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -467,7 +518,7 @@ func (h *DataSourceHandler) ResumeDataSource(c *gin.Context) {
 // @Param offset query int false "Offset (default: 0)"
 // @Success 200 {object} []types.SyncLog
 // @Failure 400 {object} map[string]string
-// @Router /api/v1/datasource/{id}/logs [get]
+// @Router /datasource/{id}/logs [get]
 func (h *DataSourceHandler) GetSyncLogs(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -487,9 +538,12 @@ func (h *DataSourceHandler) GetSyncLogs(c *gin.Context) {
 	offset := 0
 
 	if l := c.Query("limit"); l != "" {
-		if v, err := strconv.Atoi(l); err == nil && v > 0 {
-			limit = v
+		v, err := strconv.Atoi(l)
+		if err != nil || v <= 0 || v > maxListPageSize {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "limit must be between 1 and " + strconv.Itoa(maxListPageSize)})
+			return
 		}
+		limit = v
 	}
 
 	if o := c.Query("offset"); o != "" {
@@ -518,7 +572,7 @@ func (h *DataSourceHandler) GetSyncLogs(c *gin.Context) {
 // @Param log_id path string true "Sync log ID"
 // @Success 200 {object} types.SyncLog
 // @Failure 404 {object} map[string]string
-// @Router /api/v1/datasource/logs/{log_id} [get]
+// @Router /datasource/logs/{log_id} [get]
 func (h *DataSourceHandler) GetSyncLog(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := h.getTenantID(c)
@@ -549,7 +603,7 @@ func (h *DataSourceHandler) GetSyncLog(c *gin.Context) {
 // @Tags DataSource
 // @Produce json
 // @Success 200 {object} []datasource.ConnectorMetadata
-// @Router /api/v1/datasource/types [get]
+// @Router /datasource/types [get]
 func (h *DataSourceHandler) GetAvailableConnectors(c *gin.Context) {
 	connectors := datasource.ListAvailableConnectors()
 	c.JSON(http.StatusOK, connectors)

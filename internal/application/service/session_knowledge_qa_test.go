@@ -48,15 +48,16 @@ func (m *captureChatModel) GetModelName() string { return "capture" }
 func (m *captureChatModel) GetModelID() string   { return "capture" }
 
 type stubModelService struct {
-	chatModel chat.Chat
+	chatModel  chat.Chat
+	modelsByID map[string]*types.Model
 }
 
 func (s *stubModelService) CreateModel(context.Context, *types.Model) error {
 	return nil
 }
 
-func (s *stubModelService) GetModelByID(context.Context, string) (*types.Model, error) {
-	return nil, nil
+func (s *stubModelService) GetModelByID(_ context.Context, id string) (*types.Model, error) {
+	return s.modelsByID[id], nil
 }
 
 func (s *stubModelService) ListModels(context.Context) ([]*types.Model, error) {
@@ -68,6 +69,16 @@ func (s *stubModelService) UpdateModel(context.Context, *types.Model) error {
 }
 
 func (s *stubModelService) DeleteModel(context.Context, string) error {
+	return nil
+}
+
+func (s *stubModelService) UpdateModelCredentials(
+	context.Context, string, *string, *string,
+) (*types.Model, error) {
+	return nil, nil
+}
+
+func (s *stubModelService) ClearModelCredential(context.Context, string, string) error {
 	return nil
 }
 
