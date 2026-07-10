@@ -856,9 +856,6 @@ func (s *sessionService) resolveWebFetchTopN(req *types.QARequest) int {
 	return 3
 }
 
-	return 3
-}
-
 // resolveWebSearchMaxResults returns the max results for web search.
 // Priority: agent config > tenant default > default (10)
 func (s *sessionService) resolveWebSearchMaxResults(ctx context.Context, req *types.QARequest) int {

@@ -3,15 +3,26 @@ package main
 import (
 	"context"
 	"net"
+	"syscall"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/logger"
 )
 
+// listenWithRetry retries listening with exponential backoff and SO_REUSEADDR,
+// useful during hot-reload when the previous process may not have released the port yet.
 func listenWithRetry(addr string, maxRetries int, baseDelay time.Duration) (net.Listener, error) {
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				_ = syscall.SetsockoptInt(syscall.Handle(int(fd)), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			})
+		},
+	}
+
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
-		listener, err := net.Listen("tcp", addr)
+		listener, err := lc.Listen(context.Background(), "tcp", addr)
 		if err == nil {
 			return listener, nil
 		}
