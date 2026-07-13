@@ -120,6 +120,46 @@ func (s *stubAgentShareForGuard) TenantCanAccessKBViaSomeSharedAgent(_ context.C
 func (s *stubAgentShareForGuard) ShareAgent(context.Context, string, string, string, uint64, types.OrgMemberRole) (*types.AgentShare, error) {
 	panic("not implemented")
 }
+
+// stubSharedKBForGuard implements GetMemberRoleByKBAndUser for direct-member tests.
+type stubSharedKBForGuard struct {
+	roles map[string]string // kbID -> role
+}
+
+func (s *stubSharedKBForGuard) GetMemberRoleByKBAndUser(_ context.Context, kbID, _ string) (string, error) {
+	if role, ok := s.roles[kbID]; ok {
+		return role, nil
+	}
+	return "", nil
+}
+
+func (s *stubSharedKBForGuard) CreateSharedKnowledgeBase(context.Context, *types.KnowledgeBase) (*types.KnowledgeBase, error) {
+	panic("not implemented")
+}
+func (s *stubSharedKBForGuard) ListSharedKnowledgeBases(context.Context, string, int, int) ([]*types.KnowledgeBase, int64, error) {
+	panic("not implemented")
+}
+func (s *stubSharedKBForGuard) JoinSharedKnowledgeBase(context.Context, string) error {
+	panic("not implemented")
+}
+func (s *stubSharedKBForGuard) LeaveSharedKnowledgeBase(context.Context, string) error {
+	panic("not implemented")
+}
+func (s *stubSharedKBForGuard) ListKnowledgeBaseMembers(context.Context, string, string, int, int) ([]*types.KnowledgeBaseMember, int64, error) {
+	panic("not implemented")
+}
+func (s *stubSharedKBForGuard) UpdateMemberRole(context.Context, string, string, string) error {
+	panic("not implemented")
+}
+func (s *stubSharedKBForGuard) RemoveMember(context.Context, string, string) error {
+	panic("not implemented")
+}
+func (s *stubSharedKBForGuard) CheckMemberPermission(context.Context, string, string) (bool, error) {
+	panic("not implemented")
+}
+func (s *stubSharedKBForGuard) ListUserKnowledgeBases(context.Context, bool) ([]*types.KnowledgeBase, error) {
+	panic("not implemented")
+}
 func (s *stubAgentShareForGuard) RemoveShare(context.Context, string, string, uint64) error {
 	panic("not implemented")
 }
@@ -159,6 +199,8 @@ func (s *stubAgentShareForGuard) CountByOrganizations(context.Context, []string)
 type guardOpts struct {
 	agentID    string                  // ?agent_id query param
 	agentShare *stubAgentShareForGuard // nil means "no agent-share service"
+	sharedKB   *stubSharedKBForGuard   // nil means "no direct-member service"
+	userID     string                  // caller user id for direct-member resolution
 }
 
 // runGuard fires a single request through the guard and returns the
@@ -186,6 +228,9 @@ func runGuard(
 	}
 	req := httptest.NewRequest("GET", url, nil)
 	ctx := context.WithValue(req.Context(), types.TenantIDContextKey, tenantID)
+	if opts.userID != "" {
+		ctx = context.WithValue(ctx, types.UserIDContextKey, opts.userID)
+	}
 	c.Request = req.WithContext(ctx)
 
 	kbsvc := &stubKBLookup{kbs: map[string]*types.KnowledgeBase{}}
@@ -205,12 +250,17 @@ func runGuard(
 	if opts.agentShare != nil {
 		agentSvc = opts.agentShare
 	}
+	var sharedKBSvc interfaces.SharedKnowledgeBaseService
+	if opts.sharedKB != nil {
+		sharedKBSvc = opts.sharedKB
+	}
 
 	guard := RequireKBAccess(
 		KBIDFromParam("id"),
 		requiredPerm,
 		kbsvc,
 		shareSvc,
+		sharedKBSvc,
 		agentSvc,
 		cfgRBAC(true),
 	)
@@ -269,6 +319,38 @@ func TestRequireKBAccess_SharedKB_RewritesTenantContext(t *testing.T) {
 	require.Equal(t, uint64(200), got, "guard must rewrite context to source tenant")
 }
 
+func TestRequireKBAccess_DirectMemberSharedKB_RewritesTenantContext(t *testing.T) {
+	sharedKB := &stubSharedKBForGuard{
+		roles: map[string]string{"kb-direct": types.KBMemberRoleEditor},
+	}
+	_, c := runGuard(t, 100, "kb-direct",
+		types.OrgRoleEditor,
+		&types.KnowledgeBase{ID: "kb-direct", TenantID: 200},
+		nil,
+		guardOpts{sharedKB: sharedKB, userID: "u-member"},
+	)
+	require.False(t, c.IsAborted())
+	access, ok := KBAccessFromContext(c)
+	require.True(t, ok)
+	require.Equal(t, uint64(200), access.EffectiveTenantID)
+	require.Equal(t, types.OrgRoleEditor, access.Permission)
+	got, _ := types.TenantIDFromContext(c.Request.Context())
+	require.Equal(t, uint64(200), got)
+}
+
+func TestRequireKBAccess_DirectMemberViewerCannotWrite(t *testing.T) {
+	sharedKB := &stubSharedKBForGuard{
+		roles: map[string]string{"kb-direct": types.KBMemberRoleViewer},
+	}
+	_, c := runGuard(t, 100, "kb-direct",
+		types.OrgRoleEditor,
+		&types.KnowledgeBase{ID: "kb-direct", TenantID: 200},
+		nil,
+		guardOpts{sharedKB: sharedKB, userID: "u-member"},
+	)
+	require.True(t, c.IsAborted())
+}
+
 func TestRequireKBAccess_SharedKB_PermissionBelowMin_Aborts(t *testing.T) {
 	share := &stubKBShareForGuard{
 		permission: map[string]types.OrgMemberRole{"kb-shared": types.OrgRoleViewer},
@@ -294,6 +376,7 @@ func TestRequireKBAccess_NoTenant_Aborts(t *testing.T) {
 		KBIDFromParam("id"),
 		types.OrgRoleViewer,
 		&stubKBLookup{},
+		nil,
 		nil,
 		nil,
 		cfgRBAC(true),
@@ -485,7 +568,7 @@ func TestRequireKBAccess_Forbidden_FailOpenWhenRBACDisabled(t *testing.T) {
 	guard := RequireKBAccess(
 		KBIDFromParam("id"),
 		types.OrgRoleEditor, // would-deny
-		kbsvc, share, nil,
+		kbsvc, share, nil, nil,
 		cfgRBAC(false), // enforcement off
 	)
 	guard(c)
@@ -508,7 +591,7 @@ func TestRequireKBAccess_NotFound_FiresEvenWhenRBACDisabled(t *testing.T) {
 		KBIDFromParam("id"),
 		types.OrgRoleViewer,
 		&stubKBLookup{kbs: map[string]*types.KnowledgeBase{}},
-		nil, nil,
+		nil, nil, nil,
 		cfgRBAC(false),
 	)
 	guard(c)

@@ -135,6 +135,7 @@ type rbacGuards struct {
 	knowledgeService  middleware.KnowledgeLookup
 	chunkService      middleware.ChunkLookup
 	kbShareService    interfaces.KBShareService
+	sharedKBService   interfaces.SharedKnowledgeBaseService
 	agentShareService interfaces.AgentShareService
 }
 
@@ -151,6 +152,7 @@ func newRBACGuards(
 	knowledgeService interfaces.KnowledgeService,
 	chunkService interfaces.ChunkService,
 	kbShareService interfaces.KBShareService,
+	sharedKBService interfaces.SharedKnowledgeBaseService,
 	agentShareService interfaces.AgentShareService,
 ) *rbacGuards {
 	g := &rbacGuards{cfg: cfg}
@@ -175,6 +177,7 @@ func newRBACGuards(
 	g.knowledgeService = knowledgeService
 	g.chunkService = chunkService
 	g.kbShareService = kbShareService
+	g.sharedKBService = sharedKBService
 	g.agentShareService = agentShareService
 	return g
 }
@@ -323,6 +326,7 @@ func (g *rbacGuards) KBAccessRead(param string) gin.HandlerFunc {
 		types.OrgRoleViewer,
 		g.kbService,
 		g.kbShareService,
+		g.sharedKBService,
 		g.agentShareService,
 		g.cfg,
 	)
@@ -337,6 +341,7 @@ func (g *rbacGuards) KBAccessWrite(param string) gin.HandlerFunc {
 		types.OrgRoleEditor,
 		g.kbService,
 		g.kbShareService,
+		g.sharedKBService,
 		g.agentShareService,
 		g.cfg,
 	)
@@ -352,6 +357,7 @@ func (g *rbacGuards) KBAccessReadFromKnowledgeIDParam(param string) gin.HandlerF
 		types.OrgRoleViewer,
 		g.kbService,
 		g.kbShareService,
+		g.sharedKBService,
 		g.agentShareService,
 		g.cfg,
 	)
@@ -365,6 +371,7 @@ func (g *rbacGuards) KBAccessWriteFromKnowledgeIDParam(param string) gin.Handler
 		types.OrgRoleEditor,
 		g.kbService,
 		g.kbShareService,
+		g.sharedKBService,
 		g.agentShareService,
 		g.cfg,
 	)
@@ -379,6 +386,7 @@ func (g *rbacGuards) KBAccessReadFromChunkIDParam(param string) gin.HandlerFunc 
 		types.OrgRoleViewer,
 		g.kbService,
 		g.kbShareService,
+		g.sharedKBService,
 		g.agentShareService,
 		g.cfg,
 	)
@@ -393,6 +401,7 @@ func (g *rbacGuards) KBAccessWriteFromChunkIDParam(param string) gin.HandlerFunc
 		types.OrgRoleEditor,
 		g.kbService,
 		g.kbShareService,
+		g.sharedKBService,
 		g.agentShareService,
 		g.cfg,
 	)

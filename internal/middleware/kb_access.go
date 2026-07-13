@@ -21,7 +21,8 @@ import (
 //
 //   1. KB belongs to caller's tenant   -> grant own access
 //   2. Org-shared KB                    -> grant min(share, role) cap
-//   3. Shared agent carries the KB      -> grant Viewer (read-only)
+//   3. Direct member (knowledge_base_members, NXIN) -> grant member role
+//   4. Shared agent carries the KB      -> grant Viewer (read-only)
 //
 // Putting the resolution in a route-level gin.HandlerFunc makes the
 // route declaration the single source of truth for "what permission
@@ -225,6 +226,7 @@ func RequireKBAccess(
 	requiredPermission types.OrgMemberRole,
 	kbService KBLookup,
 	kbShareService interfaces.KBShareService,
+	sharedKBService interfaces.SharedKnowledgeBaseService,
 	agentShareService interfaces.AgentShareService,
 	cfg *config.Config,
 ) gin.HandlerFunc {
@@ -246,7 +248,7 @@ func RequireKBAccess(
 		// regardless of whether RBAC enforcement is active.
 		enforcing := rbacEnforcementEnabled(cfg)
 
-		access, err := resolveKBAccessOnce(ctx, c, kbID, requiredPermission, kbService, kbShareService, agentShareService)
+		access, err := resolveKBAccessOnce(ctx, c, kbID, requiredPermission, kbService, kbShareService, sharedKBService, agentShareService)
 		switch {
 		case stderrors.Is(err, errKBAccessUnauthorized):
 			if !enforcing {
@@ -312,6 +314,7 @@ func resolveKBAccessOnce(
 	requiredPermission types.OrgMemberRole,
 	kbService KBLookup,
 	kbShareService interfaces.KBShareService,
+	sharedKBService interfaces.SharedKnowledgeBaseService,
 	agentShareService interfaces.AgentShareService,
 ) (*KBAccess, error) {
 	tenantID, ok := types.TenantIDFromContext(ctx)
@@ -359,7 +362,27 @@ func resolveKBAccessOnce(
 		}
 	}
 
-	// 3. Shared agent that carries this KB — only ever grants read.
+	// 3. Direct member shared KB (NXIN knowledge_base_members).
+	if sharedKBService != nil {
+		userID, userOK := types.UserIDFromContext(ctx)
+		if userOK && userID != "" {
+			memberRole, memberErr := sharedKBService.GetMemberRoleByKBAndUser(ctx, kbID, userID)
+			if memberErr == nil && memberRole != "" {
+				permission := kbMemberRoleToOrgPermission(memberRole)
+				if permission.HasPermission(requiredPermission) {
+					logger.Infof(ctx, "[kb_access] user %s -> direct shared KB %s perm=%s source=%d",
+						userID, kbID, permission, kb.TenantID)
+					return &KBAccess{
+						KnowledgeBase:     kb,
+						EffectiveTenantID: kb.TenantID,
+						Permission:        permission,
+					}, nil
+				}
+			}
+		}
+	}
+
+	// 4. Shared agent that carries this KB — only ever grants read.
 	if requiredPermission == types.OrgRoleViewer && agentShareService != nil {
 		if access := resolveSharedAgentAccess(ctx, c, tenantID, callerTenantRole, kb, agentShareService); access != nil {
 			return access, nil
@@ -435,6 +458,21 @@ func resolveSharedAgentAccess(
 		}
 	}
 	return nil
+}
+
+// kbMemberRoleToOrgPermission maps NXIN direct-member roles to org-level
+// permissions used by the KB access guard.
+func kbMemberRoleToOrgPermission(role string) types.OrgMemberRole {
+	switch role {
+	case types.KBMemberRoleOwner:
+		return types.OrgRoleAdmin
+	case types.KBMemberRoleEditor:
+		return types.OrgRoleEditor
+	case types.KBMemberRoleViewer:
+		return types.OrgRoleViewer
+	default:
+		return types.OrgRoleViewer
+	}
 }
 
 var (

@@ -60,7 +60,7 @@ func TestOpenRetrieve_Post_AuthMiddlewareBypassesWithoutCredentials(t *testing.T
 	}
 	called := false
 	r := gin.New()
-	r.Use(Auth(nil, nil, nil, nil, nil))
+	r.Use(Auth(nil, nil, nil, nil, nil, nil))
 	r.Use(OpenRetrieveApiKey(cfg))
 	r.POST("/api/v1/open/knowledge/retrieve", func(c *gin.Context) {
 		called = true
@@ -90,7 +90,7 @@ func TestOpenRetrieve_Post_MissingOpenKey_ReturnsOpenRetrieveUnauthorized(t *tes
 		},
 	}
 	r := gin.New()
-	r.Use(Auth(nil, nil, nil, nil, nil))
+	r.Use(Auth(nil, nil, nil, nil, nil, nil))
 	r.Use(OpenRetrieveApiKey(cfg))
 	r.POST("/api/v1/open/knowledge/retrieve", func(c *gin.Context) { c.Status(http.StatusOK) })
 

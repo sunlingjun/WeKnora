@@ -46,6 +46,7 @@ type RouterParams struct {
 	ModelService                 interfaces.ModelService
 	EvaluationService            interfaces.EvaluationService
 	KBShareService               interfaces.KBShareService
+	SharedKBService              interfaces.SharedKnowledgeBaseService
 	AgentShareService            interfaces.AgentShareService
 	KBHandler                    *handler.KnowledgeBaseHandler
 	KnowledgeHandler             *handler.KnowledgeHandler
@@ -264,6 +265,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			params.KnowledgeService,
 			params.ChunkService,
 			params.KBShareService,
+			params.SharedKBService,
 			params.AgentShareService,
 		)
 
