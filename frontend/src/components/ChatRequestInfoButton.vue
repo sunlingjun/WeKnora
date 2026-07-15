@@ -56,7 +56,8 @@ import {
 import { copyTextToClipboard } from '@/utils/chatMessageShared';
 
 const props = defineProps<{
-  session: Record<string, unknown>;
+  // Session shapes differ across chat / embed callers; button only reads known keys.
+  session: any;
   sessionId?: string;
 }>();
 

@@ -123,11 +123,12 @@ test('guarantees unique keys across a mixed owned + shared set', () => {
   assert.deepEqual(new Set(keys(result)), new Set(['a', 'b', 'c', 'd']))
 })
 
-test('orders pinned (newest first) → own → teammate → shared(editable first)', () => {
+test('orders pinned (newest first) → own → joined direct-shared → teammate → shared(editable first)', () => {
   const result = mergeAllScopeKnowledgeBases(
     [
       owned('mine'),
       owned('teammate', { creator_id: 'someone-else' }),
+      owned('joined', { visibility: 'shared', owner_id: 'other-owner' }),
       owned('pin-old', { is_pinned: true, pinned_at: '2026-01-01T00:00:00Z' }),
       owned('pin-new', { is_pinned: true, pinned_at: '2026-02-01T00:00:00Z' }),
     ],
@@ -138,6 +139,7 @@ test('orders pinned (newest first) → own → teammate → shared(editable firs
     'pin-new',
     'pin-old',
     'mine',
+    'joined',
     'teammate',
     'editable',
     'view-only',

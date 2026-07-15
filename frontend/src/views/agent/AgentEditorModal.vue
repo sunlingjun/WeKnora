@@ -2976,7 +2976,7 @@ const loadDependencies = async () => {
 
     webSearchProviderList.value = chatResources.webSearchProviders as WebSearchProviderEntity[];
 
-    placeholderData.value = editorResources.placeholders as PlaceholderDefinition[];
+    placeholderData.value = editorResources.placeholders as typeof placeholderData.value;
 
     const rc = editorResources.tenantRetrievalConfig as Record<string, number> | null;
     if (rc?.embedding_top_k) defaultEmbeddingTopK.value = rc.embedding_top_k;

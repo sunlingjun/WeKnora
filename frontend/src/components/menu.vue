@@ -421,8 +421,6 @@ const isMenuItemActive = (itemPath: string): boolean => {
                 currentRoute === 'knowledgeBaseSettings';
         case 'shared-knowledge-bases':
             return currentRoute === 'sharedKnowledgeBaseSquare';
-        case 'knowledge-search':
-            return currentRoute === 'knowledgeSearch';
         case 'agents':
             return currentRoute === 'agentList';
         case 'integrations':
@@ -457,13 +455,13 @@ const getIconActiveState = (itemPath: string) => {
 // 分离上下两部分菜单（使用 visibleMenuArr 以便 lite 模式过滤 logout）
 const topMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) =>
-        item.path === 'knowledge-bases' || item.path === 'knowledge-search' || item.path === 'shared-knowledge-bases' || item.path === 'agents' || item.path === 'integrations' || item.path === 'organizations' || item.path === 'creatChat'
+        item.path === 'knowledge-bases' || item.path === 'shared-knowledge-bases' || item.path === 'agents' || item.path === 'integrations' || item.path === 'organizations' || item.path === 'creatChat'
     );
 });
 
 const bottomMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => {
-        if (item.path === 'knowledge-bases' || item.path === 'knowledge-search' || item.path === 'shared-knowledge-bases' || item.path === 'agents' || item.path === 'integrations' || item.path === 'organizations' || item.path === 'creatChat') {
+        if (item.path === 'knowledge-bases' || item.path === 'shared-knowledge-bases' || item.path === 'agents' || item.path === 'integrations' || item.path === 'organizations' || item.path === 'creatChat') {
             return false;
         }
         return true;
@@ -1040,6 +1038,8 @@ watch([() => route.name, () => route.params], (newvalue, oldvalue) => {
 });
 const handleMenuClick = async (path: string) => {
     if (path === 'knowledge-bases') {
+        chatResources.invalidate('knowledgeBases')
+        window.dispatchEvent(new CustomEvent('weknora:refresh-kb-list'))
         // 知识库菜单项：如果在知识库内部，跳转到当前知识库文件页；否则跳转到知识库列表
         const kbId = await getCurrentKbId()
         if (kbId) {
@@ -1048,9 +1048,8 @@ const handleMenuClick = async (path: string) => {
             router.push('/platform/knowledge-bases')
         }
     } else if (path === 'shared-knowledge-bases') {
+      window.dispatchEvent(new CustomEvent('weknora:refresh-shared-kb-square'))
       router.push('/platform/shared-knowledge-bases')
-    } else if (path === 'knowledge-search') {
-        router.push('/platform/knowledge-search')
     } else if (path === 'agents') {
         router.push('/platform/agents')
     } else if (path === 'integrations') {
@@ -1160,7 +1159,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
     min-width: 260px;
     width: 260px;
     padding: 8px 6px 6px;
-    background: var(--td-bg-color-sidebar);
+    background: var(--td-bg-color-sidebar, var(--td-bg-color-container));
     box-sizing: border-box;
     /* Avoid 100vh because <html> carries a `zoom` multiplier for font-size
        control; 100vh is evaluated against the unscaled viewport and then
@@ -1352,8 +1351,15 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         &--sticky {
             position: sticky;
             top: 0;
-            z-index: 2;
-            background: var(--td-bg-color-sidebar);
+            z-index: 3;
+            background: var(--td-bg-color-sidebar, var(--td-bg-color-container));
+            padding-bottom: 4px;
+            margin-bottom: 2px;
+            box-shadow: 0 1px 0 var(--td-component-stroke);
+
+            .menu_item {
+                background: var(--td-bg-color-sidebar, var(--td-bg-color-container));
+            }
         }
     }
 

@@ -60,6 +60,7 @@ import { formatStringDate } from '@/utils';
 import { formatFileSize } from '@/utils/files';
 import { useMarqueeSelect } from '@/hooks/useMarqueeSelect';
 import type { ParserEngineInfo } from '@/api/system';
+import { canEditKB as canEditDirectSharedKB, canManageKBSettings } from '@/utils/kb-permission';
 const route = useRoute();
 const { t } = useI18n();
 const kbId = computed(() => (route.params as any).kbId as string || '');
@@ -255,6 +256,13 @@ const currentSharedKb = computed(() =>
 // in the share list is the authoritative signal.
 const isViaShare = computed(() => !!currentSharedKb.value);
 
+// 直接成员共享（广场 join），非组织共享
+const isDirectShared = computed(
+  () => !isViaShare.value && kbInfo.value?.visibility === 'shared',
+);
+
+const currentUserId = computed(() => authStore.user?.id || '');
+
 // Can edit: when accessed via an organization share, ONLY the share grant
 // counts — even if the current user happens to be the original creator of
 // the KB. The backend's RBAC middleware authorizes based on the active
@@ -266,6 +274,9 @@ const isViaShare = computed(() => !!currentSharedKb.value);
 // in a tenant does not by itself grant edit on someone else's KB.
 const canEdit = computed(() => {
   if (isViaShare.value) return orgStore.canEditKB(kbId.value, false);
+  if (isDirectShared.value && kbInfo.value) {
+    return canEditDirectSharedKB(kbInfo.value, currentUserId.value);
+  }
   if (isOwner.value) return true;
   if (authStore.hasRole('admin')) return true;
   return orgStore.canEditKB(kbId.value, false);
@@ -276,6 +287,9 @@ const canEdit = computed(() => {
 // even being the creator viewed via share) never grant delete/settings.
 const canManage = computed(() => {
   if (isViaShare.value) return orgStore.canManageKB(kbId.value, false);
+  if (isDirectShared.value && kbInfo.value) {
+    return canManageKBSettings(kbInfo.value, currentUserId.value);
+  }
   if (isOwner.value) return true;
   if (authStore.hasRole('admin')) return true;
   return orgStore.canManageKB(kbId.value, false);
@@ -290,7 +304,7 @@ const canManage = computed(() => {
 // grant, so trust it.
 const canMutateKnowledge = computed(() => {
   if (!canEdit.value) return false;
-  if (isViaShare.value) return true;
+  if (isViaShare.value || isDirectShared.value) return true;
   if (isOwner.value) return true;
   if (authStore.hasRole('admin')) return true;
   return authStore.hasRole('contributor');
@@ -512,8 +526,8 @@ const tagPage = ref(1);
 const tagHasMore = ref(false);
 const tagLoadingMore = ref(false);
 const tagTotal = ref(0);
-let tagSearchDebounce: ReturnType<typeof setTimeout> | null = null;
-let docSearchDebounce: ReturnType<typeof setTimeout> | null = null;
+let tagSearchDebounce: number | null = null;
+let docSearchDebounce: number | null = null;
 const docSearchKeyword = ref('');
 const selectedFileType = ref('');
 const fileTypeOptions = computed(() => [
@@ -1553,7 +1567,10 @@ const executeUploadBatch = async (
   return { successCount, failCount };
 };
 
-const executeUrlImport = async (url: string, processConfig?: KnowledgeProcessOverrides) => {
+const executeUrlImport = async (
+  item: { url: string; title: string },
+  processConfig?: KnowledgeProcessOverrides,
+) => {
   const targetKbId = kbId.value;
   if (!targetKbId) {
     MessagePlugin.error(t('error.missingKbId'));
@@ -1563,7 +1580,8 @@ const executeUrlImport = async (url: string, processConfig?: KnowledgeProcessOve
   const tagIdsToUpload = selectedTagIds.value.length > 0 ? [...selectedTagIds.value] : undefined;
   try {
     const responseData: any = await createKnowledgeFromURL(targetKbId, {
-      url,
+      url: item.url,
+      title: item.title,
       tag_ids: tagIdsToUpload,
       process_config: processConfig,
     });
@@ -1614,12 +1632,15 @@ const handleUploadConfirmResult = async (result: UploadConfirmResult) => {
     await executeUploadBatch(files, { processConfig });
   }
 
-  for (const url of urls) {
-    await executeUrlImport(url, processConfig);
+  for (const urlItem of urls) {
+    await executeUrlImport(urlItem, processConfig);
   }
 };
 
-const openUploadConfirmDialog = async (files: File[], urls: string[] = []) => {
+const openUploadConfirmDialog = async (
+  files: File[],
+  urls: Array<{ url: string; title: string }> = [],
+) => {
   if (!kbInfo.value) return;
   if (files.length === 0 && urls.length === 0) return;
   try {
@@ -1643,9 +1664,9 @@ const handleUploadSourceFiles = (files: File[]) => {
   openUploadConfirmDialog(files);
 };
 
-const handleUploadSourceUrl = (url: string) => {
+const handleUploadSourceUrl = (item: { url: string; title: string }) => {
   if (!ensureDocumentKbReady()) return;
-  openUploadConfirmDialog([], [url]);
+  openUploadConfirmDialog([], [item]);
 };
 
 const handleManualCreate = () => {
@@ -2322,7 +2343,7 @@ async function createNewSession(value: string): Promise<void> {
                           <div v-if="canEdit && batchMode" class="card-nav-check" @click.stop>
                             <t-checkbox class="card-select-checkbox" size="small" :checked="selectedIds.has(item.id)"
                               :title="item.file_name"
-                              @change="(checked, ctx) => onCardGridCheckboxChange(item.id, checked, ctx)" />
+                              @change="(checked: any, ctx: any) => onCardGridCheckboxChange(item.id, checked, ctx)" />
                           </div>
                           <span class="card-content-title" :title="item.file_name">{{ item.file_name }}</span>
                           <t-popup v-if="canEdit" v-model="item.isMore" overlayClassName="card-more"

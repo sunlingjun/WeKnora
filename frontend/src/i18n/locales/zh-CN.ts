@@ -1,6 +1,7 @@
 export default {
   menu: {
     knowledgeBase: "知识库",
+    sharedKnowledgeBaseSquare: "知识库广场",
     agents: "智能体",
     integrations: "发布集成",
     organizations: "共享空间",
@@ -449,6 +450,9 @@ export default {
     urlExists: "该URL已存在",
     urlLabel: "URL地址",
     urlPlaceholder: "请输入网页URL，例如：https://example.com",
+    urlTitleLabel: "显示标题（必填）",
+    urlTitlePlaceholder: "导入后将作为知识标题展示，已根据 URL 预填可修改",
+    urlTitleRequired: "请填写显示标题",
     urlTip: "支持导入各类网页内容，系统会自动提取和解析网页中的文本内容",
     typeURL: "网页",
     typeManual: "手动创建",
@@ -3135,6 +3139,20 @@ export default {
     uninitializedBanner:
       "部分知识库尚未初始化，需要先在设置中配置模型信息才能添加知识文档",
     emptyShared: "暂无协作知识库，可以加入共享空间获取他人共享的知识库",
+    filter: {
+      all: "全部",
+      private: "个人知识库",
+      shared: "我创建的共享",
+      joined: "我加入的共享",
+    },
+    sharedTag: "共享",
+    privateTag: "个人",
+    leave: "离开",
+    role: {
+      owner: "创建者",
+      editor: "编辑者",
+      viewer: "查看者",
+    },
     empty: {
       title: "暂无知识库",
       description: '点击左侧快捷操作"新建知识库"按钮创建第一个知识库',
@@ -3163,6 +3181,7 @@ export default {
     sections: {
       pinned: "置顶",
       mine: "我创建的",
+      joinedShared: "我加入的共享",
       tenantReadonly: "本空间 · 仅查看",
       tenantOthers: "本空间 · 其他成员",
       sharedByMe: "我共享的",
@@ -3204,6 +3223,10 @@ export default {
       file: "文件",
       knowledgeBase: "知识库",
       noResult: "无结果",
+      leftSuccess: "已离开共享知识库",
+      leftFailed: "离开失败",
+      joinedSuccess: "已加入共享知识库",
+      joinedFailed: "加入失败",
     },
     processing: "正在处理导入任务",
     processingDocuments: "正在处理 {count} 个文档",
@@ -3222,6 +3245,19 @@ export default {
       errorTip: "部分文件上传失败，请查看右上角通知详情。",
       unknownKb: "知识库 {id}",
     },
+  },
+  sharedKbSquare: {
+    title: "共享知识库广场",
+    subtitle: "浏览和加入其他用户分享的知识库",
+    searchPlaceholder: "搜索知识库名称或描述...",
+    search: "搜索",
+    join: "加入",
+    empty: "暂无共享知识库",
+    noSearchResult: "未找到匹配的共享知识库",
+    noDescription: "暂无描述",
+    memberCount: "{count} 位成员",
+    knowledgeCount: "{count} 个知识",
+    fetchFailed: "加载共享知识库失败",
   },
   embedPublish: {
     title: "网页嵌入",
@@ -3430,6 +3466,10 @@ export default {
       namePlaceholder: "请输入知识库名称",
       descriptionLabel: "知识库描述",
       descriptionPlaceholder: "请输入知识库描述（可选）",
+      visibilityLabel: "可见性",
+      visibilityPrivate: "个人知识库",
+      visibilityShared: "共享知识库",
+      visibilityDescription: "个人知识库仅自己可见；共享知识库可被其他用户搜索和加入",
     },
     wiki: {
       title: "Wiki 设置",
@@ -4514,8 +4554,6 @@ export default {
     codeImport: {
       toggle: "从代码导入",
       hint: "粘贴标准 mcpServers JSON 配置，自动填充表单",
-      placeholder:
-        '{\n  "mcpServers": {\n    "my-server": {\n      "url": "https://example.com/sse"\n    }\n  }\n}',
       parse: "解析并填充",
       editOverwriteHint: "导入会覆盖当前表单内容（不影响已保存的凭证，需点保存生效）",
       errors: {

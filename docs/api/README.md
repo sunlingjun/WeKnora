@@ -71,7 +71,7 @@ WeKnora API 按功能分为以下几类：
 | 认证管理 | 用户注册、登录、令牌管理；OIDC 流程 | [auth.md](./auth.md) · [OIDC认证调用流程.md](../OIDC认证调用流程.md) |
 | 租户管理 | 创建和管理租户账户 | [tenant.md](./tenant.md) |
 | 知识库管理 | 创建、查询和管理知识库 | [knowledge-base.md](./knowledge-base.md) |
-| 知识管理 | 上传、检索和管理知识内容 | [knowledge.md](./knowledge.md) |
+| 知识管理 | 上传、检索和管理知识内容 | [knowledge.md](./knowledge.md) · [API 上传对接手册（方案 A）](../2026-07-14-知识文档API上传对接手册.md) |
 | 模型管理 | 配置和管理各种AI模型 | [model.md](./model.md) |
 | 分块管理 | 管理知识的分块内容 | [chunk.md](./chunk.md) |
 | 标签管理 | 管理知识库的标签分类 | [tag.md](./tag.md) |

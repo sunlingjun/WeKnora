@@ -5,8 +5,8 @@ export function getApiBaseUrl(): string {
     return baseUrl;
   }
 
-  // Docker / same-origin
-  if (import.meta.env.VITE_IS_DOCKER) {
+  // Docker / same-origin（Vite 环境变量均为字符串，须显式比较 'true'）
+  if (import.meta.env.VITE_IS_DOCKER === 'true') {
     return '';
   }
 

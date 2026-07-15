@@ -9,6 +9,7 @@ export interface KBPermissionInfo {
   is_owner?: boolean
   isOwner?: boolean
   owner_id?: string
+  creator_id?: string
   member_role?: 'owner' | 'editor' | 'viewer'
   memberRole?: 'owner' | 'editor' | 'viewer'
 }
@@ -16,8 +17,11 @@ export interface KBPermissionInfo {
 /**
  * 是否为知识库创建者
  */
-export function isKBOwner(kb: KBPermissionInfo): boolean {
-  return kb.is_owner === true || kb.isOwner === true
+export function isKBOwner(kb: KBPermissionInfo, userId?: string): boolean {
+  if (kb.is_owner === true || kb.isOwner === true) return true
+  if (!userId) return false
+  const ownerId = kb.owner_id || kb.creator_id
+  return !!ownerId && ownerId === userId
 }
 
 /**
@@ -30,54 +34,54 @@ export function isDirectSharedKB(kb: KBPermissionInfo): boolean {
 /**
  * 获取成员角色（owner/editor/viewer）
  */
-export function getKBMemberRole(kb: KBPermissionInfo): 'owner' | 'editor' | 'viewer' | null {
+export function getKBMemberRole(kb: KBPermissionInfo, userId?: string): 'owner' | 'editor' | 'viewer' | null {
   const role = kb.member_role ?? kb.memberRole
   if (role && ['owner', 'editor', 'viewer'].includes(role)) {
     return role as 'owner' | 'editor' | 'viewer'
   }
-  return isKBOwner(kb) ? 'owner' : null
+  return isKBOwner(kb, userId) ? 'owner' : null
 }
 
 /**
  * 是否可编辑知识库（创建者或编辑者）
  */
-export function canEditKB(kb: KBPermissionInfo): boolean {
-  if (isKBOwner(kb)) return true
-  const role = getKBMemberRole(kb)
+export function canEditKB(kb: KBPermissionInfo, userId?: string): boolean {
+  if (isKBOwner(kb, userId)) return true
+  const role = getKBMemberRole(kb, userId)
   return role === 'editor'
 }
 
 /**
  * 是否可上传/管理文档（创建者或编辑者）
  */
-export function canUploadKB(kb: KBPermissionInfo): boolean {
-  return canEditKB(kb)
+export function canUploadKB(kb: KBPermissionInfo, userId?: string): boolean {
+  return canEditKB(kb, userId)
 }
 
 /**
  * 是否可删除文档（创建者或编辑者）
  */
-export function canDeleteKB(kb: KBPermissionInfo): boolean {
-  return canEditKB(kb)
+export function canDeleteKB(kb: KBPermissionInfo, userId?: string): boolean {
+  return canEditKB(kb, userId)
 }
 
 /**
  * 是否可管理知识库设置（仅创建者）
  */
-export function canManageKBSettings(kb: KBPermissionInfo): boolean {
-  return isKBOwner(kb)
+export function canManageKBSettings(kb: KBPermissionInfo, userId?: string): boolean {
+  return isKBOwner(kb, userId)
 }
 
 /**
  * 是否可管理成员（仅创建者）
  */
-export function canManageKBMembers(kb: KBPermissionInfo): boolean {
-  return isKBOwner(kb)
+export function canManageKBMembers(kb: KBPermissionInfo, userId?: string): boolean {
+  return isKBOwner(kb, userId)
 }
 
 /**
  * 是否可离开共享知识库（非创建者的成员）
  */
-export function canLeaveKB(kb: KBPermissionInfo): boolean {
-  return isDirectSharedKB(kb) && !isKBOwner(kb)
+export function canLeaveKB(kb: KBPermissionInfo, userId?: string): boolean {
+  return isDirectSharedKB(kb) && !isKBOwner(kb, userId)
 }

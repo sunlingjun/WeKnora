@@ -49,9 +49,9 @@
           <div v-if="session.role === 'user'">
             <EmbedUserMessage
               :content="String(session.content || '')"
-              :mentioned_items="session.mentioned_items"
-              :images="session.images"
-              :attachments="session.attachments"
+              :mentioned_items="session.mentioned_items as unknown[] | undefined"
+              :images="session.images as any"
+              :attachments="session.attachments as any"
               :embeddedMode="true"
               :embed-channel-id="channelId"
               :embed-token="token"

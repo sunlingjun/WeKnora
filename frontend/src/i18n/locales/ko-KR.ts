@@ -1,6 +1,7 @@
 export default {
   menu: {
     knowledgeBase: "지식베이스",
+    sharedKnowledgeBaseSquare: "지식베이스 광장",
     agents: "에이전트",
     integrations: "게시 및 통합",
     organizations: "공유 스페이스",
@@ -3117,6 +3118,20 @@ export default {
       "일부 지식베이스가 아직 초기화되지 않았습니다. 지식 문서를 추가하려면 먼저 설정에서 모델 정보를 구성해야 합니다",
     emptyShared:
       "현재 공동 작업 지식베이스가 없습니다. 공유 스페이스에 참여하여 다른 사람들이 공유하는 지식베이스를 얻을 수 있습니다.",
+    filter: {
+      all: "모두",
+      private: "개인 지식베이스",
+      shared: "내가 만든 공유",
+      joined: "내가 참여한 공유",
+    },
+    sharedTag: "공유",
+    privateTag: "개인",
+    leave: "나가기",
+    role: {
+      owner: "생성자",
+      editor: "편집자",
+      viewer: "뷰어",
+    },
     empty: {
       title: "지식베이스 없음",
       description:
@@ -3147,6 +3162,7 @@ export default {
     sections: {
       pinned: "고정됨",
       mine: "내가 만듦",
+      joinedShared: "내가 참여한 공유",
       tenantReadonly: "워크스페이스 · 읽기 전용",
       tenantOthers: "워크스페이스 · 다른 멤버",
       sharedByMe: "내가 공유한",
@@ -3188,6 +3204,10 @@ export default {
       file: "파일",
       knowledgeBase: "지식베이스",
       noResult: "결과 없음",
+      leftSuccess: "공유 지식베이스에서 나갔습니다",
+      leftFailed: "나가기 실패",
+      joinedSuccess: "공유 지식베이스에 참여했습니다",
+      joinedFailed: "참여 실패",
     },
     processing: "가져오기 작업 처리 중",
     processingDocuments: "{count}개 문서 처리 중",
@@ -3207,6 +3227,19 @@ export default {
       errorTip: "일부 파일 업로드에 실패했습니다. 오른쪽 상단의 알림 세부 정보를 확인해주세요.",
       unknownKb: "지식베이스 {id}",
     },
+  },
+  sharedKbSquare: {
+    title: "공유 지식베이스 광장",
+    subtitle: "다른 사용자가 공유한 지식베이스를 탐색하고 참여하세요",
+    searchPlaceholder: "지식베이스 이름 또는 설명 검색...",
+    search: "검색",
+    join: "참여",
+    empty: "공유 지식베이스가 없습니다",
+    noSearchResult: "일치하는 공유 지식베이스가 없습니다",
+    noDescription: "설명 없음",
+    memberCount: "멤버 {count}명",
+    knowledgeCount: "지식 {count}개",
+    fetchFailed: "공유 지식베이스 로드 실패",
   },
   embedPublish: {
     title: '웹 페이지 임베드',
@@ -3407,6 +3440,10 @@ export default {
       namePlaceholder: "지식베이스 이름을 입력해주세요",
       descriptionLabel: "지식베이스 설명",
       descriptionPlaceholder: "지식베이스 설명을 입력해주세요 (선택)",
+      visibilityLabel: "공개 범위",
+      visibilityPrivate: "개인 지식베이스",
+      visibilityShared: "공유 지식베이스",
+      visibilityDescription: "개인 지식베이스는 본인만 볼 수 있고, 공유 지식베이스는 다른 사용자가 검색하고 참여할 수 있습니다",
     },
     wiki: {
       title: "Wiki 설정",
@@ -4495,8 +4532,6 @@ export default {
     codeImport: {
       toggle: "코드에서 가져오기",
       hint: "표준 mcpServers JSON 설정을 붙여넣으면 양식이 자동으로 채워집니다",
-      placeholder:
-        '{\n  "mcpServers": {\n    "my-server": {\n      "url": "https://example.com/sse"\n    }\n  }\n}',
       parse: "파싱 후 채우기",
       editOverwriteHint: "가져오기는 현재 양식을 덮어씁니다(저장된 자격 증명은 영향받지 않으며, 저장을 눌러야 적용됩니다)",
       errors: {

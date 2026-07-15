@@ -95,7 +95,7 @@
           class="kb-card-wrap">
           <!-- 置顶分组标题 -->
           <div
-            v-if="filteredKnowledgeBases[0] && filteredKnowledgeBases[0].isMine && filteredKnowledgeBases[0].is_pinned"
+            v-if="filteredKnowledgeBases[0] && filteredKnowledgeBases[0].isMine && filteredKnowledgeBases[0].is_pinned && (filteredKnowledgeBases[0] as KB).visibility !== 'shared'"
             class="kb-section-header kb-section-header-pinned" role="button" tabindex="0"
             @click="toggleKbSection('pinned')"
             @keydown.enter.prevent="toggleKbSection('pinned')"
@@ -130,6 +130,22 @@
               <t-icon class="kb-section-toggle" :name="isKbSectionCollapsed('mine') ? 'chevron-right' : 'chevron-down'"
                 size="14px" />
             </div>
+            <!-- 我加入的共享：直接成员加入的共享知识库 -->
+            <div v-if="showShareGroupHeaders
+              && kb.isMine
+              && isJoinedSharedKb(kb as KB)
+              && !kb.is_pinned
+              && (index === 0
+                || !isJoinedSharedKb(filteredKnowledgeBases[index - 1] as KB))" class="kb-section-header" role="button"
+              tabindex="0" @click="toggleKbSection('joinedShared')"
+              @keydown.enter.prevent="toggleKbSection('joinedShared')"
+              @keydown.space.prevent="toggleKbSection('joinedShared')">
+              <t-icon name="usergroup-add" size="14px" />
+              <span>{{ $t('knowledgeList.sections.joinedShared') }}</span>
+              <span class="kb-section-count">{{ filteredKbSectionCounts.joinedShared }}</span>
+              <t-icon class="kb-section-toggle"
+                :name="isKbSectionCollapsed('joinedShared') ? 'chevron-right' : 'chevron-down'" size="14px" />
+            </div>
             <!-- 本空间 · 仅查看：本租户里同事创建、对当前 contributor 不可编辑。
                  当前卡片必须是非置顶（否则归在「已置顶」），且前一张要么
                  不存在、要么是「共享给我」、要么是我创建、要么是置顶卡片
@@ -137,10 +153,12 @@
             <div v-if="showShareGroupHeaders
               && kb.isMine
               && !isMyKb(kb as KB)
+              && !isJoinedSharedKb(kb as KB)
               && !kb.is_pinned
               && (index === 0
                 || !filteredKnowledgeBases[index - 1].isMine
                 || isMyKb(filteredKnowledgeBases[index - 1] as KB)
+                || isJoinedSharedKb(filteredKnowledgeBases[index - 1] as KB)
                 || (filteredKnowledgeBases[index - 1] as any).is_pinned)" class="kb-section-header" role="button"
               tabindex="0" @click="toggleKbSection('tenantOthers')"
               @keydown.enter.prevent="toggleKbSection('tenantOthers')"
@@ -200,11 +218,23 @@
               </button>
               <!-- 卡片头部 -->
               <div class="card-header">
-                <span class="card-title" :title="kb.name">{{ kb.name }}</span>
+                <div class="card-title-wrap">
+                  <span class="card-title" :title="kb.name">{{ kb.name }}</span>
+                  <t-tag v-if="(kb as KB).visibility === 'shared'" size="small" theme="success" variant="light">
+                    {{ $t('knowledgeList.sharedTag') }}
+                  </t-tag>
+                  <t-tag v-else size="small" theme="default" variant="light">
+                    {{ $t('knowledgeList.privateTag') }}
+                  </t-tag>
+                  <t-tag v-if="(kb as KB).visibility === 'shared' && (kb as KB).memberRole" size="small"
+                    theme="primary" variant="light">
+                    {{ getRoleLabel((kb as KB).memberRole) }}
+                  </t-tag>
+                </div>
                 <!-- The card menu always exists when the card is visible: pin
                      is now per-user and available to anyone who can see the KB
                      (backend route only requires KB read access). Settings /
-                     Delete are mutations, so they stay behind canManageKBCard. -->
+                     Delete are mutations, so they stay behind helpers. -->
                 <t-popup overlayClassName="card-more-popup" trigger="click" destroy-on-close
                   placement="bottom-right">
                   <div class="more-wrap" @click.stop>
@@ -212,20 +242,26 @@
                   </div>
                   <template #content>
                     <div class="popup-menu" @click.stop>
-                      <div class="popup-menu-item" @click.stop="handleTogglePinById(kb.id)">
+                      <div v-if="canPinKbCard(kb as KB)" class="popup-menu-item"
+                        @click.stop="handleTogglePinById(kb.id)">
                         <t-icon class="menu-icon" :name="kb.is_pinned ? 'pin-filled' : 'pin'" />
                         <span>{{ kb.is_pinned ? $t('knowledgeList.pin.unpin') : $t('knowledgeList.pin.pin') }}</span>
                       </div>
-                      <template v-if="canManageKBCard(kb)">
-                        <div class="popup-menu-item" @click.stop="handleSettingsById(kb.id)">
-                          <t-icon class="menu-icon" name="setting" />
-                          <span>{{ $t('knowledgeBase.settings') }}</span>
-                        </div>
-                        <div class="popup-menu-item delete" @click.stop="handleDeleteById(kb.id)">
-                          <t-icon class="menu-icon" name="delete" />
-                          <span>{{ $t('common.delete') }}</span>
-                        </div>
-                      </template>
+                      <div v-if="canShowKbSettings(kb as KB)" class="popup-menu-item"
+                        @click.stop="handleSettingsById(kb.id)">
+                        <t-icon class="menu-icon" name="setting" />
+                        <span>{{ $t('knowledgeBase.settings') }}</span>
+                      </div>
+                      <div v-if="canShowKbLeave(kb as KB)" class="popup-menu-item"
+                        @click.stop="handleLeave(kb as KB)">
+                        <t-icon class="menu-icon" name="logout" />
+                        <span>{{ $t('knowledgeList.leave') }}</span>
+                      </div>
+                      <div v-if="canShowKbDelete(kb as KB)" class="popup-menu-item delete"
+                        @click.stop="handleDeleteById(kb.id)">
+                        <t-icon class="menu-icon" name="delete" />
+                        <span>{{ $t('common.delete') }}</span>
+                      </div>
                     </div>
                   </template>
                 </t-popup>
@@ -351,8 +387,7 @@
                 <div class="bottom-right">
                   <t-tooltip :content="kb.org_name" placement="top">
                     <div class="org-source">
-                      <img src="@/assets/img/organization-green.svg" class="org-source-icon" alt=""
-                        aria-hidden="true" />
+                      <SvgIcon name="organization" variant="green" :size="14" class="org-source-icon" />
                       <span>{{ kb.org_name }}</span>
                     </div>
                   </t-tooltip>
@@ -364,7 +399,8 @@
 
         <div v-if="spaceSelection === 'mine' && sortedMineKbs.length > 0" class="kb-card-wrap">
           <!-- 置顶分组标题 -->
-          <div v-if="sortedMineKbs[0] && sortedMineKbs[0].is_pinned" class="kb-section-header kb-section-header-pinned"
+          <div v-if="sortedMineKbs[0] && sortedMineKbs[0].is_pinned && sortedMineKbs[0].visibility !== 'shared'"
+            class="kb-section-header kb-section-header-pinned"
             role="button" tabindex="0" @click="toggleKbSection('pinned')"
             @keydown.enter.prevent="toggleKbSection('pinned')"
             @keydown.space.prevent="toggleKbSection('pinned')">
@@ -393,13 +429,30 @@
               <t-icon class="kb-section-toggle" :name="isKbSectionCollapsed('mine') ? 'chevron-right' : 'chevron-down'"
                 size="14px" />
             </div>
+            <!-- 我加入的共享 -->
+            <div v-if="showShareGroupHeaders
+              && isJoinedSharedKb(kb)
+              && !kb.is_pinned
+              && (index === 0
+                || !isJoinedSharedKb(sortedMineKbs[index - 1]))"
+              class="kb-section-header" role="button" tabindex="0" @click="toggleKbSection('joinedShared')"
+              @keydown.enter.prevent="toggleKbSection('joinedShared')"
+              @keydown.space.prevent="toggleKbSection('joinedShared')">
+              <t-icon name="usergroup-add" size="14px" />
+              <span>{{ $t('knowledgeList.sections.joinedShared') }}</span>
+              <span class="kb-section-count">{{ mineKbSectionCounts.joinedShared }}</span>
+              <t-icon class="kb-section-toggle"
+                :name="isKbSectionCollapsed('joinedShared') ? 'chevron-right' : 'chevron-down'" size="14px" />
+            </div>
             <!-- 本空间 · 仅查看：当前非置顶的同事 KB，且前一张要么不存在、
                  要么是我创建、要么是置顶卡片（置顶→非置顶过渡）。 -->
             <div v-if="showShareGroupHeaders
               && !isMyKb(kb)
+              && !isJoinedSharedKb(kb)
               && !kb.is_pinned
               && (index === 0
                 || isMyKb(sortedMineKbs[index - 1])
+                || isJoinedSharedKb(sortedMineKbs[index - 1])
                 || sortedMineKbs[index - 1].is_pinned)" class="kb-section-header" role="button" tabindex="0"
               @click="toggleKbSection('tenantOthers')"
               @keydown.enter.prevent="toggleKbSection('tenantOthers')"
@@ -424,7 +477,19 @@
               </button>
               <!-- 卡片头部 -->
               <div class="card-header">
-                <span class="card-title" :title="kb.name">{{ kb.name }}</span>
+                <div class="card-title-wrap">
+                  <span class="card-title" :title="kb.name">{{ kb.name }}</span>
+                  <t-tag v-if="kb.visibility === 'shared'" size="small" theme="success" variant="light">
+                    {{ $t('knowledgeList.sharedTag') }}
+                  </t-tag>
+                  <t-tag v-else size="small" theme="default" variant="light">
+                    {{ $t('knowledgeList.privateTag') }}
+                  </t-tag>
+                  <t-tag v-if="kb.visibility === 'shared' && kb.memberRole" size="small" theme="primary"
+                    variant="light">
+                    {{ getRoleLabel(kb.memberRole) }}
+                  </t-tag>
+                </div>
                 <!-- See the matching block in the "all" tab template for why
                      this is no longer gated by canManageKBCard. -->
                 <t-popup v-model="kb.showMore" overlayClassName="card-more-popup"
@@ -435,20 +500,22 @@
                   </div>
                   <template #content>
                     <div class="popup-menu" @click.stop>
-                      <div class="popup-menu-item" @click.stop="handleTogglePin(kb)">
+                      <div v-if="canPinKbCard(kb)" class="popup-menu-item" @click.stop="handleTogglePin(kb)">
                         <t-icon class="menu-icon" :name="kb.is_pinned ? 'pin-filled' : 'pin'" />
                         <span>{{ kb.is_pinned ? $t('knowledgeList.pin.unpin') : $t('knowledgeList.pin.pin') }}</span>
                       </div>
-                      <template v-if="canManageKBCard(kb)">
-                        <div class="popup-menu-item" @click.stop="handleSettings(kb)">
-                          <t-icon class="menu-icon" name="setting" />
-                          <span>{{ $t('knowledgeBase.settings') }}</span>
-                        </div>
-                        <div class="popup-menu-item delete" @click.stop="handleDelete(kb)">
-                          <t-icon class="menu-icon" name="delete" />
-                          <span>{{ $t('common.delete') }}</span>
-                        </div>
-                      </template>
+                      <div v-if="canShowKbSettings(kb)" class="popup-menu-item" @click.stop="handleSettings(kb)">
+                        <t-icon class="menu-icon" name="setting" />
+                        <span>{{ $t('knowledgeBase.settings') }}</span>
+                      </div>
+                      <div v-if="canShowKbLeave(kb)" class="popup-menu-item" @click.stop="handleLeave(kb)">
+                        <t-icon class="menu-icon" name="logout" />
+                        <span>{{ $t('knowledgeList.leave') }}</span>
+                      </div>
+                      <div v-if="canShowKbDelete(kb)" class="popup-menu-item delete" @click.stop="handleDelete(kb)">
+                        <t-icon class="menu-icon" name="delete" />
+                        <span>{{ $t('common.delete') }}</span>
+                      </div>
                     </div>
                   </template>
                 </t-popup>
@@ -607,8 +674,7 @@
                 <div class="bottom-right">
                   <t-tooltip :content="shared.org_name" placement="top">
                     <div class="org-source">
-                      <img src="@/assets/img/organization-green.svg" class="org-source-icon" alt=""
-                        aria-hidden="true" />
+                      <SvgIcon name="organization" variant="green" :size="14" class="org-source-icon" />
                       <span>{{ shared.org_name }}</span>
                     </div>
                   </t-tooltip>
@@ -724,8 +790,7 @@
                 <span class="shared-detail-label">{{ currentSharedKbForDetail.source_from_agent ?
                   $t('knowledgeList.detail.sourceFromAgent') : $t('knowledgeList.detail.sourceOrg') }}</span>
                 <span class="shared-detail-value shared-detail-org">
-                  <img src="@/assets/img/organization-green.svg" class="shared-detail-org-icon" alt=""
-                    aria-hidden="true" />
+                  <SvgIcon name="organization" variant="green" :size="14" class="shared-detail-org-icon" />
                   {{ currentSharedKbForDetail.source_from_agent ? currentSharedKbForDetail.source_from_agent.agent_name
                     :
                     currentSharedKbForDetail.org_name }}
@@ -771,7 +836,7 @@
 import { onMounted, onUnmounted, ref, computed, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
-import { deleteKnowledgeBase, togglePinKnowledgeBase } from '@/api/knowledge-base'
+import { deleteKnowledgeBase, togglePinKnowledgeBase, leaveSharedKnowledgeBase } from '@/api/knowledge-base'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { formatStringDate } from '@/utils/index'
 import { useUIStore } from '@/stores/ui'
@@ -789,6 +854,7 @@ import { useTenantModelReadiness } from '@/composables/useTenantModelReadiness'
 import { useI18n } from 'vue-i18n'
 import { useListUrlState } from '@/composables/useListUrlState'
 import { useResourcePins } from '@/composables/useResourcePins'
+import { SvgIcon } from '@/components/icons'
 
 const router = useRouter()
 const route = useRoute()
@@ -845,12 +911,18 @@ interface KB {
   processing_count?: number;
   share_count?: number;
   is_pinned?: boolean;
+  pinned_at?: string;
+  created_at?: string;
   // creator_id is the owner-id matched against authStore.user.id when
   // gating the per-card more-menu (Settings / Delete). Empty for legacy
   // KBs created before PR 5; those fall back to the role gate.
   creator_id?: string;
   // creator_name 由后端 list 接口回填，仅用于卡片右下角来源徽章的 tooltip。
   creator_name?: string;
+  visibility?: 'private' | 'shared';
+  owner_id?: string;
+  isOwner?: boolean;
+  memberRole?: string;
 }
 
 const kbs = ref<KB[]>([])
@@ -914,18 +986,21 @@ const spaceKbsLoading = ref(false)
 // previous version only bucketed by isMyKb and silently demoted these
 // pinned-but-teammate KBs.
 const sortedMineKbs = computed<KB[]>(() => {
+  const bucket = (kb: KB): number => {
+    if (kb.is_pinned && kb.visibility !== 'shared') return 0
+    if (isJoinedSharedKb(kb)) return 2
+    if (isMyKb(kb) || (kb.visibility === 'shared' && kb.isOwner)) return 1
+    return 3
+  }
   return [...kbs.value].sort((a, b) => {
-    const ap = a.is_pinned ? 0 : 1
-    const bp = b.is_pinned ? 0 : 1
-    if (ap !== bp) return ap - bp
+    const ab = bucket(a)
+    const bb = bucket(b)
+    if (ab !== bb) return ab - bb
     if (a.is_pinned && b.is_pinned) {
       const at = a.pinned_at ? Date.parse(a.pinned_at as string) : 0
       const bt = b.pinned_at ? Date.parse(b.pinned_at as string) : 0
       if (at !== bt) return bt - at
     }
-    const am = isMyKb(a) ? 0 : 1
-    const bm = isMyKb(b) ? 0 : 1
-    if (am !== bm) return am - bm
     const ac = a.created_at ? Date.parse(a.created_at as string) : 0
     const bc = b.created_at ? Date.parse(b.created_at as string) : 0
     return bc - ac
@@ -1078,7 +1153,7 @@ const tenantSectionIconName = computed(() =>
 // 分组折叠：ephemeral，只在当前会话里生效，不落 localStorage/服务器。
 // 之所以走"折叠集合"而不是"展开集合"，是因为默认全展开——空 Set
 // 即表示初始的全展开状态，避免每次新加分段还得回头维护默认值。
-type KbSectionKey = 'pinned' | 'mine' | 'tenantOthers' | 'sharedByMe' | 'sharedEditable' | 'sharedReadonly'
+type KbSectionKey = 'pinned' | 'mine' | 'joinedShared' | 'tenantOthers' | 'sharedByMe' | 'sharedEditable' | 'sharedReadonly'
 const collapsedKbSections = ref<Set<KbSectionKey>>(new Set())
 const isKbSectionCollapsed = (key: KbSectionKey) => collapsedKbSections.value.has(key)
 const toggleKbSection = (key: KbSectionKey) => {
@@ -1100,9 +1175,12 @@ const toggleKbSection = (key: KbSectionKey) => {
 // 跨租户共享条目一定带 `permission`，本租户条目永远没有，所以"无 permission"
 // 是本租户的安全标识。综合：先看 isMine，再回退到 permission 是否存在。
 const kbSectionOf = (kb: any): KbSectionKey => {
-  if (kb?.is_pinned) return 'pinned'
+  if (kb?.is_pinned && kb?.visibility !== 'shared') return 'pinned'
   const isOwnTenant = kb?.isMine === true || (kb?.isMine !== false && kb?.permission == null)
-  if (isOwnTenant) return isMyKb(kb) ? 'mine' : 'tenantOthers'
+  if (isOwnTenant) {
+    if (kb?.visibility === 'shared' && kb?.isOwner === false) return 'joinedShared'
+    return isMyKb(kb) || (kb?.visibility === 'shared' && kb?.isOwner) ? 'mine' : 'tenantOthers'
+  }
   return isSharedKbEditable(kb?.permission) ? 'sharedEditable' : 'sharedReadonly'
 }
 
@@ -1117,7 +1195,7 @@ const isSpaceKbCollapsed = (shared: any): boolean => isKbSectionCollapsed(spaceK
 // 每个分组里实际有多少张卡片——直接把分组判定函数复用一遍。组标题上展示
 // "(N)" 让用户一眼知道折叠后会藏掉多少，也方便核对筛选结果。
 const emptyKbCounts = (): Record<KbSectionKey, number> => ({
-  pinned: 0, mine: 0, tenantOthers: 0, sharedByMe: 0, sharedEditable: 0, sharedReadonly: 0,
+  pinned: 0, mine: 0, joinedShared: 0, tenantOthers: 0, sharedByMe: 0, sharedEditable: 0, sharedReadonly: 0,
 })
 const filteredKbSectionCounts = computed<Record<KbSectionKey, number>>(() => {
   const c = emptyKbCounts()
@@ -1199,13 +1277,26 @@ interface UploadSummary {
 }
 
 const applyKbListData = (data: any[]) => {
-  kbs.value = data.map((kb: any) => ({
-    ...kb,
-    updated_at: kb.updated_at ? formatStringDate(new Date(kb.updated_at)) : '',
-    showMore: false,
-    isProcessing: kb.is_processing || false,
-    processing_count: kb.processing_count || 0
-  }))
+  const userId = authStore.user?.id || ''
+  kbs.value = data.map((kb: any) => {
+    const visibility = kb.visibility || 'private'
+    const isOwner = kb.is_owner !== undefined
+      ? kb.is_owner
+      : !!(userId && (
+        (kb.owner_id && kb.owner_id === userId)
+        || (kb.creator_id && kb.creator_id === userId)
+      ))
+    return {
+      ...kb,
+      visibility,
+      isOwner,
+      memberRole: kb.member_role || (visibility === 'shared' ? (isOwner ? 'owner' : undefined) : 'owner'),
+      updated_at: kb.updated_at ? formatStringDate(new Date(kb.updated_at)) : '',
+      showMore: false,
+      isProcessing: kb.is_processing || false,
+      processing_count: kb.processing_count || 0,
+    }
+  })
 }
 
 const fetchList = (force = false) => {
@@ -1259,19 +1350,27 @@ watch(creatorFilter, () => {
   fetchList(true)
 })
 
-onMounted(() => {
-  fetchList().then(() => {
-    // 检查路由参数中是否有需要高亮的知识库ID
+const handleKbListRefresh = () => {
+  fetchList(true).then(() => {
     const highlightKbId = route.query.highlightKbId as string
     if (highlightKbId) {
       triggerHighlightFlash(highlightKbId)
-      // Drop the transient highlight param but preserve other state
-      // (scope / creator / q) so refreshing doesn't reset the user's view.
       const { highlightKbId: _drop, ...rest } = route.query
       router.replace({ query: rest })
     }
   })
+}
 
+watch(
+  () => route.name,
+  (name) => {
+    if (name === 'knowledgeBaseList') handleKbListRefresh()
+  },
+  { immediate: true },
+)
+
+onMounted(() => {
+  window.addEventListener('weknora:refresh-kb-list', handleKbListRefresh as EventListener)
   window.addEventListener('knowledgeFileUploadStart', handleUploadStartEvent as EventListener)
   window.addEventListener('knowledgeFileUploadProgress', handleUploadProgressEvent as EventListener)
   window.addEventListener('knowledgeFileUploadComplete', handleUploadCompleteEvent as EventListener)
@@ -1279,6 +1378,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('weknora:refresh-kb-list', handleKbListRefresh as EventListener)
   window.removeEventListener('knowledgeFileUploadStart', handleUploadStartEvent as EventListener)
   window.removeEventListener('knowledgeFileUploadProgress', handleUploadProgressEvent as EventListener)
   window.removeEventListener('knowledgeFileUploadComplete', handleUploadCompleteEvent as EventListener)
@@ -1339,6 +1439,48 @@ function canManageKBCard(kb: KB): boolean {
   const userId = authStore.user?.id || ''
   if (kb.creator_id && userId && kb.creator_id === userId) return true
   return authStore.hasRole('admin')
+}
+
+function isJoinedSharedKb(kb: KB): boolean {
+  return kb.visibility === 'shared' && !kb.isOwner
+}
+
+function canPinKbCard(kb: KB): boolean {
+  return kb.visibility !== 'shared'
+}
+
+function canShowKbSettings(kb: KB): boolean {
+  if (kb.visibility === 'shared') return !!kb.isOwner
+  return canManageKBCard(kb)
+}
+
+function canShowKbDelete(kb: KB): boolean {
+  if (kb.visibility === 'shared') return !!kb.isOwner
+  return canManageKBCard(kb)
+}
+
+function canShowKbLeave(kb: KB): boolean {
+  return kb.visibility === 'shared' && !kb.isOwner
+}
+
+const getRoleLabel = (role?: string) => {
+  const roleMap: Record<string, string> = {
+    owner: t('knowledgeList.role.owner'),
+    editor: t('knowledgeList.role.editor'),
+    viewer: t('knowledgeList.role.viewer'),
+  }
+  return roleMap[role || 'viewer'] || t('knowledgeList.role.viewer')
+}
+
+const handleLeave = async (kb: KB) => {
+  kb.showMore = false
+  try {
+    await leaveSharedKnowledgeBase(kb.id)
+    MessagePlugin.success(t('knowledgeList.messages.leftSuccess'))
+    fetchList(true)
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('knowledgeList.messages.leftFailed'))
+  }
 }
 
 // isMyKb 仅用于卡片右下角徽章在「我创建」与「同租户其他成员创建」之间切换。
@@ -1777,7 +1919,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 }
 
 .kb-create-btn {
-  background: linear-gradient(135deg, var(--td-brand-color) 0%, #00a67e 100%);
+  background: linear-gradient(135deg, var(--td-brand-color) 0%, var(--td-brand-color-active) 100%);
   border: none;
   color: var(--td-text-color-anti);
 
@@ -1811,7 +1953,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   display: inline-flex;
   align-items: center;
   padding: 2px 6px;
-  background: rgba(7, 192, 95, 0.1);
+  background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
   border-radius: 4px;
   font-size: 12px;
   color: var(--td-brand-color);
@@ -1906,7 +2048,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(7, 192, 95, 0.1);
+  background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
   border-radius: 4px;
   font-size: 12px;
   color: var(--td-brand-color);
@@ -1923,7 +2065,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  background: rgba(7, 192, 95, 0.06);
+  background: color-mix(in srgb, var(--td-brand-color) 6%, transparent);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.4;
@@ -1957,7 +2099,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  background: rgba(7, 192, 95, 0.06);
+  background: color-mix(in srgb, var(--td-brand-color) 6%, transparent);
   border-radius: 6px;
   font-size: 11px;
   line-height: 1.4;
@@ -1980,16 +2122,16 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   // 共享知识库根据类型显示不同样式
   &.kb-type-document {
-    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.04) 100%) !important;
+    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, color-mix(in srgb, var(--td-brand-color) 4%, transparent) 100%) !important;
 
     &:hover {
       border-color: var(--td-brand-color) !important;
-      box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12) !important;
-      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.08) 100%) !important;
+      box-shadow: 0 4px 12px color-mix(in srgb, var(--td-brand-color) 12%, transparent) !important;
+      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, color-mix(in srgb, var(--td-brand-color) 8%, transparent) 100%) !important;
     }
 
     &::after {
-      background: linear-gradient(135deg, rgba(7, 192, 95, 0.08) 0%, transparent 100%) !important;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--td-brand-color) 8%, transparent) 0%, transparent 100%) !important;
     }
   }
 
@@ -2256,7 +2398,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   &:hover {
     border-color: var(--td-brand-color);
-    box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--td-brand-color) 12%, transparent);
   }
 
   &.uninitialized {
@@ -2265,11 +2407,11 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   // 文档类型样式
   &.kb-type-document {
-    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.04) 100%);
+    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, color-mix(in srgb, var(--td-brand-color) 4%, transparent) 100%);
 
     &:hover {
       border-color: var(--td-brand-color);
-      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.08) 100%);
+      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, color-mix(in srgb, var(--td-brand-color) 8%, transparent) 100%);
     }
 
     // 右上角装饰
@@ -2280,7 +2422,7 @@ const handleUploadFinishedEvent = (event: Event) => {
       right: 0;
       width: 60px;
       height: 60px;
-      background: linear-gradient(135deg, rgba(7, 192, 95, 0.08) 0%, transparent 100%);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--td-brand-color) 8%, transparent) 0%, transparent 100%);
       border-radius: 0 12px 0 100%;
       pointer-events: none;
       z-index: 0;
@@ -2400,6 +2542,14 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 4px;
   margin-bottom: 6px;
+
+  .card-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+  }
 
   .card-title {
     flex: 1;
@@ -2554,14 +2704,14 @@ const handleUploadFinishedEvent = (event: Event) => {
   transition: background 0.2s ease;
 
   &.type-document {
-    background: rgba(7, 192, 95, 0.08);
+    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
     color: var(--td-brand-color-active);
     width: auto;
     padding: 0 6px;
     gap: 3px;
 
     &:hover {
-      background: rgba(7, 192, 95, 0.12);
+      background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
     }
 
     .badge-count {
@@ -2632,11 +2782,11 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &.role-admin {
-    background: rgba(7, 192, 95, 0.1);
+    background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
     color: var(--td-brand-color-active);
 
     &:hover {
-      background: rgba(7, 192, 95, 0.15);
+      background: color-mix(in srgb, var(--td-brand-color) 15%, transparent);
     }
   }
 
@@ -2672,19 +2822,19 @@ const handleUploadFinishedEvent = (event: Event) => {
 @keyframes highlightFlash {
   0% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 0 rgba(7, 192, 95, 0.4);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--td-brand-color) 40%, transparent);
     transform: scale(1);
   }
 
   50% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 8px rgba(7, 192, 95, 0);
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--td-brand-color) 0%, transparent);
     transform: scale(1.02);
   }
 
   100% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 0 rgba(7, 192, 95, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--td-brand-color) 0%, transparent);
     transform: scale(1);
   }
 }
@@ -2692,7 +2842,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 .kb-card.highlight-flash {
   animation: highlightFlash 0.6s ease-in-out 3;
   border-color: var(--td-brand-color) !important;
-  box-shadow: 0 0 12px rgba(7, 192, 95, 0.3) !important;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--td-brand-color) 30%, transparent) !important;
 }
 
 .card-time {
@@ -2879,7 +3029,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &:hover {
-    background: rgba(7, 192, 95, 0.08);
+    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
     color: var(--td-brand-color);
   }
 }

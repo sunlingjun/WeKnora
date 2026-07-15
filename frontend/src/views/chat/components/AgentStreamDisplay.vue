@@ -7,7 +7,7 @@
         <div class="action-card tree-root" @click="toggleIntermediateSteps">
           <div class="action-header">
             <div class="action-title">
-              <span class="action-title-icon icon-mask" :style="maskIconStyle(agentIcon)" aria-hidden="true" />
+              <SvgIcon name="agent" theme="brand" :size="18" class="action-title-icon" />
               <span class="action-name tree-root-summary" v-html="intermediateStepsSummaryHtml"></span>
               <div class="action-show-icon">
                 <t-icon :name="showIntermediateSteps ? 'chevron-down' : 'chevron-right'" />
@@ -39,8 +39,7 @@
                 <div class="action-card" :class="{ 'action-pending': isThinkingActive(event.event_id) }">
                   <div class="action-header" @click="toggleEvent(event.event_id)">
                     <div class="action-title">
-                      <span class="action-title-icon icon-mask" :style="maskIconStyle(thinkingIcon)"
-                        aria-hidden="true" />
+                      <SvgIcon name="thinking" theme="brand" :size="18" class="action-title-icon" />
                       <span v-if="event.title" class="action-name action-preamble-title">{{ event.title }}</span>
                       <span v-else-if="isEventExpanded(event.event_id)" class="action-name">{{ $t('agent.think')
                       }}</span>
@@ -62,8 +61,7 @@
                   :class="{ 'action-pending': event.pending || isThinkingActive(event.tool_call_id) }">
                   <div class="action-header" @click="toggleEvent(event.tool_call_id)">
                     <div class="action-title">
-                      <span class="action-title-icon icon-mask" :style="maskIconStyle(thinkingIcon)"
-                        aria-hidden="true" />
+                      <SvgIcon name="thinking" theme="brand" :size="18" class="action-title-icon" />
                       <span class="action-name">{{ $t('agent.think') }}</span>
                       <span v-if="event.tool_data?.thought_number" class="action-badge">{{
                         event.tool_data.thought_number }}/{{ event.tool_data.total_thoughts }}</span>
@@ -211,7 +209,7 @@
               <div class="action-card" :class="{ 'action-pending': isThinkingActive(event.event_id) }">
                 <div class="action-header" @click="toggleEvent(event.event_id)">
                   <div class="action-title">
-                    <span class="action-title-icon icon-mask" :style="maskIconStyle(thinkingIcon)" aria-hidden="true" />
+                    <SvgIcon name="thinking" theme="brand" :size="18" class="action-title-icon" />
                     <span v-if="event.title" class="action-name action-preamble-title">{{ event.title }}</span>
                     <span v-else class="action-name">{{ $t('agent.think') }}</span>
                     <span v-if="!event.title && getThinkingSummary(event) && !isEventExpanded(event.event_id)"
@@ -240,7 +238,7 @@
                 :class="{ 'action-pending': event.pending || isThinkingActive(event.tool_call_id) }">
                 <div class="action-header" @click="toggleEvent(event.tool_call_id)">
                   <div class="action-title">
-                    <span class="action-title-icon icon-mask" :style="maskIconStyle(thinkingIcon)" aria-hidden="true" />
+                    <SvgIcon name="thinking" theme="brand" :size="18" class="action-title-icon" />
                     <span class="action-name">{{ $t('agent.think') }}</span>
                     <span v-if="event.tool_data?.thought_number" class="action-badge">{{ event.tool_data.thought_number
                     }}/{{ event.tool_data.total_thoughts }}</span>
@@ -436,6 +434,7 @@ import { hydrateProtectedFileImages, clearProtectedFileFailureCache, sanitizeMar
 import { unwrapFinalAnswerWrappers, thinkingEqualsAnswer } from '@/utils/finalAnswer';
 import { getAgentToolIconName } from '@/utils/agent-tool-icons';
 import { getQueryText, getWikiPageText } from '@/utils/agent-tool-display';
+import { SvgIcon } from '@/components/icons';
 import {
   buildManualMarkdown,
   copyTextToClipboard,
@@ -687,11 +686,6 @@ const handleWikiDrawerClick = (e: MouseEvent) => {
     }
   }
 };
-
-// Import icons
-import agentIcon from '@/assets/img/agent.svg';
-import thinkingIcon from '@/assets/img/Frame3718.svg';
-
 interface SessionData {
   id?: string;
   request_id?: string;
@@ -1583,9 +1577,10 @@ const onRootClick = (e: Event) => {
     const slug = wikiEl.getAttribute('data-slug');
 
     // Determine the relevant KB ID
+    if (!slug) return;
     const kbId = getKbIdForWiki(slug);
 
-    if (kbId && slug) {
+    if (kbId) {
       openWikiDrawer(kbId, slug);
     } else {
       MessagePlugin.warning(t('agentStream.citation.noKbForWiki'));
@@ -1861,19 +1856,6 @@ const getPlanStatusSummary = (event: any): string => {
   if (parts.completed > 0) textParts.push(`✅ ${t('agentStream.plan.completed')} ${parts.completed}`);
   return textParts.length > 0 ? textParts.join(' · ') : '';
 };
-
-/** Render SVG assets in the channel / brand color via CSS mask. */
-function maskIconStyle(src: string, size = 18): Record<string, string> {
-  if (!src) return {}
-  const url = `url("${src}")`
-  return {
-    width: `${size}px`,
-    height: `${size}px`,
-    WebkitMaskImage: url,
-    maskImage: url,
-  }
-}
-
 // Get search results summary text (returns HTML with colored numbers)
 const getSearchResultsSummary = (event: any): string => {
   if (!event || !event.tool_data) return '';

@@ -1,6 +1,7 @@
 export default {
   menu: {
     knowledgeBase: 'База знаний',
+    sharedKnowledgeBaseSquare: 'Площадь баз знаний',
     chat: 'Диалог',
     newChat: 'Новый диалог',
     createChat: 'Создать диалог',
@@ -388,6 +389,9 @@ export default {
     urlExists: 'Этот URL уже существует',
     urlLabel: 'Адрес URL',
     urlPlaceholder: 'Введите URL веб-страницы, например: https://example.com',
+    urlTitleLabel: 'Отображаемое название (обязательно)',
+    urlTitlePlaceholder: 'Будет показано как название знания; подставляется из URL, можно изменить',
+    urlTitleRequired: 'Введите отображаемое название',
     urlTip: 'Поддерживает импорт различного веб-содержимого. Система автоматически извлечет и проанализирует текстовое содержимое с веб-страницы',
     typeURL: 'URL',
     typeManual: 'Вручную',
@@ -2604,6 +2608,20 @@ export default {
     createFAQ: 'Создать FAQ-базу',
     subtitle: 'Управляйте и организуйте свои базы знаний, поддерживаются документные и FAQ-базы знаний',
     uninitializedBanner: 'Некоторые базы знаний не инициализированы. Сначала настройте модели в разделе настроек, чтобы добавлять документы.',
+    sharedTag: 'Общая',
+    privateTag: 'Личная',
+    leave: 'Выйти',
+    filter: {
+      all: 'Все',
+      private: 'Личные',
+      shared: 'Созданные мной общие',
+      joined: 'Присоединённые общие'
+    },
+    role: {
+      owner: 'Создатель',
+      editor: 'Редактор',
+      viewer: 'Наблюдатель'
+    },
     empty: {
       title: 'Базы знаний отсутствуют',
       description: 'Нажмите «Создать базу знаний» в левом быстром действии, чтобы добавить первую базу.',
@@ -2629,6 +2647,7 @@ export default {
     sections: {
       pinned: 'Закреплённые',
       mine: 'Созданные мной',
+      joinedShared: 'Присоединённые общие',
       tenantReadonly: 'Рабочая область · Только просмотр',
       tenantOthers: 'Рабочая область · Другие участники',
       sharedByMe: 'Расшарено мной',
@@ -2640,7 +2659,11 @@ export default {
       deleteFailed: 'Не удалось удалить базу знаний',
       file: '文件',
       knowledgeBase: '知识库',
-      noResult: '无结果'
+      noResult: '无结果',
+      leftSuccess: 'Вы вышли из общей базы знаний',
+      leftFailed: 'Не удалось выйти',
+      joinedSuccess: 'Вы присоединились к общей базе знаний',
+      joinedFailed: 'Не удалось присоединиться'
     },
     features: {
       knowledgeGraph: 'Граф знаний включен',
@@ -2705,6 +2728,19 @@ export default {
       enabled: 'Enabled',
       disabled: 'Disabled'
     }
+  },
+  sharedKbSquare: {
+    title: 'Площадь общих баз знаний',
+    subtitle: 'Просматривайте и присоединяйтесь к базам знаний, которыми делятся другие',
+    searchPlaceholder: 'Поиск по названию или описанию...',
+    search: 'Поиск',
+    join: 'Присоединиться',
+    empty: 'Общих баз знаний пока нет',
+    noSearchResult: 'Подходящих общих баз знаний не найдено',
+    noDescription: 'Нет описания',
+    memberCount: '{count} участников',
+    knowledgeCount: '{count} элементов',
+    fetchFailed: 'Не удалось загрузить общие базы знаний'
   },
   embedPublish: {
     title: 'Встраивание на веб-страницу',
@@ -2904,7 +2940,11 @@ export default {
       nameLabel: 'Название базы знаний',
       namePlaceholder: 'Введите название базы знаний',
       descriptionLabel: 'Описание базы знаний',
-      descriptionPlaceholder: 'Введите описание базы знаний (необязательно)'
+      descriptionPlaceholder: 'Введите описание базы знаний (необязательно)',
+      visibilityLabel: 'Видимость',
+      visibilityPrivate: 'Личная база знаний',
+      visibilityShared: 'Общая база знаний',
+      visibilityDescription: 'Личная база видна только вам; общую могут находить и к ней присоединяться другие пользователи',
     },
     wiki: {
       title: 'Wiki настройки',
@@ -4144,8 +4184,6 @@ export default {
     codeImport: {
       toggle: 'Импорт из кода',
       hint: 'Вставьте стандартную JSON-конфигурацию mcpServers для автозаполнения формы',
-      placeholder:
-        '{\n  "mcpServers": {\n    "my-server": {\n      "url": "https://example.com/sse"\n    }\n  }\n}',
       parse: 'Разобрать и заполнить',
       editOverwriteHint: 'Импорт перезапишет текущую форму (сохранённые учётные данные не затрагиваются; нажмите «Сохранить», чтобы применить)',
       errors: {

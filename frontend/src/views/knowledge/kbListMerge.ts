@@ -77,6 +77,12 @@ function isMyKb(kb: { creator_id?: string }, currentUserId: string | undefined):
   return !!(kb.creator_id && currentUserId && kb.creator_id === currentUserId);
 }
 
+function isJoinedDirectShared(kb: OwnedKnowledgeBase, currentUserId: string | undefined): boolean {
+  if (kb.visibility !== 'shared') return false;
+  const ownerId = kb.owner_id as string | undefined;
+  return !!(ownerId && currentUserId && ownerId !== currentUserId);
+}
+
 function pinnedTime(kb: OwnedKnowledgeBase): number {
   return kb.pinned_at ? Date.parse(kb.pinned_at) : 0;
 }
@@ -86,9 +92,10 @@ function pinnedTime(kb: OwnedKnowledgeBase): number {
  *
  * Ordering (unchanged from the previous inline logic):
  *   1. pinned KBs (any creator the caller pinned), newest pin first
- *   2. the caller's own non-pinned KBs
- *   3. teammate non-pinned KBs (own tenant, someone else created)
- *   4. shared KBs, editable grants before view-only
+ *   2. the caller's own non-pinned KBs (private or shared they own)
+ *   3. direct-shared KBs the caller joined (visibility=shared, not owner)
+ *   4. teammate non-pinned KBs (own tenant, someone else created)
+ *   5. shared KBs via organizations, editable grants before view-only
  *
  * On top of that, every entry is unique by knowledge-base id: owned rows
  * win over shared duplicates, and repeated shares of one KB collapse to
@@ -103,18 +110,21 @@ export function mergeAllScopeKnowledgeBases(
 
   const pinned: OwnedKnowledgeBase[] = [];
   const ownMine: OwnedKnowledgeBase[] = [];
+  const joinedShared: OwnedKnowledgeBase[] = [];
   const teammateMine: OwnedKnowledgeBase[] = [];
   const ownedIds = new Set<string>();
   for (const kb of owned) {
     ownedIds.add(kb.id);
-    if (kb.is_pinned) pinned.push(kb);
-    else if (isMyKb(kb, currentUserId)) ownMine.push(kb);
+    if (kb.is_pinned && kb.visibility !== 'shared') pinned.push(kb);
+    else if (isJoinedDirectShared(kb, currentUserId)) joinedShared.push(kb);
+    else if (isMyKb(kb, currentUserId) || kb.visibility === 'shared') ownMine.push(kb);
     else teammateMine.push(kb);
   }
   pinned.sort((a, b) => pinnedTime(b) - pinnedTime(a));
 
   for (const kb of pinned) result.push({ ...kb, isMine: true as const });
   for (const kb of ownMine) result.push({ ...kb, isMine: true as const });
+  for (const kb of joinedShared) result.push({ ...kb, isMine: true as const });
   for (const kb of teammateMine) result.push({ ...kb, isMine: true as const });
 
   // Collapse the shared rows by KB id, keeping the most-privileged grant,

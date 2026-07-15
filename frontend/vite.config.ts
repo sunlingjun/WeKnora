@@ -52,7 +52,7 @@ const DEV_PROXY_TARGET =
   process.env.VITE_DEV_PROXY_TARGET ||
   process.env.FRONTEND_BACKEND_URL ||
   process.env.BACKEND_URL ||
-  'https://zsk.t.nxin.com:8080'
+  'http://127.0.0.1:8080'
 
 function resolveVueOfficePptxEntry(): string {
   try {

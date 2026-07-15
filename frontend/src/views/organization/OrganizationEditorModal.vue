@@ -233,7 +233,7 @@
               <span>{{ $t('organization.join.shareCount', { count: previewInfo.share_count }) }}</span>
             </div>
             <div class="stat-item stat-item-agent">
-              <img src="@/assets/img/agent.svg" class="stat-agent-icon" alt="" aria-hidden="true" />
+              <SvgIcon name="agent" :size="14" class="stat-agent-icon" />
               <span>{{ $t('organization.join.agentShareCount', { count: previewInfo.agent_share_count ?? 0 }) }}</span>
             </div>
           </div>
@@ -254,6 +254,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { useI18n } from 'vue-i18n'
 import type { OrganizationPreview } from '@/api/organization'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import { SvgIcon } from '@/components/icons'
 
 const { t } = useI18n()
 const orgStore = useOrganizationStore()

@@ -10,7 +10,7 @@
                     <span class="thinking-text">{{ $t('chat.thinking') }}</span>
                 </span>
                 <span v-else class="done-status">
-                    <img class="done-icon" src="@/assets/img/Frame3718.svg" :alt="$t('chat.deepThoughtAlt')">
+                    <SvgIcon name="thinking" :size="16" class="done-icon" />
                     <span class="done-text">{{ $t('chat.deepThoughtCompleted') }}</span>
                 </span>
             </div>
@@ -24,8 +24,9 @@
     </div>
 </template>
 <script setup>
-import { watch, ref, defineProps, onMounted, nextTick } from 'vue';
+import { watch, ref, onMounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { SvgIcon } from '@/components/icons';
 
 const isFold = ref(false)
 const contentInnerRef = ref(null)

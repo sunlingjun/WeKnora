@@ -3,6 +3,12 @@ import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess'
 
 export type UploadConfirmMode = 'file' | 'url' | 'manual' | 'reparse'
 
+/** URL import item carried through the confirm-upload dialog into createKnowledgeFromURL. */
+export interface UrlImportItem {
+  url: string
+  title: string
+}
+
 export interface UploadConfirmManualSource {
   kbId: string
   knowledgeId?: string
@@ -22,7 +28,7 @@ export interface UploadConfirmResult {
   processConfig: KnowledgeProcessOverrides
   mode: UploadConfirmMode
   files?: File[]
-  urls?: string[]
+  urls?: UrlImportItem[]
   manual?: UploadConfirmManualSource
   reparse?: UploadConfirmReparseSource
 }
@@ -31,7 +37,7 @@ export interface OpenUploadConfirmOptions {
   mode: UploadConfirmMode
   kbInfo: any
   files?: File[]
-  urls?: string[]
+  urls?: UrlImportItem[]
   manual?: UploadConfirmManualSource
   reparse?: UploadConfirmReparseSource
   acceptFileTypes?: string
@@ -44,7 +50,7 @@ export const useUploadConfirmStore = defineStore('uploadConfirm', {
     mode: 'file' as UploadConfirmMode,
     kbInfo: null as any,
     files: [] as File[],
-    urls: [] as string[],
+    urls: [] as UrlImportItem[],
     manual: null as UploadConfirmManualSource | null,
     reparse: null as UploadConfirmReparseSource | null,
     acceptFileTypes: '',
@@ -60,7 +66,7 @@ export const useUploadConfirmStore = defineStore('uploadConfirm', {
         this.mode = options.mode
         this.kbInfo = options.kbInfo
         this.files = options.files ? [...options.files] : []
-        this.urls = options.urls ? [...options.urls] : []
+        this.urls = options.urls ? options.urls.map((item) => ({ ...item })) : []
         this.manual = options.manual || null
         this.reparse = options.reparse || null
         this.acceptFileTypes = options.acceptFileTypes || ''

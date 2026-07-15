@@ -38,11 +38,11 @@
                 <p class="manual-source-meta">{{ t('uploadConfirm.reparseHint') }}</p>
               </div>
               <ul v-else-if="mode === 'file' && batchItemCount > 0" class="files-list">
-                <li v-for="(url, index) in localUrls" :key="`url-${url}-${index}`" class="file-item">
+                <li v-for="(item, index) in localUrls" :key="`url-${item.url}-${index}`" class="file-item">
                   <t-icon name="link" class="file-icon" />
                   <div class="file-meta">
-                    <span class="file-name" :title="url">{{ url }}</span>
-                    <span class="file-size">{{ t('uploadConfirm.urlItemLabel') }}</span>
+                    <span class="file-name" :title="item.title || item.url">{{ item.title || item.url }}</span>
+                    <span class="file-size" :title="item.url">{{ item.url }}</span>
                   </div>
                   <t-button
                     theme="default"
@@ -251,7 +251,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, withDefaults } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import ModelSelector from '@/components/ModelSelector.vue'
@@ -270,6 +270,7 @@ import type {
   UploadConfirmMode,
   UploadConfirmReparseSource,
   UploadConfirmResult,
+  UrlImportItem,
 } from '@/stores/uploadConfirm'
 
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
@@ -309,7 +310,7 @@ const props = withDefaults(defineProps<{
   kbInfo: any
   mode?: UploadConfirmMode
   files?: File[]
-  urls?: string[]
+  urls?: UrlImportItem[]
   manualPreview?: UploadConfirmManualSource | null
   reparsePreview?: UploadConfirmReparseSource | null
   tagId?: string
@@ -337,7 +338,7 @@ const uiStore = useUIStore()
 
 const allModels = ref<any[]>([])
 const localFiles = ref<File[]>([])
-const localUrls = ref<string[]>([])
+const localUrls = ref<UrlImportItem[]>([])
 const activeSection = ref('overview')
 const uiState = ref<UploadUIState>(createDefaultUIState())
 
@@ -438,8 +439,8 @@ const batchFileExts = computed(() => {
     const ext = (props.reparsePreview?.fileType || '').toLowerCase()
     if (ext) set.add(ext)
   }
-  for (const url of localUrls.value) {
-    const ext = getExtFromUrl(url)
+  for (const item of localUrls.value) {
+    const ext = getExtFromUrl(item.url)
     if (ext) set.add(ext)
   }
   for (const file of localFiles.value) {
@@ -810,7 +811,9 @@ watch(
   (visible) => {
     if (!visible) return
     localFiles.value = props.mode === 'file' ? [...(props.files || [])] : []
-    localUrls.value = props.mode === 'file' ? [...(props.urls || [])] : []
+    localUrls.value = props.mode === 'file'
+      ? (props.urls || []).map((item) => ({ ...item }))
+      : []
     initFromKbInfo(props.kbInfo)
     if (props.mode === 'reparse') {
       applyOverridesToState(props.reparsePreview?.processOverrides)
@@ -843,12 +846,12 @@ const appendFiles = (incoming: File[]) => {
   }
 }
 
-const appendUrl = (url: string) => {
-  if (localUrls.value.includes(url)) {
+const appendUrl = (item: UrlImportItem) => {
+  if (localUrls.value.some((existing) => existing.url === item.url)) {
     MessagePlugin.warning(t('uploadConfirm.urlDuplicate'))
     return
   }
-  localUrls.value = [...localUrls.value, url]
+  localUrls.value = [...localUrls.value, { ...item }]
   MessagePlugin.success(t('uploadConfirm.urlAdded'))
 }
 
@@ -937,7 +940,7 @@ const handleConfirm = () => {
       processConfig,
       mode: 'file',
       files: [...localFiles.value],
-      urls: [...localUrls.value],
+      urls: localUrls.value.map((item) => ({ ...item })),
     })
   }
   emit('update:visible', false)

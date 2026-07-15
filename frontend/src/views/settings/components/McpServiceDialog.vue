@@ -76,7 +76,7 @@
           <t-textarea
             v-model="codeImportText"
             :autosize="{ minRows: 5, maxRows: 14 }"
-            :placeholder="t('mcpServiceDialog.codeImport.placeholder')"
+            :placeholder="CODE_IMPORT_PLACEHOLDER"
             class="code-import__textarea"
           />
           <p v-if="codeImportError" class="code-import__error">{{ codeImportError }}</p>
@@ -434,6 +434,15 @@ const removeCustomHeader = (idx: number) => {
 }
 
 // ---- Code import (paste standard mcpServers JSON) ----
+// JSON sample must NOT go through vue-i18n: `{` / `}` are treated as
+// message placeholders and throw "Invalid token in placeholder".
+const CODE_IMPORT_PLACEHOLDER = `{
+  "mcpServers": {
+    "my-server": {
+      "url": "https://example.com/sse"
+    }
+  }
+}`
 const codeImportOpen = ref(false)
 const codeImportText = ref('')
 const codeImportError = ref('')

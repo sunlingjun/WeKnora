@@ -167,7 +167,7 @@
           :class="[
             'footer-test-message',
             currentCheckState.result.ok
-              ? (currentCheckState.result.bucket_created ? 'created' : 'success')
+              ? ((currentCheckState.result as { bucket_created?: boolean }).bucket_created ? 'created' : 'success')
               : 'error'
           ]"
           :title="currentCheckState.result.message"

@@ -19,9 +19,14 @@
               <div class="settings-nav">
                 <div v-for="item in navItems" :key="item.key"
                   :class="['nav-item', { 'active': currentSection === item.key }]" @click="currentSection = item.key">
-                  <img v-if="item.key === 'sharedAgents'"
-                    :src="currentSection === 'sharedAgents' ? agentIconActiveSrc : agentIconSrc"
-                    class="nav-icon nav-icon-img" alt="" aria-hidden="true" />
+                  <SvgIcon
+                    v-if="item.key === 'sharedAgents'"
+                    name="agent"
+                    :variant="currentSection === 'sharedAgents' ? 'active' : 'default'"
+                    :theme="currentSection === 'sharedAgents' ? 'brand' : 'secondary'"
+                    :size="20"
+                    class="nav-icon nav-icon-img"
+                  />
                   <t-icon v-else :name="item.icon" class="nav-icon" />
                   <span class="nav-label">{{ item.label }}</span>
                   <span
@@ -458,7 +463,7 @@
                     <t-loading :loading="sharesLoading">
                       <div v-if="sharedKnowledgeBases.length === 0 && !sharesLoading" class="empty-shared">
                         <div class="empty-icon">
-                          <img src="@/assets/img/zhishiku.svg" class="empty-icon-kb" alt="" aria-hidden="true" />
+                          <SvgIcon name="zhishiku" :size="20" class="empty-icon-kb" />
                         </div>
                         <p class="empty-text">{{ $t('organization.settings.noSharedKB') }}</p>
                         <p class="empty-subtext">{{ $t('organization.settings.noSharedKBTip') }}</p>
@@ -467,7 +472,7 @@
                         <div v-for="share in sharedKnowledgeBases" :key="share.id" class="shared-item"
                           @click="handleShareClick(share)">
                           <div class="shared-icon shared-icon-kb">
-                            <img src="@/assets/img/zhishiku.svg" class="shared-icon-kb-img" alt="" aria-hidden="true" />
+                            <SvgIcon name="zhishiku" :size="16" class="shared-icon-kb-img" />
                           </div>
                           <div class="shared-info">
                             <span class="shared-name">{{ share.knowledge_base_name }}</span>
@@ -538,7 +543,7 @@
                   <div class="settings-group">
                     <div v-if="sharedAgents.length === 0" class="empty-shared">
                       <div class="empty-icon">
-                        <img src="@/assets/img/agent.svg" class="empty-icon-agent" alt="" aria-hidden="true" />
+                        <SvgIcon name="agent" :size="20" class="empty-icon-agent" />
                       </div>
                       <p class="empty-text">{{ $t('organization.settings.noSharedAgents') }}</p>
                       <p class="empty-subtext">{{ $t('organization.settings.noSharedAgentsTip') }}</p>
@@ -698,8 +703,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { useAuthStore } from '@/stores/auth'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import AgentAvatar from '@/components/AgentAvatar.vue'
-import agentIconSrc from '@/assets/img/agent.svg'
-import agentIconActiveSrc from '@/assets/img/agent-green.svg'
+import { SvgIcon } from '@/components/icons'
 
 const router = useRouter()
 const authStore = useAuthStore()

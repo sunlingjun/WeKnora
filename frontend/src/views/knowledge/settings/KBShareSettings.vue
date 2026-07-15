@@ -43,11 +43,11 @@
                         {{ org.member_count ?? 0 }}
                       </span>
                       <span class="org-meta-tag">
-                        <img src="@/assets/img/zhishiku.svg" class="org-meta-icon org-meta-icon-kb" alt="" aria-hidden="true" />
+                        <SvgIcon name="zhishiku" :size="14" class="org-meta-icon org-meta-icon-kb" />
                         {{ org.share_count ?? 0 }}
                       </span>
                       <span class="org-meta-tag">
-                        <img src="@/assets/img/agent.svg" class="org-meta-icon org-meta-icon-agent" alt="" aria-hidden="true" />
+                        <SvgIcon name="agent" :size="14" class="org-meta-icon org-meta-icon-agent" />
                         {{ org.agent_share_count ?? 0 }}
                       </span>
                     </div>
@@ -118,11 +118,11 @@
                   {{ getOrgForShare(share.organization_id)?.member_count ?? 0 }}
                 </span>
                 <span class="org-meta-tag">
-                  <img src="@/assets/img/zhishiku.svg" class="org-meta-icon org-meta-icon-kb" alt="" aria-hidden="true" />
+                  <SvgIcon name="zhishiku" :size="14" class="org-meta-icon org-meta-icon-kb" />
                   {{ getOrgForShare(share.organization_id)?.share_count ?? 0 }}
                 </span>
                 <span class="org-meta-tag">
-                  <img src="@/assets/img/agent.svg" class="org-meta-icon org-meta-icon-agent" alt="" aria-hidden="true" />
+                  <SvgIcon name="agent" :size="14" class="org-meta-icon org-meta-icon-agent" />
                   {{ getOrgForShare(share.organization_id)?.agent_share_count ?? 0 }}
                 </span>
               </div>
@@ -170,6 +170,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { shareKnowledgeBase, listKBShares, removeShare, updateSharePermission } from '@/api/organization'
 import type { KnowledgeBaseShare } from '@/api/organization'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import { SvgIcon } from '@/components/icons'
 
 const { t } = useI18n()
 const orgStore = useOrganizationStore()

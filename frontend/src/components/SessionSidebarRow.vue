@@ -73,7 +73,7 @@ interface SessionMenuOption {
 }
 
 defineProps<{
-  item: { id: string; path: string; title: string; is_pinned?: boolean }
+  item: { id: string; path: string; title?: string; is_pinned?: boolean }
   batchMode: boolean
   activePath: string
   selectedIds: string[]

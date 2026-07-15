@@ -1,6 +1,7 @@
 export default {
   menu: {
     knowledgeBase: 'Knowledge Base',
+    sharedKnowledgeBaseSquare: 'Knowledge Base Square',
     agents: 'Agents',
     integrations: 'Publish & Integrations',
     organizations: 'Shared Spaces',
@@ -450,6 +451,9 @@ export default {
     urlExists: 'This URL already exists',
     urlLabel: 'URL Address',
     urlPlaceholder: 'Enter webpage URL, e.g., https://example.com',
+    urlTitleLabel: 'Display title (required)',
+    urlTitlePlaceholder: 'Shown as the knowledge title; prefilled from the URL and editable',
+    urlTitleRequired: 'Please enter a display title',
     urlTip: 'Supports importing various webpage contents. The system will automatically extract and parse text content from the webpage',
     typeURL: 'URL',
     typeManual: 'Manual',
@@ -2233,6 +2237,20 @@ export default {
     },
     uninitializedBanner: 'Some knowledge bases are not initialized. Configure model information in settings before adding documents.',
     emptyShared: 'No collaborative knowledge bases yet. Join a shared space to access knowledge bases from others.',
+    filter: {
+      all: 'All',
+      private: 'Private',
+      shared: 'Shared by me',
+      joined: 'Joined shared',
+    },
+    sharedTag: 'Shared',
+    privateTag: 'Private',
+    leave: 'Leave',
+    role: {
+      owner: 'Owner',
+      editor: 'Editor',
+      viewer: 'Viewer',
+    },
     empty: {
       title: 'No knowledge bases yet',
       description: 'Click "Create Knowledge Base" in the top-right corner to add your first one.',
@@ -2261,6 +2279,7 @@ export default {
     sections: {
       pinned: 'Pinned',
       mine: 'Created by me',
+      joinedShared: 'Joined shared',
       tenantReadonly: 'Workspace · View only',
       tenantOthers: 'Workspace · Other members',
       sharedByMe: 'Shared by me',
@@ -2273,6 +2292,10 @@ export default {
       file: 'File',
       knowledgeBase: 'Knowledge Base',
       noResult: 'No results',
+      leftSuccess: 'Left shared knowledge base',
+      leftFailed: 'Failed to leave',
+      joinedSuccess: 'Joined shared knowledge base',
+      joinedFailed: 'Failed to join',
     },
     detail: {
       title: 'Shared Knowledge Base',
@@ -2320,6 +2343,19 @@ export default {
       errorTip: 'Some files failed to upload. Please check the notifications.',
       unknownKb: 'Knowledge Base {id}',
     }
+  },
+  sharedKbSquare: {
+    title: 'Shared Knowledge Base Square',
+    subtitle: 'Browse and join knowledge bases shared by others',
+    searchPlaceholder: 'Search by name or description...',
+    search: 'Search',
+    join: 'Join',
+    empty: 'No shared knowledge bases yet',
+    noSearchResult: 'No matching shared knowledge bases',
+    noDescription: 'No description',
+    memberCount: '{count} members',
+    knowledgeCount: '{count} items',
+    fetchFailed: 'Failed to load shared knowledge bases',
   },
   embedPublish: {
     title: 'Web Page Embed',
@@ -2527,7 +2563,11 @@ export default {
       nameLabel: 'Knowledge Base Name',
       namePlaceholder: 'Enter knowledge base name',
       descriptionLabel: 'Knowledge Base Description',
-      descriptionPlaceholder: 'Enter knowledge base description (optional)'
+      descriptionPlaceholder: 'Enter knowledge base description (optional)',
+      visibilityLabel: 'Visibility',
+      visibilityPrivate: 'Private',
+      visibilityShared: 'Shared',
+      visibilityDescription: 'Private knowledge bases are visible only to you; shared ones can be discovered and joined by others',
     },
     wiki: {
       title: 'Wiki Settings',
@@ -4496,8 +4536,6 @@ export default {
     codeImport: {
       toggle: 'Import from code',
       hint: 'Paste a standard mcpServers JSON config to auto-fill the form',
-      placeholder:
-        '{\n  "mcpServers": {\n    "my-server": {\n      "url": "https://example.com/sse"\n    }\n  }\n}',
       parse: 'Parse & Fill',
       editOverwriteHint: 'Importing overwrites the current form (saved credentials are unaffected; click Save to apply)',
       errors: {

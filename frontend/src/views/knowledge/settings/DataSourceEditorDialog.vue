@@ -737,7 +737,7 @@ async function nextStep() {
     if (!validateStep1Fields()) return
     if (needsConnectionTest() && testResult.value !== 'success') {
       await testConnection()
-      if (testResult.value !== 'success') return
+      if (testResult.value === 'error' || testResult.value === '') return
     }
   }
   step.value++

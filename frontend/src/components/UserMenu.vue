@@ -120,6 +120,7 @@
         </div>
         <!-- 切换租户入口在下拉「当前租户」区块 hover；此处仅为分隔线与菜单项。 -->
         <div class="menu-divider"></div>
+        <template v-if="showUpstreamMenuLinks">
         <div class="menu-item" @click="openClawhubSkill">
           <span class="menu-icon menu-icon--emoji" role="img" :aria-label="$t('common.clawhubSkill')">🦞</span>
           <span class="menu-text-with-icon">
@@ -153,6 +154,7 @@
             </svg>
           </span>
         </div>
+        </template>
         <div class="menu-divider"></div>
         <div class="menu-item danger" @click="handleLogout">
           <t-icon name="logout" class="menu-icon" />
@@ -525,6 +527,9 @@ const CHROME_EXTENSION_URL =
   'https://chromewebstore.google.com/detail/jpemjbopikggjlmikmclgbmkhhopjdgd?utm_source=item-share-cb'
 
 const CLAWHUB_SKILL_URL = 'https://clawhub.ai/lyingbug/weknora'
+
+// NXIN 品牌化：隐藏上游 GitHub / 插件 / Clawhub 外链（P1-7）
+const showUpstreamMenuLinks = false
 
 // 打开 WeKnora Chrome 插件（Chrome应用商店）
 const openChromeExtension = () => {

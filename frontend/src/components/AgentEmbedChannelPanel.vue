@@ -40,7 +40,7 @@
                 placement="bottom-right"
                 attach="body"
                 :options="channelMenuOptions(ch)"
-                @click="(data) => handleChannelMenuClick(data, ch)"
+                @click="(data: any) => handleChannelMenuClick(data, ch)"
               >
                 <t-button
                   variant="text"

@@ -463,8 +463,15 @@ func (h *KnowledgeBaseHandler) validateAndGetKnowledgeBase(c *gin.Context) (*typ
 	if userExists && h.sharedKBService != nil {
 		role, err := h.sharedKBService.GetMemberRoleByKBAndUser(ctx, id, userID.(string))
 		if err == nil && role != "" {
+			orgRole := types.OrgRoleViewer
+			switch role {
+			case types.KBMemberRoleOwner:
+				orgRole = types.OrgRoleAdmin
+			case types.KBMemberRoleEditor:
+				orgRole = types.OrgRoleEditor
+			}
 			logger.Infof(ctx, "User %s accessing direct shared KB %s with role %s", userID.(string), id, role)
-			return kb, id, kb.TenantID, types.OrgRoleViewer, nil
+			return kb, id, kb.TenantID, orgRole, nil
 		}
 	}
 
@@ -542,11 +549,27 @@ func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
 		logger.Warnf(c.Request.Context(), "Failed to fill KB counts for %s: %v", kb.ID, fillErr)
 	}
 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
+	userIDVal, userOK := c.Get(types.UserIDContextKey.String())
+	userID, _ := userIDVal.(string)
 	storeView := h.resolveKBStoreView(c.Request.Context(), kb, tenantID)
-	var extras map[string]interface{}
+	extras := map[string]interface{}{}
+	if kb.Visibility == types.KnowledgeBaseVisibilityShared && userOK && userID != "" {
+		isOwner := kb.OwnerID == userID
+		extras["is_owner"] = isOwner
+		if h.sharedKBService != nil {
+			if role, roleErr := h.sharedKBService.GetMemberRoleByKBAndUser(c.Request.Context(), kb.ID, userID); roleErr == nil && role != "" {
+				extras["member_role"] = role
+			} else if isOwner {
+				extras["member_role"] = types.KBMemberRoleOwner
+			}
+		} else if isOwner {
+			extras["member_role"] = types.KBMemberRoleOwner
+		}
+	}
 	if kb.TenantID != tenantID && permission != "" {
-		// Include my_permission in data so frontend can show role (e.g. "只读") instead of "--" for agent-visible KBs
-		extras = map[string]interface{}{"my_permission": permission}
+		// Include my_permission in data so frontend can show role (e.g. "只读") instead of "--" for agent-visible KBs.
+		// Merge into extras — do not replace is_owner / member_role for shared KBs.
+		extras["my_permission"] = permission
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": buildKBResponse(kb, storeView, extras)})
 }
@@ -1730,4 +1753,3 @@ func (h *KnowledgeBaseHandler) RemoveMember(c *gin.Context) {
 		"message": "Member removed successfully",
 	})
 }
-
