@@ -39,8 +39,8 @@ import (
 	elasticsearchRepoV8 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v8"
 	neo4jRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/neo4j"
 	openSearchRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/opensearch"
-	qdrantRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/qdrant"
 	postgresRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/postgres"
+	qdrantRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/qdrant"
 	sqliteRetrieverRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/sqlite"
 	tencentVectorDBRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/tencentvectordb"
 	weaviateRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/weaviate"
@@ -49,6 +49,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service/file"
 	memoryService "github.com/Tencent/WeKnora/internal/application/service/memory"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
+	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/database"
 	"github.com/Tencent/WeKnora/internal/datasource"
@@ -458,6 +459,7 @@ func initRedisClient() (redis.UniversalClient, error) {
 			Password:     password,
 			ReadTimeout:  100 * time.Millisecond,
 			WriteTimeout: 200 * time.Millisecond,
+			TLSConfig:    common.RedisTLSConfig(),
 		})
 		if _, err := client.Ping(context.Background()).Result(); err != nil {
 			return nil, fmt.Errorf("连接Redis集群失败: %w", err)
@@ -477,10 +479,11 @@ func initRedisClient() (redis.UniversalClient, error) {
 		}
 	}
 	client := redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Username: username,
-		Password: password,
-		DB:       db,
+		Addr:      redisAddr,
+		Username:  username,
+		Password:  password,
+		DB:        db,
+		TLSConfig: common.RedisTLSConfig(),
 	})
 	if _, err := client.Ping(context.Background()).Result(); err != nil {
 		return nil, fmt.Errorf("连接Redis失败: %w", err)

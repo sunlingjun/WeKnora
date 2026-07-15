@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/service"
+	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/middleware/asynqdl"
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
@@ -82,6 +83,7 @@ func getAsynqRedisConnOpt() asynq.RedisConnOpt {
 			Password:     password,
 			ReadTimeout:  100 * time.Millisecond,
 			WriteTimeout: 200 * time.Millisecond,
+			TLSConfig:    common.RedisTLSConfig(),
 		}
 	}
 
@@ -100,6 +102,7 @@ func getAsynqRedisConnOpt() asynq.RedisConnOpt {
 		ReadTimeout:  time.Duration(timeoutMs) * time.Millisecond,
 		WriteTimeout: time.Duration(timeoutMs*2) * time.Millisecond,
 		DB:           db,
+		TLSConfig:    common.RedisTLSConfig(),
 	}
 }
 
