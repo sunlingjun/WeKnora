@@ -48,11 +48,12 @@ function embedHtmlDevFallback(): Plugin {
     },
   }
 }
+// 与 config.yaml server.https.enabled 对齐：后端 8080 为进程内 HTTPS，代理须用 https://
 const DEV_PROXY_TARGET =
   process.env.VITE_DEV_PROXY_TARGET ||
   process.env.FRONTEND_BACKEND_URL ||
   process.env.BACKEND_URL ||
-  'http://127.0.0.1:8080'
+  'https://127.0.0.1:8080'
 
 function resolveVueOfficePptxEntry(): string {
   try {

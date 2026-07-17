@@ -135,25 +135,26 @@ func NewRouter(params RouterParams) *gin.Engine {
 
 	// CORS 中间件应放在最前面
 	// 注意：当 AllowCredentials 为 true 时，不能使用通配符 "*"，必须明确指定允许的源
+	allowedOrigins := []string{
+		"https://zsk.t.nxin.com",
+		"https://zsk.t.nxin.com:443",
+		"https://zsk.t.nxin.com:80",
+		"https://zsk.nxin.com",
+		"https://zsk.nxin.com:443",
+		"https://zsk.nxin.com:80",
+		"https://localhost",
+		"https://localhost:443",
+		"https://localhost:80",
+		"https://localhost:8081",
+		"http://localhost",
+		"http://localhost:8081",
+	}
+	if params.Config != nil && params.Config.Server != nil && len(params.Config.Server.CORSAllowedOrigins) > 0 {
+		allowedOrigins = params.Config.Server.CORSAllowedOrigins
+	}
 	r.Use(cors.New(cors.Config{
 		// 使用 AllowOriginFunc 动态返回请求的 Origin，支持多个环境
 		AllowOriginFunc: func(origin string) bool {
-			// 允许的源列表（包括协议、域名和端口）
-			allowedOrigins := []string{
-				"https://zsk.t.nxin.com",
-				"https://zsk.t.nxin.com:443",
-				"https://zsk.t.nxin.com:80",
-				"https://zsk.nxin.com",
-				"https://zsk.nxin.com:443",
-				"https://zsk.nxin.com:80",
-				"https://localhost",
-				"https://localhost:443",
-				"https://localhost:80",
-				"https://localhost:8081",
-				"http://localhost",
-				"http://localhost:8081",
-			}
-
 			// 检查请求的 Origin 是否在允许列表中
 			for _, allowed := range allowedOrigins {
 				if origin == allowed {

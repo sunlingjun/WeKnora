@@ -231,7 +231,7 @@
 | 0.1 | 创建备份分支 `backup/2026-07-09-v0.3.6-pre-upgrade` | ☐ |
 | 0.2 | 创建升级分支 `upgrade/v0.3.6-to-v0.6.3` | ☐ |
 | 0.3 | `git fetch upstream --tags` | ☐ |
-| 0.4 | 导出 NXIN 补丁包 `patches/2026-07-09/` | ☐ |
+| 0.4 | ~~导出 NXIN 补丁包 `patches/2026-07-09/`~~（已取消；2026-07-17 删除乱码 patch，差异以升级分支为准） | ☑ 取消 |
 | 0.5 | 扩展目录收口（`extensions/nxin/`） | ☐ |
 | 0.6 | 记录基线（CAS / 共享KB / open_retrieve / SVG / Redis / CORS） | ☐ |
 | 0.7 | 测试库 + 生产库备份 | ☐ |

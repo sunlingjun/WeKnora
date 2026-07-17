@@ -519,51 +519,17 @@ git checkout -b upgrade/v0.3.6-to-v0.6.3
 - [ ] 备份分支已创建
 - [ ] `upstream` 已 fetch，`v0.6.3` Tag 可见（`git tag -l 'v0.6.*'`）
 
-#### Task 0.2：导出扩展功能补丁包
+#### Task 0.2：NXIN 差异以升级分支为准（不再落盘 patch）
 
-```powershell
-mkdir -p patches/2026-07-09
-$files = @(
-  # P0
-  "internal/handler/cas_auth.go",
-  "internal/handler/open_retrieve.go",
-  "internal/application/service/cas_auth.go",
-  "internal/application/service/cas_client.go",
-  "internal/application/service/shared_kb.go",
-  "internal/application/service/knowledgebase_search_shared.go",
-  "internal/middleware/open_retrieve.go",
-  "internal/middleware/open_retrieve_auth_test.go",
-  "migrations/versioned/feature",
-  "frontend/src/components/icons",
-  "internal/container/container.go",
-  "internal/router/task.go",
-  "internal/application/service/llmcontext/redis_storage.go",
-  # P0+
-  "internal/handler/knowledge.go",
-  "internal/handler/chunk.go",
-  "internal/handler/faq.go",
-  "internal/handler/tag.go",
-  "internal/application/service/session_knowledge_qa.go",
-  "internal/router/router.go",
-  "frontend/vite.config.ts",
-  "frontend/src/utils/request.ts",
-  "config/config.yaml",
-  "internal/config/config.go",
-  # P1
-  "frontend/src/assets/theme/theme.css",
-  "frontend/src/assets/img/nxin-weknora.svg",
-  "frontend/src/utils/kb-permission.ts",
-  "frontend/src/views/settings/Settings.vue",
-  "frontend/src/components/UserMenu.vue",
-  "frontend/src/stores/menu.ts",
-  "docker-compose.yml"
-)
-git diff upstream/main...HEAD -- $files > patches/2026-07-09/nxin-extensions.patch
-git diff upstream/main...HEAD -- frontend/src/components/menu.vue frontend/src/components/AgentSelector.vue frontend/src/components/MentionSelector.vue > patches/2026-07-09/nxin-svg-usage.patch
-```
+> **2026-07-17 更新**：原计划导出 `patches/2026-07-09/nxin-extensions.patch` /
+> `nxin-svg-usage.patch` 已取消并删除。Windows 下 `git diff` 重定向易导致中文注释乱码，
+> 且补丁不参与构建/运行；NXIN 定制以分支 `upgrade/v0.3.6-to-v0.6.3` 上的源码与提交历史为准。
+>
+> 若需临时对照上游差异，直接查看（勿写入仓库）：
+> `git diff upstream/main...HEAD -- <paths>`
 
 **验收标准**
-- [ ] 补丁文件可独立应用（`git apply --check` 通过）
+- [x] 不依赖仓库内 `patches/` 目录；差异可通过 `git diff` / 分支提交复现
 
 #### Task 0.3：建立扩展模块边界（建议提前重构）
 
@@ -601,7 +567,7 @@ frontend/src/extensions/nxin/   # 或保持现有路径
 | 共享 KB 检索 | 加入共享 KB 后固定 query 的 top-K 快照 |
 
 **Checkpoint-0**
-- [ ] 补丁包就绪
+- [ ] NXIN 差异可在升级分支上用 `git diff` / 提交历史复现（无需 `patches/`）
 - [ ] 基线测试用例文档化（可复用 `docs/api/` 中现有接口说明）
 - [ ] 测试/生产数据库已备份
 
@@ -1033,7 +999,7 @@ curl -X POST https://zsk.t.nxin.com:8080/api/v1/open/knowledge/retrieve `
 
 | 合并阶段 | P0 / P0+ 关注 | P1 关注 | P2 关注 |
 |----------|---------------|---------|---------|
-| Phase 0 | 扩展目录收口（§3.0 Task 0.3）、补丁导出 | 基线截图（主题/CORS） | 合并脚本就绪 |
+| Phase 0 | 扩展目录收口（§3.0 Task 0.3）；差异以升级分支为准（不再落盘 patch） | 基线截图（主题/CORS） | 合并脚本就绪 |
 | Phase 1 (`v0.4.0`) | Redis 集群、CORS、CAS | `theme.css`、`KnowledgeBaseList` | — |
 | Phase 2 (`v0.5.2`) | `effectiveTenantID` 链、RBAC 对齐 | `kb-permission.ts` 推广 | — |
 | Phase 3 (`v0.6.3`) | `session_knowledge_qa`、HTTPS、Helm Redis | `Settings.showApiInfo`、UserMenu 品牌化 | `docker-compose.test.yml` |

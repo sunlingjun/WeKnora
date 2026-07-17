@@ -202,6 +202,8 @@ type ServerConfig struct {
 	Host            string        `yaml:"host"             json:"host"`
 	LogPath         string        `yaml:"log_path"         json:"log_path"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" json:"shutdown_timeout" default:"30s"`
+	// CORSAllowedOrigins: 服务端 API 的 CORS 白名单（精确匹配 scheme://host[:port]）。
+	CORSAllowedOrigins []string `yaml:"cors_allowed_origins" json:"cors_allowed_origins"`
 	// BehindProxy: Gin 仅在来自 TrustedProxies 的请求上信任 X-Forwarded-* 头。
 	BehindProxy bool `yaml:"behind_proxy" json:"behind_proxy"`
 	// TrustedProxies: 反向代理 IP/CIDR 列表；BehindProxy 为 true 且本项为空时使用常见私网段默认值。
