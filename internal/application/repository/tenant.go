@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -140,16 +141,79 @@ func (r *tenantRepository) UpdateTenant(ctx context.Context, tenant *types.Tenan
 }
 
 // DeleteTenant soft-deletes the tenant and every active membership row
-// for that tenant in one transaction. Without the membership purge,
-// /auth/me still lists the defunct tenant (name lookup fails → UI shows
-// "#<id>").
+// for that tenant, then rebinds any user whose home (users.tenant_id)
+// pointed at the deleted tenant.
+//
+// Rebind rule (same as CAS AutoBindTenant recovery): prefer an active
+// owner/admin membership on a still-living tenant with storage_used>0,
+// else the oldest such tenant; if none remain, set home to 0 so the next
+// CAS login creates a fresh default workspace instead of looping on a
+// zombie pointer.
 func (r *tenantRepository) DeleteTenant(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var homeUsers []types.User
+		if err := tx.Where("tenant_id = ?", id).Find(&homeUsers).Error; err != nil {
+			return err
+		}
+
 		if err := tx.Where("tenant_id = ?", id).Delete(&types.TenantMember{}).Error; err != nil {
 			return err
 		}
-		return tx.Where("id = ?", id).Delete(&types.Tenant{}).Error
+		if err := tx.Where("id = ?", id).Delete(&types.Tenant{}).Error; err != nil {
+			return err
+		}
+
+		for i := range homeUsers {
+			u := &homeUsers[i]
+			keepID, err := pickHomeTenantAfterDelete(tx, u.ID)
+			if err != nil {
+				return err
+			}
+			u.TenantID = keepID
+			u.UpdatedAt = time.Now()
+			if u.Preferences.LastActiveTenantID != nil && *u.Preferences.LastActiveTenantID == id {
+				if keepID > 0 {
+					v := keepID
+					u.Preferences.LastActiveTenantID = &v
+				} else {
+					u.Preferences.LastActiveTenantID = nil
+				}
+			}
+			if err := tx.Model(u).Select("TenantID", "Preferences", "UpdatedAt").Updates(u).Error; err != nil {
+				return err
+			}
+		}
+		return nil
 	})
+}
+
+// pickHomeTenantAfterDelete selects a replacement home for userID after
+// the deleted tenant's memberships are already soft-deleted.
+func pickHomeTenantAfterDelete(tx *gorm.DB, userID string) (uint64, error) {
+	type row struct {
+		TenantID    uint64
+		StorageUsed int64
+		CreatedAt   time.Time
+	}
+	var rows []row
+	err := tx.Table("tenant_members AS tm").
+		Select("tm.tenant_id AS tenant_id, t.storage_used AS storage_used, t.created_at AS created_at").
+		Joins("JOIN tenants AS t ON t.id = tm.tenant_id AND t.deleted_at IS NULL").
+		Where(
+			"tm.user_id = ? AND tm.deleted_at IS NULL AND tm.status = ? AND tm.role IN ?",
+			userID,
+			types.TenantMemberStatusActive,
+			[]string{string(types.TenantRoleOwner), string(types.TenantRoleAdmin)},
+		).
+		Order("CASE WHEN t.storage_used > 0 THEN 0 ELSE 1 END ASC, t.created_at ASC, t.id ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return rows[0].TenantID, nil
 }
 
 func (r *tenantRepository) AdjustStorageUsed(ctx context.Context, tenantID uint64, delta int64) error {

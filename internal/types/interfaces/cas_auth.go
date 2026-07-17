@@ -14,8 +14,10 @@ type CASAuthService interface {
 	// AutoBindUser 自动绑定或创建用户（CAS 用户信息 → WeKnora 用户）
 	AutoBindUser(ctx context.Context, casUserInfo *types.CASUserInfo) (*types.User, error)
 
-	// AutoBindTenant 自动绑定或创建租户（CAS 平台租户 → WeKnora 租户）
-	// 参数 user 是 AutoBindUser 返回的用户对象，用于检查用户是否已有租户
+	// AutoBindTenant 自动绑定或创建租户（CAS → WeKnora）。
+	// 参数 user 是 AutoBindUser 返回的用户对象。
+	// 行为：home 可用则复用；home 软删/缺失则从 owner/admin membership 恢复；
+	// 非 NotFound 的查询错误直接失败（禁止误建）；真正无空间时才创建默认工作空间。
 	AutoBindTenant(ctx context.Context, casUserInfo *types.CASUserInfo, user *types.User) (*types.Tenant, error)
 
 	// 注意：不需要 CAS 会话管理方法

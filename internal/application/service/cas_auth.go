@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -21,6 +23,7 @@ type casAuthService struct {
 	userRepo      interfaces.UserRepository
 	userService   interfaces.UserService
 	tenantService interfaces.TenantService
+	memberService interfaces.TenantMemberService
 	config        *config.CASConfig
 }
 
@@ -30,6 +33,7 @@ func NewCASAuthService(
 	userRepo interfaces.UserRepository,
 	userService interfaces.UserService,
 	tenantService interfaces.TenantService,
+	memberService interfaces.TenantMemberService,
 	cfg *config.Config,
 ) interfaces.CASAuthService {
 	var casConfig *config.CASConfig
@@ -41,6 +45,7 @@ func NewCASAuthService(
 		userRepo:      userRepo,
 		userService:   userService,
 		tenantService: tenantService,
+		memberService: memberService,
 		config:        casConfig,
 	}
 }
@@ -217,7 +222,15 @@ func (s *casAuthService) AutoBindUser(ctx context.Context, casUserInfo *types.CA
 			}
 			if user != nil {
 				logger.Warnf(ctx, "Concurrent user creation detected, returning existing user: %s", user.ID)
-				// 并发创建时，用户已存在，不需要删除租户（可能其他请求已绑定）
+				// 本次新建的租户尚未绑定到任何人，必须清理，否则留下无主空壳。
+				if createdTenant != nil && createdTenant.ID > 0 {
+					if deleteErr := s.tenantService.DeleteTenant(ctx, createdTenant.ID); deleteErr != nil {
+						logger.Errorf(ctx, "Failed to delete orphan tenant %d after concurrent user create: %v",
+							createdTenant.ID, deleteErr)
+					} else {
+						logger.Infof(ctx, "Deleted orphan tenant %d after concurrent user create", createdTenant.ID)
+					}
+				}
 				return user, nil
 			}
 		}
@@ -282,65 +295,164 @@ updateUser:
 	return user, nil
 }
 
-// AutoBindTenant 自动绑定或创建租户（CAS 平台租户 → WeKnora 租户）
+// AutoBindTenant 自动绑定或创建租户（CAS → WeKnora）。
+//
+// 决策顺序：
+//  1. home (users.tenant_id) 可用 → 幂等 EnsureOwner 后返回
+//  2. home 不存在（软删/缺失）→ 从 owner/admin membership 恢复，禁止误建
+//  3. home 查询出现非 NotFound 错误（解密失败、DB 错）→ 直接失败，禁止新建
+//  4. 无任何可恢复空间 → 创建默认工作空间（真正的首次用户）
 func (s *casAuthService) AutoBindTenant(ctx context.Context, casUserInfo *types.CASUserInfo, user *types.User) (*types.Tenant, error) {
-	// 步骤1：检查用户是否已有租户
+	if user == nil {
+		return nil, fmt.Errorf("user is required")
+	}
+
 	if user.TenantID > 0 {
-		// 用户已有租户，查询并返回
 		tenant, err := s.tenantService.GetTenantByID(ctx, user.TenantID)
-		if err != nil {
-			logger.Errorf(ctx, "Failed to get tenant by ID: %d, error: %v", user.TenantID, err)
-			// 租户不存在或查询失败，需要创建新租户
-		} else if tenant != nil {
+		if err == nil && tenant != nil {
 			logger.Infof(ctx, "User already has tenant: %d", user.TenantID)
+			s.ensureOwnerBestEffort(ctx, user.ID, tenant.ID)
 			return tenant, nil
 		}
-		// 如果租户不存在，继续创建新租户
+		if err != nil && !errors.Is(err, apprepo.ErrTenantNotFound) {
+			logger.Errorf(ctx, "Failed to load home tenant %d (non-not-found): %v", user.TenantID, err)
+			return nil, fmt.Errorf("load home tenant %d: %w", user.TenantID, err)
+		}
+		logger.Warnf(ctx, "Home tenant %d unavailable for user %s, attempting membership recovery",
+			user.TenantID, user.ID)
 	}
 
-	// 步骤2：用户没有租户或租户不存在，创建新租户
+	if recovered, err := s.recoverTenantFromMemberships(ctx, user); err != nil {
+		return nil, err
+	} else if recovered != nil {
+		return recovered, nil
+	}
+
+	return s.createDefaultTenantForCASUser(ctx, casUserInfo, user)
+}
+
+// recoverTenantFromMemberships picks a surviving owner/admin workspace and
+// rewrites users.tenant_id. Viewer/contributor-only memberships are ignored
+// so an invited collaborator is not treated as owning that tenant's home.
+func (s *casAuthService) recoverTenantFromMemberships(ctx context.Context, user *types.User) (*types.Tenant, error) {
+	if s.memberService == nil {
+		return nil, nil
+	}
+	members, err := s.memberService.ListByUser(ctx, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list memberships for recovery: %w", err)
+	}
+
+	candidateIDs := make([]uint64, 0, len(members))
+	for _, m := range members {
+		if m == nil || m.Status != types.TenantMemberStatusActive {
+			continue
+		}
+		if m.Role != types.TenantRoleOwner && m.Role != types.TenantRoleAdmin {
+			continue
+		}
+		candidateIDs = append(candidateIDs, m.TenantID)
+	}
+	if len(candidateIDs) == 0 {
+		return nil, nil
+	}
+
+	tenants, err := s.tenantService.GetTenantsByIDs(ctx, candidateIDs)
+	if err != nil {
+		return nil, fmt.Errorf("load candidate tenants for recovery: %w", err)
+	}
+
+	var best *types.Tenant
+	for _, id := range candidateIDs {
+		t := tenants[id]
+		if t == nil {
+			continue
+		}
+		if best == nil {
+			best = t
+			continue
+		}
+		bestHasData := best.StorageUsed > 0
+		candHasData := t.StorageUsed > 0
+		switch {
+		case candHasData && !bestHasData:
+			best = t
+		case candHasData == bestHasData &&
+			(t.CreatedAt.Before(best.CreatedAt) ||
+				(t.CreatedAt.Equal(best.CreatedAt) && t.ID < best.ID)):
+			best = t
+		}
+	}
+	if best == nil {
+		return nil, nil
+	}
+
+	if err := s.bindUserHome(ctx, user, best.ID); err != nil {
+		return nil, err
+	}
+	s.ensureOwnerBestEffort(ctx, user.ID, best.ID)
+	logger.Infof(ctx, "Recovered home tenant %d for user %s from memberships", best.ID, user.ID)
+	return best, nil
+}
+
+func (s *casAuthService) createDefaultTenantForCASUser(
+	ctx context.Context,
+	casUserInfo *types.CASUserInfo,
+	user *types.User,
+) (*types.Tenant, error) {
 	logger.Infof(ctx, "Creating new tenant for user: %s", user.ID)
 
-	// 2.1 生成租户名称
-	tenantName := fmt.Sprintf("%s的工作空间", casUserInfo.RealName)
-	if tenantName == "的工作空间" {
-		// 如果真实姓名为空，使用登录名
-		tenantName = fmt.Sprintf("%s的工作空间", casUserInfo.LoginName)
+	tenantName := "的工作空间"
+	if casUserInfo != nil {
+		tenantName = fmt.Sprintf("%s的工作空间", casUserInfo.RealName)
+		if tenantName == "的工作空间" {
+			tenantName = fmt.Sprintf("%s的工作空间", casUserInfo.LoginName)
+		}
 	}
 	if tenantName == "的工作空间" {
-		// 如果登录名也为空，使用用户名
 		tenantName = fmt.Sprintf("%s的工作空间", user.Username)
 	}
 
-	// 2.2 创建租户对象
-	tenant := &types.Tenant{
+	createdTenant, err := s.tenantService.CreateTenant(ctx, &types.Tenant{
 		Name:        tenantName,
 		Description: "默认工作空间",
 		Status:      "active",
 		Business:    "default",
-	}
-
-	// 2.3 创建租户（会自动生成 API Key 和设置默认配置）
-	createdTenant, err := s.tenantService.CreateTenant(ctx, tenant)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tenant: %w", err)
 	}
 
-	// 步骤3：将用户绑定到租户
-	user.TenantID = createdTenant.ID
-	user.UpdatedAt = time.Now()
-	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
-		logger.Errorf(ctx, "Failed to bind user to tenant: %v", err)
-		// 绑定失败，删除刚创建的租户（避免遗留未使用的租户）
+	if err := s.bindUserHome(ctx, user, createdTenant.ID); err != nil {
 		if deleteErr := s.tenantService.DeleteTenant(ctx, createdTenant.ID); deleteErr != nil {
-			logger.Errorf(ctx, "Failed to delete tenant %d after user binding failed: %v", createdTenant.ID, deleteErr)
-			// 不返回错误，因为主要错误是用户绑定失败
+			logger.Errorf(ctx, "Failed to delete tenant %d after user binding failed: %v",
+				createdTenant.ID, deleteErr)
 		} else {
 			logger.Infof(ctx, "Deleted tenant %d after user binding failed", createdTenant.ID)
 		}
 		return nil, fmt.Errorf("failed to bind user to tenant: %w", err)
 	}
 
+	s.ensureOwnerBestEffort(ctx, user.ID, createdTenant.ID)
 	logger.Infof(ctx, "Bound user %s to tenant %d", user.ID, createdTenant.ID)
 	return createdTenant, nil
+}
+
+func (s *casAuthService) bindUserHome(ctx context.Context, user *types.User, tenantID uint64) error {
+	user.TenantID = tenantID
+	user.UpdatedAt = time.Now()
+	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+		logger.Errorf(ctx, "Failed to bind user to tenant: %v", err)
+		return err
+	}
+	return nil
+}
+
+func (s *casAuthService) ensureOwnerBestEffort(ctx context.Context, userID string, tenantID uint64) {
+	if s.memberService == nil {
+		return
+	}
+	if _, err := s.memberService.EnsureOwner(ctx, userID, tenantID); err != nil {
+		logger.Warnf(ctx, "EnsureOwner failed for user=%s tenant=%d: %v", userID, tenantID, err)
+	}
 }
