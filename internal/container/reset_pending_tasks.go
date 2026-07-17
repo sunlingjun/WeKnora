@@ -2,7 +2,6 @@ package container
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
@@ -26,7 +25,7 @@ const resetPendingStaleWindow = 30 * time.Minute
 // been touched for 30 minutes is well past any reasonable in-flight window.
 // Newer rows are left alone so we don't race a peer instance that's mid-process.
 func resetPendingTasks(db *gorm.DB) {
-	distributed := os.Getenv("REDIS_ADDR") != ""
+	distributed := redisConfigured()
 	ctx := context.Background()
 	spanRepo := repository.NewKnowledgeSpanRepository(db)
 

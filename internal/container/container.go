@@ -264,7 +264,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewSessionService))
 
 	logger.Debugf(ctx, "[Container] Registering task enqueuer...")
-	redisAvailable := os.Getenv("REDIS_ADDR") != ""
+	// 单机看 REDIS_ADDR；集群看 REDIS_MODE=cluster + REDIS_CLUSTER_ADDRS。
+	// 旧逻辑只判 REDIS_ADDR，会导致生产集群误入 Lite/同步任务模式。
+	redisAvailable := redisConfigured()
 	if redisAvailable {
 		must(container.Provide(router.NewAsyncqClient, dig.As(new(interfaces.TaskEnqueuer))))
 		must(container.Provide(router.NewAsynqServer))
@@ -431,6 +433,22 @@ func must(err error) {
 func initLangfuse() (*langfuse.Manager, error) {
 	cfg := langfuse.LoadConfigFromEnv()
 	return langfuse.Init(cfg)
+}
+
+// redisConfigured reports whether a Redis backend is available for async
+// tasks / distributed housekeeping. Cluster mode must not require REDIS_ADDR
+// (addrs live in REDIS_CLUSTER_ADDRS); single/lite still gates on REDIS_ADDR.
+func redisConfigured() bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("REDIS_MODE")), "cluster") {
+		raw := os.Getenv("REDIS_CLUSTER_ADDRS")
+		for _, part := range strings.Split(raw, ",") {
+			if strings.TrimSpace(part) != "" {
+				return true
+			}
+		}
+		return false
+	}
+	return strings.TrimSpace(os.Getenv("REDIS_ADDR")) != ""
 }
 
 // initRedisClient 根据 REDIS_MODE 初始化：单机用 *redis.Client，集群用 *redis.ClusterClient。
