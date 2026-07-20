@@ -120,6 +120,8 @@
         </div>
         <!-- 切换空间入口在下拉「当前空间」区块 hover；此处仅为分隔线与菜单项。 -->
         <div class="menu-divider"></div>
+        <!-- NXIN 品牌化：隐藏上游 GitHub / 插件 / Clawhub 外链 -->
+        <template v-if="showUpstreamMenuLinks">
         <div class="menu-item" :title="$t('common.githubStarTip')" @click="openGithub">
           <t-icon name="logo-github" class="menu-icon" />
           <span class="menu-text-with-icon">
@@ -131,6 +133,7 @@
             </svg>
           </span>
         </div>
+        </template>
         <template v-if="!authStore.isLiteMode">
           <div class="menu-divider"></div>
           <div class="menu-item danger" @click="handleLogout">
@@ -205,6 +208,7 @@ import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { getCurrentUser, logout as logoutApi, userInfoFromApi } from '@/api/auth'
+import { useCASStore } from '@/stores/cas'
 import { useI18n } from 'vue-i18n'
 import CreateTenantDialog from '@/components/CreateTenantDialog.vue'
 import {
@@ -224,6 +228,9 @@ const uiStore = useUIStore()
 const authStore = useAuthStore()
 const { formatRole, roleIcon } = useRoleLabel()
 const { homeTenantId, isHomeTenantActive, isHomeTenant } = useHomeTenant()
+
+// NXIN 品牌化：隐藏上游 GitHub / 插件 / Clawhub 外链
+const showUpstreamMenuLinks = false
 
 // 顶部用户卡片展示的空间名 / 当前角色：跟着 tenant 切换器实时变。
 // activeTenantName 优先用切换器选中的名字（含 fallback 到 home tenant 名字），
@@ -533,7 +540,12 @@ const handleLogout = async () => {
 
   MessagePlugin.success(t('auth.logout'))
 
-  // 跳转到登录页
+  // NXIN：走 CAS 退出；其它环境回密码登录页
+  if (window.location.hostname.includes('.nxin.com')) {
+    const casStore = useCASStore()
+    casStore.logout()
+    return
+  }
   router.push('/login')
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -172,17 +173,27 @@ func NewRouter(params RouterParams) *gin.Engine {
 				return true
 			}
 
-			// NXIN：允许 *.nxin.com 及 nxin.com 根域
-			if strings.HasSuffix(origin, ".nxin.com") ||
-				origin == "https://nxin.com" || origin == "http://nxin.com" ||
-				origin == "https://nxin.com:443" || origin == "http://nxin.com:80" {
-				return true
+			// NXIN：放行 nxin.com 及其子域（Hostname 解析，兼容带端口 Origin）
+			if parsed, err := url.Parse(origin); err == nil {
+				host := parsed.Hostname()
+				scheme := strings.ToLower(parsed.Scheme)
+				if (scheme == "http" || scheme == "https") &&
+					(host == "nxin.com" || strings.HasSuffix(host, ".nxin.com")) {
+					return true
+				}
 			}
 
 			return false
 		},
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-API-Key", "X-Open-Retrieve-Api-Key", "X-Request-ID", "X-Tenant-ID", "X-Embed-Session", "X-External-User-ID", "X-External-User-Token"},
+		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		// 官方 Embed 头 ∪ NXIN 企联网/浏览器兼容头
+		AllowHeaders: []string{
+			"Origin", "Content-Type", "Accept", "Authorization",
+			"X-API-Key", "X-Open-Retrieve-Api-Key", "X-Request-ID", "X-Tenant-ID", "X-Embed-Session",
+			"X-External-User-ID", "X-External-User-Token",
+			"Cache-Control", "Pragma", "X-Requested-With", "DNT", "If-Modified-Since",
+			"Keep-Alive", "User-Agent", "pd", "systemid",
+		},
 		ExposeHeaders:    []string{"Content-Length", "Access-Control-Allow-Origin"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,

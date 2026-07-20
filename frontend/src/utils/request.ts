@@ -78,7 +78,7 @@ let failedQueue: Array<{ resolve: Function; reject: Function }> = [];
 // must surface to the page (e.g. expired token), not trigger the
 // refresh-then-redirect-to-login flow (issue #1617). '/auth/register' already
 // covers '/auth/register-by-invite' via substring match.
-const PUBLIC_AUTH_PATHS = ['/auth/auto-setup', '/auth/login', '/auth/register', '/auth/oidc/', '/auth/invitations/lookup', '/api/v1/embed/'];
+const PUBLIC_AUTH_PATHS = ['/auth/auto-setup', '/auth/login', '/auth/register', '/auth/oidc/', '/auth/invitations/lookup', '/api/v1/embed/', '/api/v1/cas/'];
 
 function isPublicAuthRequest(url?: string): boolean {
   if (!url) return false;
@@ -108,6 +108,11 @@ function redirectToLogin() {
   if (window.location.pathname === '/login') return;
   // Embed 渠道用 Embed token 鉴权，匿名访问不应被踢到登录页
   if (isEmbedPage()) return;
+  // NXIN：401 后回首页触发路由守卫里的 CAS，避免直接落到密码登录页
+  if (window.location.hostname.includes('.nxin.com')) {
+    window.location.href = '/';
+    return;
+  }
   window.location.href = '/login';
 }
 

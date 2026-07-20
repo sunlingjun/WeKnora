@@ -15,7 +15,8 @@ func listenWithRetry(addr string, maxRetries int, baseDelay time.Duration) (net.
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				_ = syscall.SetsockoptInt(syscall.Handle(int(fd)), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				// Platform-specific setsockopt handled in sockopt_*.go.
+				_ = setReuseAddr(fd)
 			})
 		},
 	}
@@ -29,7 +30,7 @@ func listenWithRetry(addr string, maxRetries int, baseDelay time.Duration) (net.
 		lastErr = err
 		if i < maxRetries-1 {
 			delay := baseDelay * time.Duration(1<<uint(i))
-			if delay > 3*time.Second {
+			if delay > 3 * time.Second {
 				delay = 3 * time.Second
 			}
 			logger.Warnf(context.Background(), "Port %s in use, retrying in %v... (%d/%d)", addr, delay, i+1, maxRetries)

@@ -1466,7 +1466,10 @@ const executeUploadBatch = async (
   return { successCount, failCount };
 };
 
-const executeUrlImport = async (url: string, processConfig?: KnowledgeProcessOverrides) => {
+const executeUrlImport = async (
+  item: { url: string; title: string },
+  processConfig?: KnowledgeProcessOverrides,
+) => {
   const targetKbId = kbId.value;
   if (!targetKbId) {
     MessagePlugin.error(t('error.missingKbId'));
@@ -1476,7 +1479,8 @@ const executeUrlImport = async (url: string, processConfig?: KnowledgeProcessOve
   const tagIdsToUpload = selectedTagIds.value.length > 0 ? [...selectedTagIds.value] : undefined;
   try {
     const responseData: any = await createKnowledgeFromURL(targetKbId, {
-      url,
+      url: item.url,
+      title: item.title,
       tag_ids: tagIdsToUpload,
       process_config: processConfig,
     });
@@ -1527,12 +1531,15 @@ const handleUploadConfirmResult = async (result: UploadConfirmResult) => {
     await executeUploadBatch(files, { processConfig });
   }
 
-  for (const url of urls) {
-    await executeUrlImport(url, processConfig);
+  for (const urlItem of urls) {
+    await executeUrlImport(urlItem, processConfig);
   }
 };
 
-const openUploadConfirmDialog = async (files: File[], urls: string[] = []) => {
+const openUploadConfirmDialog = async (
+  files: File[],
+  urls: Array<{ url: string; title: string }> = [],
+) => {
   if (!kbInfo.value) return;
   if (files.length === 0 && urls.length === 0) return;
   try {
@@ -1556,9 +1563,9 @@ const handleUploadSourceFiles = (files: File[]) => {
   openUploadConfirmDialog(files);
 };
 
-const handleUploadSourceUrl = (url: string) => {
+const handleUploadSourceUrl = (item: { url: string; title: string }) => {
   if (!ensureDocumentKbReady()) return;
-  openUploadConfirmDialog([], [url]);
+  openUploadConfirmDialog([], [item]);
 };
 
 const handleManualCreate = () => {

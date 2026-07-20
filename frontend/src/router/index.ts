@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useCASStore } from '@/stores/cas'
 import { autoSetup, getCurrentUser, userInfoFromApi } from '@/api/auth'
 
 /** Lite /桌面 WebView 硬刷新时可能只打开 `/`，用 session 记住上次页面以便恢复 */
@@ -112,9 +113,21 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
+          path: "knowledge-bases/:kbId/members",
+          name: "knowledgeBaseMembers",
+          component: () => import("../views/knowledge/settings/KnowledgeBaseMembers.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
           path: "knowledge-bases/:kbId",
           name: "knowledgeBaseDetail",
           component: () => import("../views/knowledge/KnowledgeBase.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
+          path: "shared-knowledge-bases",
+          name: "sharedKnowledgeBaseSquare",
+          component: () => import("../views/knowledge/SharedKnowledgeBaseSquare.vue"),
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
@@ -293,6 +306,7 @@ let liteDeepLinkRestoreDone = false
 // 路由守卫：检查认证状态和系统初始化状态
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
+  const casStore = useCASStore()
 
   // OIDC 回跳登录结果依赖 App.vue 在挂载后消费 URL hash。
   // 如果这里先按“未登录”拦截到 /login，会导致回调结果没有机会落盘。
@@ -321,8 +335,16 @@ router.beforeEach(async (to, from, next) => {
     if (!authStore.isLoggedIn) {
       const restored = await hydrateSessionFromToken(authStore)
       if (!restored) {
-        next('/login')
-        return
+        // 未登录：走 CAS，不要落回密码登录页
+        if (window.location.href.includes('cas.nxin.com') || window.location.href.includes('cas.t.nxin.com')) {
+          next(false)
+          return
+        }
+        const casValid = await casStore.validateSession()
+        if (!casValid) {
+          next(false)
+          return
+        }
       }
     }
     if (authStore.hasValidTenant) {
@@ -333,7 +355,7 @@ router.beforeEach(async (to, from, next) => {
     return
   }
 
-  // 如果访问的是登录页面或初始化页面，直接放行
+  // 如果访问的是登录页面或初始化页面，直接放行（不触发 CAS，避免死循环）
   if (to.meta.requiresAuth === false || to.meta.requiresInit === false) {
     // 如果已登录用户访问登录页面，重定向到知识库列表页面
     if (to.path === '/login' && authStore.isLoggedIn) {
@@ -357,23 +379,44 @@ router.beforeEach(async (to, from, next) => {
         return
       }
 
-      if (!autoSetupAttempted && shouldTryAutoSetup()) {
-        autoSetupAttempted = true
-        try {
-          const response = await autoSetup()
-          if (response.success) {
-            persistLoginResponse(authStore, response)
-            authStore.setLiteMode(true)
-            next(to.fullPath)
-            return
-          } else {
+      // Lite：仅桌面/内嵌版尝试 auto-setup；NXIN Web 走 CAS
+      if (isLiteEdition(authStore)) {
+        if (!autoSetupAttempted && shouldTryAutoSetup()) {
+          autoSetupAttempted = true
+          try {
+            const response = await autoSetup()
+            if (response.success) {
+              persistLoginResponse(authStore, response)
+              authStore.setLiteMode(true)
+              next(to.fullPath)
+              return
+            } else {
+              markAutoSetupFailed()
+            }
+          } catch {
             markAutoSetupFailed()
           }
-        } catch {
-          markAutoSetupFailed()
         }
+        next('/login')
+        return
       }
-      next('/login')
+
+      // NXIN：未登录时走 CAS 验证；失败时 validateSession 会跳 CAS 登录页
+      if (window.location.href.includes('cas.nxin.com') || window.location.href.includes('cas.t.nxin.com')) {
+        next(false)
+        return
+      }
+
+      const casValid = await casStore.validateSession()
+      if (!casValid) {
+        next(false)
+        return
+      }
+      if (!authStore.hasValidTenant && to.meta.requiresTenant !== false) {
+        next('/onboarding/workspace')
+      } else {
+        next()
+      }
       return
     }
   }

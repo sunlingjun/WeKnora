@@ -1,23 +1,42 @@
+/** Strip quotes / trailing slashes from Vite env string values. */
+export function normalizeEnvUrl(raw: unknown): string {
+  if (raw === undefined || raw === null) return ''
+  let value = String(raw).trim()
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1).trim()
+  }
+  return value.replace(/\/+$/, '')
+}
+
+/**
+ * Resolve axios / fetch API base URL.
+ *
+ * Priority:
+ * 1. Vite BASE_URL when deployed under a sub-path (LocalHub)
+ * 2. VITE_IS_DOCKER=true → same-origin empty base (local vite proxy / nginx 反代)
+ * 3. VITE_API_URL or VITE_APP_BASE_API（.env.development / .env.production）
+ * 4. same-origin empty base（不再硬编码 host:8080）
+ */
 export function getApiBaseUrl(): string {
-  // LocalHub plugin: respect vite BASE_URL for reverse proxy deployments
-  const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
+  const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '')
   if (baseUrl && baseUrl !== '/') {
-    return baseUrl;
+    return baseUrl
   }
 
-  // Docker / same-origin（Vite 环境变量均为字符串，须显式比较 'true'）
+  // Docker / reverse-proxy same-origin（Vite 环境变量均为字符串，须显式比较 'true'）
   if (import.meta.env.VITE_IS_DOCKER === 'true') {
-    return '';
+    return ''
   }
 
-  const envUrl = import.meta.env.VITE_API_URL;
-  if (envUrl) {
-    return envUrl;
+  const fromEnv = normalizeEnvUrl(
+    import.meta.env.VITE_API_URL || import.meta.env.VITE_APP_BASE_API,
+  )
+  if (fromEnv) {
+    return fromEnv
   }
 
-  // NXIN default API base (CAS HTTPS cookie)
-  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-    return 'https://zsk.t.nxin.com:8080';
-  }
-  return 'http://zsk.t.nxin.com:8080';
+  return ''
 }

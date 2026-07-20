@@ -5,6 +5,10 @@
 !.gitignore
 !.github/
 
+# 前端环境模板（无密钥）可入库；真实 .env.* 仍被上方 .* 忽略
+!frontend/env.development.example
+!frontend/env.production.example
+
 # 敏感文件
 *.pem
 *_key

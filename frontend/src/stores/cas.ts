@@ -57,12 +57,11 @@ export const useCASStore = defineStore('cas', () => {
           })
         }
         
-        // 设置租户信息（格式与原有登录 API 一致）
+        // 设置租户信息（格式与原有登录 API 一致；0.7.0 起租户级 api_key 已迁到 tenant_api_keys）
         if (response.data.tenant) {
           authStore.setTenant({
             id: String(response.data.tenant.id || ''),
             name: response.data.tenant.name || '',
-            api_key: response.data.tenant.api_key || '',
             owner_id: response.data.user?.id || '',
             created_at: response.data.tenant.created_at || new Date().toISOString(),
             updated_at: response.data.tenant.updated_at || new Date().toISOString()

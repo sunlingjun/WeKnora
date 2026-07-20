@@ -1832,7 +1832,12 @@ type McpSelectOption = { label: string; value: string; disabled?: boolean };
 
 const mcpOptions = computed<McpSelectOption[]>(() => {
   const services = editorResources.mcpServices || [];
-  const selectedIds = new Set(formData.value.config.mcp_services || []);
+  const rawMcp = formData.value.config.mcp_services;
+  const selectedIds = new Set<string>(
+    Array.isArray(rawMcp)
+      ? rawMcp.filter((id): id is string => typeof id === 'string')
+      : [],
+  );
   const serviceById = new Map(services.map((mcp) => [mcp.id, mcp]));
   const options: McpSelectOption[] = [];
 
