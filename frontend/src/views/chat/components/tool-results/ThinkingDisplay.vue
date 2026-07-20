@@ -50,4 +50,3 @@ useI18n(); // ensure component reacts to locale changes if needed
   font-weight: 400;
 }
 </style>
-

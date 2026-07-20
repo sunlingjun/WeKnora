@@ -104,10 +104,6 @@ func (f *flowTenantSvc) DeleteTenant(context.Context, uint64) error { return nil
 func (f *flowTenantSvc) ListTenants(context.Context) ([]*types.Tenant, error) {
 	return nil, nil
 }
-func (f *flowTenantSvc) UpdateAPIKey(context.Context, uint64) (string, error) {
-	return "", nil
-}
-func (f *flowTenantSvc) ExtractTenantIDFromAPIKey(string) (uint64, error) { return 0, nil }
 func (f *flowTenantSvc) ListAllTenants(context.Context) ([]*types.Tenant, error) {
 	return nil, nil
 }
@@ -263,6 +259,43 @@ func TestPatchEmbedChatPayloadWebSearchBlockedWhenChannelDisabled(t *testing.T) 
 	}
 	if payload["web_search_enabled"] != false {
 		t.Fatalf("web_search_enabled = %v, want false when channel disallows web search", payload["web_search_enabled"])
+	}
+}
+
+func TestPatchEmbedChatPayloadStripsAttachmentsWhenUploadDisabled(t *testing.T) {
+	ch := &types.EmbedChannel{AgentID: "agent-1", AllowFileUpload: false}
+	body := `{"query":"hello","images":[{"data":"x"}],"attachment_uploads":[{"file_name":"a.pdf"}],"attachment_ids":["doc-1"]}`
+
+	patched, err := patchEmbedChatPayload(strings.NewReader(body), ch, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(patched, &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"images", "attachment_uploads", "attachment_ids"} {
+		if _, ok := payload[key]; ok {
+			t.Fatalf("%s should be stripped when allow_file_upload is false, got %v", key, payload[key])
+		}
+	}
+}
+
+func TestPatchEmbedChatPayloadKeepsAttachmentIDsWhenUploadAllowed(t *testing.T) {
+	ch := &types.EmbedChannel{AgentID: "agent-1", AllowFileUpload: true}
+	body := `{"query":"hello","attachment_ids":["doc-1","doc-2"]}`
+
+	patched, err := patchEmbedChatPayload(strings.NewReader(body), ch, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(patched, &payload); err != nil {
+		t.Fatal(err)
+	}
+	ids, ok := payload["attachment_ids"].([]any)
+	if !ok || len(ids) != 2 {
+		t.Fatalf("attachment_ids = %v, want preserved when upload allowed", payload["attachment_ids"])
 	}
 }
 

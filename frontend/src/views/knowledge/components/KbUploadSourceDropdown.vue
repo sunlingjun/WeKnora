@@ -54,14 +54,6 @@
           autofocus
           @enter="handleUrlDialogConfirm"
         />
-        <div class="url-input-label url-title-label">{{ t('knowledgeBase.urlTitleLabel') }}</div>
-        <t-input
-          v-model="urlImportTitle"
-          :placeholder="t('knowledgeBase.urlTitlePlaceholder')"
-          :maxlength="512"
-          clearable
-          @enter="handleUrlDialogConfirm"
-        />
         <div class="url-input-tip">{{ t('knowledgeBase.urlTip') }}</div>
       </div>
     </t-dialog>
@@ -69,10 +61,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, watch } from 'vue'
+import { ref, computed, h } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
-import type { UrlImportItem } from '@/stores/uploadConfirm'
 import { filterUploadFiles } from '../utils/uploadSources'
 
 const props = withDefaults(defineProps<{
@@ -97,7 +88,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   files: [files: File[]]
-  url: [item: UrlImportItem]
+  url: [url: string]
   manual: []
 }>()
 
@@ -107,44 +98,6 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 const folderInputRef = ref<HTMLInputElement | null>(null)
 const urlDialogVisible = ref(false)
 const urlInputValue = ref('')
-const urlImportTitle = ref('')
-/** Last title auto-filled from URL; only overwrite when user has not edited. */
-const urlAutoTitle = ref('')
-
-/** Prefill rule aligned with backend defaultTitleFromWebURL. */
-function suggestTitleFromURL(raw: string): string | null {
-  const u = raw.trim()
-  if (!u) return ''
-  try {
-    const parsed = new URL(u)
-    const host = parsed.hostname || ''
-    if (!host) return u
-    const p = (parsed.pathname || '').replace(/^\/+|\/+$/g, '')
-    if (!p) return host
-    const seg = p.split('/').pop() || ''
-    if (!seg || seg === '.') return host
-    const runes = Array.from(seg)
-    const cut = runes.length > 80 ? `${runes.slice(0, 77).join('')}...` : seg
-    return `${host} / ${cut}`
-  } catch {
-    return null
-  }
-}
-
-watch(urlInputValue, (val) => {
-  const suggested = suggestTitleFromURL(val)
-  if (suggested === '') {
-    urlImportTitle.value = ''
-    urlAutoTitle.value = ''
-    return
-  }
-  if (suggested === null) return
-  const cur = urlImportTitle.value
-  if (cur === '' || cur === urlAutoTitle.value) {
-    urlImportTitle.value = suggested
-    urlAutoTitle.value = suggested
-  }
-})
 
 const tooltipText = computed(() => props.tooltip || t('knowledgeBase.addDocument'))
 
@@ -176,12 +129,6 @@ const dropdownOptions = computed(() => {
   return options
 })
 
-const resetUrlDialog = () => {
-  urlInputValue.value = ''
-  urlImportTitle.value = ''
-  urlAutoTitle.value = ''
-}
-
 const handleActionSelect = (data: { value: string }) => {
   switch (data.value) {
     case 'upload':
@@ -191,7 +138,7 @@ const handleActionSelect = (data: { value: string }) => {
       folderInputRef.value?.click()
       break
     case 'importURL':
-      resetUrlDialog()
+      urlInputValue.value = ''
       urlDialogVisible.value = true
       break
     case 'manualCreate':
@@ -243,31 +190,26 @@ const handleUrlDialogConfirm = () => {
   const url = urlInputValue.value.trim()
   if (!url) {
     MessagePlugin.warning(t('knowledgeBase.urlRequired'))
-    return false
-  }
-  const title = urlImportTitle.value.trim()
-  if (!title) {
-    MessagePlugin.warning(t('knowledgeBase.urlTitleRequired'))
-    return false
+    return
   }
   try {
     new URL(url)
   } catch {
     MessagePlugin.warning(t('knowledgeBase.invalidURL'))
-    return false
+    return
   }
   urlDialogVisible.value = false
-  resetUrlDialog()
-  emit('url', { url, title })
+  urlInputValue.value = ''
+  emit('url', url)
 }
 
 const handleUrlDialogCancel = () => {
   urlDialogVisible.value = false
-  resetUrlDialog()
+  urlInputValue.value = ''
 }
 
 const openUrlDialog = () => {
-  resetUrlDialog()
+  urlInputValue.value = ''
   urlDialogVisible.value = true
 }
 
@@ -297,10 +239,6 @@ defineExpose({ openUrlDialog })
     font-size: 14px;
     font-weight: 500;
     color: var(--td-text-color-primary);
-  }
-
-  .url-title-label {
-    margin-top: 16px;
   }
 
   .url-input-tip {

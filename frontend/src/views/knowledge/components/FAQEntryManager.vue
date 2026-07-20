@@ -185,7 +185,7 @@
                     <t-input ref="newTagInputRef" v-model="newTagName" size="small" :maxlength="40"
                       :placeholder="$t('knowledgeBase.tagNamePlaceholder')"
                       @enter="submitCreateTag"
-                      @keydown="(_v: any, ctx: any) => { if (ctx?.e?.key === 'Escape') { ctx.e.stopPropagation(); ctx.e.preventDefault(); cancelCreateTag() } }" />
+                      @keydown="(_v: string, ctx?: { e?: KeyboardEvent }) => { if (ctx?.e?.key === 'Escape') { ctx.e.stopPropagation(); ctx.e.preventDefault(); cancelCreateTag() } }" />
                   </div>
                 </div>
                 <div class="tag-inline-actions">
@@ -210,7 +210,7 @@
                       <div class="tag-edit-input" @click.stop>
                         <t-input :ref="setEditingTagInputRefByTag(tag.id)" v-model="editingTagName" size="small"
                           :maxlength="40" @enter="submitEditTag"
-                          @keydown="(_v: any, ctx: any) => { if (ctx?.e?.key === 'Escape') { ctx.e.stopPropagation(); ctx.e.preventDefault(); cancelEditTag() } }" />
+                          @keydown="(_v: string, ctx?: { e?: KeyboardEvent }) => { if (ctx?.e?.key === 'Escape') { ctx.e.stopPropagation(); ctx.e.preventDefault(); cancelEditTag() } }" />
                       </div>
                     </template>
                     <template v-else>
@@ -950,7 +950,6 @@ import FAQTagTooltip from '@/components/FAQTagTooltip.vue'
 import KBInfoPopover from '@/components/KBInfoPopover.vue'
 import KBSwitcherDropdown from '@/components/KBSwitcherDropdown.vue'
 import { useUIStore } from '@/stores/ui'
-import { canEditKB as canEditDirectSharedKB, canManageKBSettings } from '@/utils/kb-permission'
 
 interface FAQEntry {
   id: number
@@ -1025,12 +1024,6 @@ const currentSharedKb = computed(() =>
 // tenants); share-list presence is the authoritative signal.
 const isViaShare = computed(() => !!currentSharedKb.value)
 
-const isDirectShared = computed(
-  () => !isViaShare.value && kbInfo.value?.visibility === 'shared',
-)
-
-const currentUserId = computed(() => authStore.user?.id || '')
-
 // Can edit: when accessed via an organization share, ONLY the share grant
 // counts — even if the current user happens to be the original creator of
 // the KB. The backend's RBAC middleware authorizes based on the active
@@ -1039,9 +1032,6 @@ const currentUserId = computed(() => authStore.user?.id || '')
 // (any role) or tenant Admin+ in the home tenant.
 const canEdit = computed(() => {
   if (isViaShare.value) return orgStore.canEditKB(props.kbId, false)
-  if (isDirectShared.value && kbInfo.value) {
-    return canEditDirectSharedKB(kbInfo.value, currentUserId.value)
-  }
   if (isOwner.value) return true
   if (authStore.hasRole('admin')) return true
   return orgStore.canEditKB(props.kbId, false)
@@ -1052,9 +1042,6 @@ const canEdit = computed(() => {
 // even being the creator viewed via share) never grant delete/settings.
 const canManage = computed(() => {
   if (isViaShare.value) return orgStore.canManageKB(props.kbId, false)
-  if (isDirectShared.value && kbInfo.value) {
-    return canManageKBSettings(kbInfo.value, currentUserId.value)
-  }
   if (isOwner.value) return true
   if (authStore.hasRole('admin')) return true
   return orgStore.canManageKB(props.kbId, false)
@@ -1188,14 +1175,14 @@ const loadKnowledgeInfo = async (kbId: string) => {
 const loadKnowledgeList = async () => {
   try {
     const res: any = await listKnowledgeBases()
-    const myKbs = (res?.data || []).map((item: any) => ({
+    const myKbs: typeof knowledgeList.value = (res?.data || []).map((item: any) => ({
       id: String(item.id),
       name: item.name,
       type: item.type,
     }))
 
     // Also include shared knowledge bases from orgStore
-    const sharedKbs = (orgStore.sharedKnowledgeBases || [])
+    const sharedKbs: typeof knowledgeList.value = (orgStore.sharedKnowledgeBases || [])
       .filter(s => s.knowledge_base != null)
       .map(s => ({
         id: String(s.knowledge_base.id),
@@ -1204,8 +1191,8 @@ const loadKnowledgeList = async () => {
       }))
 
     // Merge and deduplicate by id (my KBs take precedence)
-    const myKbIds = new Set(myKbs.map((kb: { id: string }) => kb.id))
-    const uniqueSharedKbs = sharedKbs.filter((kb: { id: string }) => !myKbIds.has(kb.id))
+    const myKbIds = new Set(myKbs.map(kb => kb.id))
+    const uniqueSharedKbs = sharedKbs.filter(kb => !myKbIds.has(kb.id))
 
     knowledgeList.value = [...myKbs, ...uniqueSharedKbs]
   } catch (error) {
@@ -2704,7 +2691,7 @@ watch(selectedTagId, (newVal, oldVal) => {
 watch(tagSearchQuery, (newVal, oldVal) => {
   if (newVal === oldVal) return
   if (tagSearchDebounce) {
-    clearTimeout(tagSearchDebounce)
+    window.clearTimeout(tagSearchDebounce)
   }
   tagSearchDebounce = window.setTimeout(() => {
     loadTags(true)
@@ -2715,7 +2702,7 @@ watch(tagSearchQuery, (newVal, oldVal) => {
 watch(entrySearchKeyword, (newVal, oldVal) => {
   if (newVal === oldVal) return
   if (entrySearchDebounce) {
-    clearTimeout(entrySearchDebounce)
+    window.clearTimeout(entrySearchDebounce)
   }
   entrySearchDebounce = window.setTimeout(() => {
     loadEntries()

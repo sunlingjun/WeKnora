@@ -293,8 +293,8 @@ func (s *embedChannelService) chunkAllowedForEmbed(
 	if chunk == nil || chunk.KnowledgeBaseID == "" {
 		return false
 	}
-	// 显式重校验租户：GetChunkByIDOnly 无租户过滤，且 KBSelectionMode=="all"/默认
-	// 分支会无条件放行，必须在此挡住跨租户 chunk id 撞库读取他人知识库正文。
+	// 显式重校验空间：GetChunkByIDOnly 无空间过滤，且 KBSelectionMode=="all"/默认
+	// 分支会无条件放行，必须在此挡住跨空间 chunk id 撞库读取他人知识库正文。
 	if ch == nil || chunk.TenantID != ch.TenantID {
 		return false
 	}
@@ -331,7 +331,7 @@ func (s *embedChannelService) SuggestedQuestions(
 		limit = 6
 	}
 	kbIDs := s.resolveKnowledgeBaseIDs(ctx, ch)
-	return s.agentService.GetSuggestedQuestions(ctx, ch.AgentID, kbIDs, nil, limit)
+	return s.agentService.GetSuggestedQuestions(ctx, ch.AgentID, kbIDs, nil, nil, limit)
 }
 
 // EmbedDisplayTitle resolves the human-readable title for embed sessions and UI chrome.

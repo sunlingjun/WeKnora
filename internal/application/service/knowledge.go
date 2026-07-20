@@ -26,8 +26,11 @@ var (
 	ErrInvalidFileType = errors.New("unsupported file type")
 	// ErrInvalidURL is returned when an invalid URL is provided
 	ErrInvalidURL = errors.New("invalid URL")
-	// ErrChunkNotFound is returned when a requested chunk cannot be found
-	ErrChunkNotFound = errors.New("chunk not found")
+	// ErrChunkNotFound is returned when a requested chunk cannot be found.
+	// Aliases the repository sentinel so a chunk-not-found from the repo
+	// errors.Is-matches at the service and middleware layers (a single
+	// identity instead of two string-equal-but-distinct errors).
+	ErrChunkNotFound = repository.ErrChunkNotFound
 	// ErrDuplicateFile is returned when trying to add a file that already exists
 	ErrDuplicateFile = errors.New("file already exists")
 	// ErrDuplicateURL is returned when trying to add a URL that already exists
@@ -52,6 +55,7 @@ type knowledgeService struct {
 	tagRepo         interfaces.KnowledgeTagRepository
 	tagService      interfaces.KnowledgeTagService
 	fileSvc         interfaces.FileService
+	storageResolver interfaces.StorageBackendResolver
 	modelService    interfaces.ModelService
 	task            interfaces.TaskEnqueuer
 	taskInspector   interfaces.TaskInspector
@@ -94,6 +98,7 @@ func NewKnowledgeService(
 	tagRepo interfaces.KnowledgeTagRepository,
 	tagService interfaces.KnowledgeTagService,
 	fileSvc interfaces.FileService,
+	storageResolver interfaces.StorageBackendResolver,
 	modelService interfaces.ModelService,
 	task interfaces.TaskEnqueuer,
 	taskInspector interfaces.TaskInspector,
@@ -121,6 +126,7 @@ func NewKnowledgeService(
 		tagRepo:         tagRepo,
 		tagService:      tagService,
 		fileSvc:         fileSvc,
+		storageResolver: storageResolver,
 		modelService:    modelService,
 		task:            task,
 		taskInspector:   taskInspector,
@@ -414,11 +420,11 @@ func (s *knowledgeService) isKnowledgeAborted(
 // checkStorageEngineConfigured verifies that the knowledge base has a storage engine configured
 // (either at the KB level or via the tenant default).
 //
-// 内部版兜底语义：当 KB 与租户都未配置 storage provider 时，如果服务实例持有
+// 内部版兜底语义：当 KB 与空间都未配置 storage provider 时，如果服务实例持有
 // 全局 FileService（由容器按 STORAGE_TYPE 注入，默认 local），允许直接落到该
 // 全局 fileSvc 上，不再硬性阻断。这与 resolveFileService / resolveFileServiceForPath
 // 在 provider 为空时回退到 s.fileSvc 的行为保持一致，避免上层闸门和下游解析口径不一。
-// 仅当 KB/租户/全局三处都拿不到任何可用 FileService 时才报错。
+// 仅当 KB/空间/全局三处都拿不到任何可用 FileService 时才报错。
 func (s *knowledgeService) checkStorageEngineConfigured(ctx context.Context, kb *types.KnowledgeBase) error {
 	provider := kb.GetStorageProvider()
 	if provider == "" {
@@ -492,7 +498,15 @@ func (s *knowledgeService) GetKnowledgeByIDOnly(ctx context.Context, id string) 
 // KB row itself is not returned so callers can't accidentally widen
 // their scope past "needed the creator id".
 func (s *knowledgeService) GetOwningKBCreatorID(ctx context.Context, knowledgeID string) (string, error) {
-	knowledge, err := s.GetKnowledgeByID(ctx, knowledgeID)
+	// Resolve via the repository directly: ownership only needs the
+	// knowledge -> kb_id link, so we deliberately skip the service-level
+	// GetKnowledgeByID (which also eagerly loads tags) to keep this lookup
+	// minimal and tenant-scoped.
+	tenantID, ok := ctx.Value(types.TenantIDContextKey).(uint64)
+	if !ok {
+		return "", werrors.NewUnauthorizedError("Workspace ID not found in context")
+	}
+	knowledge, err := s.repo.GetKnowledgeByID(ctx, tenantID, knowledgeID)
 	if err != nil {
 		return "", err
 	}
@@ -682,6 +696,17 @@ func (s *knowledgeService) SetKnowledgeTags(ctx context.Context, knowledgeID str
 	return s.repo.SetKnowledgeTags(ctx, knowledgeID, tagIDs)
 }
 
+// ListKnowledgeIDsByTagIDs returns document knowledge IDs carrying any of the
+// specified KB-local tags.
+func (s *knowledgeService) ListKnowledgeIDsByTagIDs(
+	ctx context.Context,
+	tenantID uint64,
+	kbID string,
+	tagIDs []string,
+) ([]string, error) {
+	return s.repo.ListIDsByTagIDs(ctx, tenantID, kbID, tagIDs)
+}
+
 // validateKnowledgeTagIDs ensures every tag exists and belongs to the given knowledge base.
 func (s *knowledgeService) validateKnowledgeTagIDs(
 	ctx context.Context,
@@ -790,11 +815,11 @@ func (s *knowledgeService) UpdateKnowledgeTagBatch(ctx context.Context, authoriz
 	}
 	tenantIDVal := ctx.Value(types.TenantIDContextKey)
 	if tenantIDVal == nil {
-		return werrors.NewUnauthorizedError("tenant ID not found in context")
+		return werrors.NewUnauthorizedError("workspace ID not found in context")
 	}
 	tenantID, ok := tenantIDVal.(uint64)
 	if !ok {
-		return werrors.NewUnauthorizedError("invalid tenant ID in context")
+		return werrors.NewUnauthorizedError("invalid workspace ID in context")
 	}
 
 	// Get all knowledge items in batch
@@ -878,10 +903,10 @@ func (s *knowledgeService) UpdateKnowledgeTagBatch(ctx context.Context, authoriz
 
 // SearchKnowledge searches knowledge items by keyword across the tenant and shared knowledge bases.
 // fileTypes: optional list of file extensions to filter by (e.g., ["csv", "xlsx"])
-func (s *knowledgeService) SearchKnowledge(ctx context.Context, keyword string, offset, limit int, fileTypes []string) ([]*types.Knowledge, bool, error) {
+func (s *knowledgeService) SearchKnowledge(ctx context.Context, keyword string, offset, limit int, fileTypes []string) ([]*types.Knowledge, bool, int64, error) {
 	tenantID, ok := ctx.Value(types.TenantIDContextKey).(uint64)
 	if !ok {
-		return nil, false, werrors.NewUnauthorizedError("Tenant ID not found in context")
+		return nil, false, 0, werrors.NewUnauthorizedError("Workspace ID not found in context")
 	}
 
 	scopes := make([]types.KnowledgeSearchScope, 0)
@@ -934,15 +959,15 @@ func (s *knowledgeService) SearchKnowledge(ctx context.Context, keyword string, 
 	}
 
 	if len(scopes) == 0 {
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	return s.repo.SearchKnowledgeInScopes(ctx, scopes, keyword, offset, limit, fileTypes)
 }
 
 // SearchKnowledgeForScopes searches knowledge within the given scopes (e.g. for shared agent context).
-func (s *knowledgeService) SearchKnowledgeForScopes(ctx context.Context, scopes []types.KnowledgeSearchScope, keyword string, offset, limit int, fileTypes []string) ([]*types.Knowledge, bool, error) {
+func (s *knowledgeService) SearchKnowledgeForScopes(ctx context.Context, scopes []types.KnowledgeSearchScope, keyword string, offset, limit int, fileTypes []string) ([]*types.Knowledge, bool, int64, error) {
 	if len(scopes) == 0 {
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	return s.repo.SearchKnowledgeInScopes(ctx, scopes, keyword, offset, limit, fileTypes)
 }

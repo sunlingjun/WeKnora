@@ -17,7 +17,8 @@
               <t-tooltip :content="canManageOrg ? $t('organization.createOrg') : noPermissionTip" placement="bottom">
                 <t-button variant="text" theme="default" size="small" class="header-action-btn"
                   style="--wails-draggable: no-drag" :disabled="!canManageOrg" @click="handleCreateOrganization">
-                  <template #icon><SvgIcon name="organization" variant="green" :size="16" class="org-create-icon" /></template>
+                  <template #icon><img src="@/assets/img/organization-green.svg" class="org-create-icon" alt=""
+                      aria-hidden="true" /></template>
                 </t-button>
               </t-tooltip>
             </div>
@@ -149,7 +150,7 @@
                   </t-tooltip>
                   <t-tooltip :content="$t('organization.invite.agents')" placement="top">
                     <div class="feature-badge stat-agent">
-                      <SvgIcon name="agent" variant="green" :size="14" class="stat-agent-icon" />
+                      <img src="@/assets/img/agent-green.svg" class="stat-agent-icon" alt="" aria-hidden="true" />
                       <span class="badge-count">{{ org.agent_share_count ?? 0 }}</span>
                     </div>
                   </t-tooltip>
@@ -160,7 +161,7 @@
                     $t('organization.settings.pendingReview') }}</span>
                 </t-tooltip>
               </div>
-              <div class="bottom-right">
+              <div v-if="showOrgRelationTag(org)" class="bottom-right">
                 <div class="relation-role-tag" :class="org.is_owner ? 'owner' : (org.my_role || '')">
                   <t-icon :name="org.is_owner ? 'usergroup-add' : 'usergroup'" size="14px" />
                   <span>{{ org.is_owner ? $t('organization.owner') : (org.my_role ?
@@ -188,7 +189,8 @@
             </t-tooltip>
             <t-tooltip :content="noPermissionTip" placement="top" :disabled="canManageOrg">
               <t-button class="org-create-btn" :disabled="!canManageOrg" @click="handleCreateOrganization">
-                <template #icon><SvgIcon name="organization" variant="green" :size="16" class="org-create-icon" /></template>
+                <template #icon><img src="@/assets/img/organization-green.svg" class="org-create-icon" alt=""
+                    aria-hidden="true" /></template>
                 {{ $t('organization.createOrg') }}
               </t-button>
             </t-tooltip>
@@ -380,7 +382,8 @@
                                     {{ org.share_count }}
                                   </span>
                                   <span class="searchable-badge searchable-badge-agent">
-                                    <SvgIcon name="agent" :size="12" class="searchable-badge-agent-icon" />
+                                    <img src="@/assets/img/agent.svg" class="searchable-badge-agent-icon" alt=""
+                                      aria-hidden="true" />
                                     {{ org.agent_share_count ?? 0 }}
                                   </span>
                                   <t-tag v-if="org.require_approval" class="searchable-tag-approval" size="small"
@@ -469,7 +472,8 @@
                           {{ invitePreviewData.share_count }} {{ $t('organization.invite.knowledgeBases') }}
                         </span>
                         <span class="preview-badge preview-badge-agent">
-                          <SvgIcon name="agent" :size="12" class="preview-badge-agent-icon" />
+                          <img src="@/assets/img/agent.svg" class="preview-badge-agent-icon" alt=""
+                            aria-hidden="true" />
                           {{ invitePreviewData.agent_share_count ?? 0 }} {{ $t('organization.invite.agents') }}
                         </span>
                         <t-tag v-if="invitePreviewData.require_approval" class="preview-tag-approval" size="small"
@@ -553,7 +557,7 @@ import { useI18n } from 'vue-i18n'
 import OrganizationSettingsModal from './OrganizationSettingsModal.vue'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import ListSpaceSidebar from '@/components/ListSpaceSidebar.vue'
-import { SvgIcon } from '@/components/icons'
+import { shouldShowOrgRelationTag } from '@/utils/card-list-badge'
 
 interface OrgWithUI extends Organization {
   showMore?: boolean
@@ -566,7 +570,7 @@ const orgStore = useOrganizationStore()
 const authStore = useAuthStore()
 
 // 后端 /api/v1/organizations 下的写操作（创建、加入、申请加入、邀请、审批、改设置等）
-// 在路由层都要求当前租户角色 ≥ admin。前端只用于 UI 渲染，安全边界仍在服务端。
+// 在路由层都要求当前空间角色 ≥ admin。前端只用于 UI 渲染，安全边界仍在服务端。
 const canManageOrg = computed(
   () => authStore.hasRole('admin') || authStore.canAccessAllTenants
 )
@@ -805,6 +809,14 @@ const orgSectionCounts = computed<Record<OrgSectionKey, number>>(() => {
   filteredOrganizations.value.forEach(o => { c[orgSectionOf(o)]++ })
   return c
 })
+
+function showOrgRelationTag(org: { is_owner?: boolean; my_role?: string }): boolean {
+  return shouldShowOrgRelationTag({
+    spaceSelection: spaceSelection.value,
+    isOwner: !!org.is_owner,
+    myRole: org.my_role,
+  })
+}
 
 const emptyStateTitle = computed(() => {
   if (spaceSelection.value === 'created') return t('organization.emptyCreated')
@@ -1321,7 +1333,7 @@ onUnmounted(() => {
 }
 
 .org-join-btn {
-  border-color: color-mix(in srgb, var(--td-brand-color) 50%, transparent);
+  border-color: rgba(7, 192, 95, 0.5);
   color: var(--td-brand-color);
   font-weight: 500;
   transition: all 0.2s ease;
@@ -1331,7 +1343,7 @@ onUnmounted(() => {
   }
 
   &:hover {
-    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+    background: rgba(7, 192, 95, 0.08);
     border-color: var(--td-brand-color);
     color: var(--td-brand-color);
 
@@ -1346,12 +1358,12 @@ onUnmounted(() => {
   border: none;
   color: var(--td-text-color-anti);
   font-weight: 500;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--td-brand-color) 25%, transparent);
+  box-shadow: 0 2px 8px rgba(7, 192, 95, 0.25);
   transition: all 0.25s ease;
 
   &:hover {
     background: var(--td-brand-color);
-    box-shadow: 0 4px 14px color-mix(in srgb, var(--td-brand-color) 35%, transparent);
+    box-shadow: 0 4px 14px rgba(7, 192, 95, 0.35);
   }
 
   .org-create-icon {
@@ -1557,29 +1569,29 @@ onUnmounted(() => {
     right: 0;
     width: 120px;
     height: 80px;
-    background: radial-gradient(ellipse 60% 50% at 100% 0%, color-mix(in srgb, var(--td-brand-color) 6%, transparent) 0%, transparent 70%);
+    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(7, 192, 95, 0.06) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
 
   &.joined-org {
     &:hover {
-      border-color: color-mix(in srgb, var(--td-brand-color) 40%, transparent);
-      box-shadow: 0 4px 16px color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+      border-color: rgba(7, 192, 95, 0.4);
+      box-shadow: 0 4px 16px rgba(7, 192, 95, 0.08);
     }
   }
 
   &:hover {
-    border-color: color-mix(in srgb, var(--td-brand-color) 50%, transparent);
-    box-shadow: 0 6px 20px color-mix(in srgb, var(--td-brand-color) 12%, transparent);
+    border-color: rgba(7, 192, 95, 0.5);
+    box-shadow: 0 6px 20px rgba(7, 192, 95, 0.12);
   }
 
   .card-decoration {
-    color: color-mix(in srgb, var(--td-brand-color) 35%, transparent);
+    color: rgba(7, 192, 95, 0.35);
   }
 
   &:hover .card-decoration {
-    color: color-mix(in srgb, var(--td-brand-color) 55%, transparent);
+    color: rgba(7, 192, 95, 0.55);
   }
 
   .card-header {
@@ -1803,7 +1815,7 @@ onUnmounted(() => {
   }
 
   &.stat-kb {
-    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+    background: rgba(7, 192, 95, 0.08);
     color: var(--td-brand-color);
 
     .t-icon {
@@ -1811,7 +1823,7 @@ onUnmounted(() => {
     }
 
     &:hover {
-      background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
+      background: rgba(7, 192, 95, 0.12);
     }
   }
 
@@ -1882,7 +1894,7 @@ onUnmounted(() => {
   }
 
   &.admin {
-    background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
+    background: rgba(7, 192, 95, 0.12);
     color: var(--td-brand-color);
 
     .t-icon {
@@ -1891,7 +1903,7 @@ onUnmounted(() => {
   }
 
   &.editor {
-    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+    background: rgba(7, 192, 95, 0.08);
     color: var(--td-brand-color);
 
     .t-icon {
@@ -2362,14 +2374,14 @@ onUnmounted(() => {
     right: 0;
     width: 80px;
     height: 56px;
-    background: radial-gradient(ellipse 60% 50% at 100% 0%, color-mix(in srgb, var(--td-brand-color) 6%, transparent) 0%, transparent 70%);
+    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(7, 192, 95, 0.06) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
 
   &:hover:not(.is-full) {
-    border-color: color-mix(in srgb, var(--td-brand-color) 50%, transparent);
-    box-shadow: 0 4px 16px color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+    border-color: rgba(7, 192, 95, 0.5);
+    box-shadow: 0 4px 16px rgba(7, 192, 95, 0.08);
   }
 
   &.is-full {
@@ -2385,13 +2397,13 @@ onUnmounted(() => {
     position: absolute;
     top: 6px;
     right: 12px;
-    color: color-mix(in srgb, var(--td-brand-color) 35%, transparent);
+    color: rgba(7, 192, 95, 0.35);
     pointer-events: none;
     z-index: 0;
   }
 
   &:hover:not(.is-full) .searchable-card-decoration {
-    color: color-mix(in srgb, var(--td-brand-color) 55%, transparent);
+    color: rgba(7, 192, 95, 0.55);
   }
 
   .searchable-card-header {
@@ -2485,7 +2497,7 @@ onUnmounted(() => {
     font-family: var(--app-font-family);
 
     &.member {
-      background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+      background: rgba(7, 192, 95, 0.08);
       color: var(--td-brand-color);
     }
 
@@ -2495,7 +2507,7 @@ onUnmounted(() => {
     }
 
     &.searchable-badge-agent {
-      background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+      background: rgba(7, 192, 95, 0.08);
       color: var(--td-brand-color);
 
       .searchable-badge-agent-icon {
@@ -2625,7 +2637,7 @@ onUnmounted(() => {
     right: 0;
     width: 120px;
     height: 80px;
-    background: radial-gradient(ellipse 60% 50% at 100% 0%, color-mix(in srgb, var(--td-brand-color) 6%, transparent) 0%, transparent 70%);
+    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(7, 192, 95, 0.06) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
@@ -2635,7 +2647,7 @@ onUnmounted(() => {
   position: absolute;
   top: 8px;
   right: 16px;
-  color: color-mix(in srgb, var(--td-brand-color) 35%, transparent);
+  color: rgba(7, 192, 95, 0.35);
   pointer-events: none;
   z-index: 0;
 }
@@ -2753,7 +2765,7 @@ onUnmounted(() => {
   font-family: var(--app-font-family);
 
   &.member {
-    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+    background: rgba(7, 192, 95, 0.08);
     color: var(--td-brand-color);
   }
 
@@ -2763,7 +2775,7 @@ onUnmounted(() => {
   }
 
   &.preview-badge-agent {
-    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+    background: rgba(7, 192, 95, 0.08);
     color: var(--td-brand-color);
 
     .preview-badge-agent-icon {

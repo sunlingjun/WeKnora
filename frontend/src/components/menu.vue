@@ -49,7 +49,7 @@
             </div>
         </t-tooltip>
 
-        <!-- 租户选择器：仅在用户可切换租户时显示 -->
+        <!-- 空间选择器：仅在用户可切换空间时显示 -->
         <TenantSelector v-if="canAccessAllTenants && !uiStore.sidebarCollapsed" />
 
         <!-- 折叠时右侧拖拽展开手柄 -->
@@ -159,6 +159,7 @@
                                             @navigate="gotopage(subitem.path)"
                                             @toggle-select="toggleBatchSelect(subitem.id)"
                                             @menu-click="handleSessionMenuClick($event, subitem)"
+                                            @rename-submit="renameSessionTitle(subitem, $event.title)"
                                             @hover-in="mouseenteBotDownr(subitem.id)" @hover-out="mouseleaveBotDown" />
                                     </div>
                                 </div>
@@ -207,7 +208,7 @@
 import { storeToRefs } from 'pinia';
 import { onMounted, onUnmounted, watch, computed, ref, h, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getSessionsList, delSession, batchDelSessions, deleteAllSessions, clearSessionMessages, pinSession, unpinSession } from "@/api/chat/index";
+import { getSessionsList, delSession, batchDelSessions, deleteAllSessions, clearSessionMessages, pinSession, unpinSession, updateSession } from "@/api/chat/index";
 import { useChatResourcesStore } from '@/stores/chatResources';
 import { listAllIMChannels } from '@/api/agent/index';
 import SessionSidebarRow from './SessionSidebarRow.vue';
@@ -262,20 +263,24 @@ const chatResources = useChatResourcesStore();
 // visually consistent with the channels admin view.
 import wecomLogo from '@/assets/img/im/wecom.svg';
 import feishuLogo from '@/assets/img/im/feishu.svg';
+import larkLogo from '@/assets/img/im/lark.svg';
 import slackLogo from '@/assets/img/im/slack.svg';
 import telegramLogo from '@/assets/img/im/telegram.svg';
 import dingtalkLogo from '@/assets/img/im/dingtalk.svg';
 import mattermostLogo from '@/assets/img/im/mattermost.svg';
 import wechatLogo from '@/assets/img/im/wechat.svg';
+import qqbotLogo from '@/assets/img/im/qqbot.png';
 
 const PLATFORM_LOGO: Record<string, string> = {
     wecom: wecomLogo,
     feishu: feishuLogo,
+    lark: larkLogo,
     slack: slackLogo,
     telegram: telegramLogo,
     dingtalk: dingtalkLogo,
     mattermost: mattermostLogo,
     wechat: wechatLogo,
+    qqbot: qqbotLogo,
 };
 
 const platformLogo = (p: string): string => (p ? PLATFORM_LOGO[p] || '' : '');
@@ -381,7 +386,7 @@ const resolveMenuIcon = (item: MenuItem): { name: IconName; variant: IconVariant
     };
 };
 
-// 是否可以访问所有租户
+// 是否可以访问所有空间
 const canAccessAllTenants = computed(() => authStore.canAccessAllTenants);
 
 // 是否处于知识库详情页（不包括全局聊天）
@@ -423,8 +428,6 @@ const isMenuItemActive = (itemPath: string): boolean => {
             return currentRoute === 'sharedKnowledgeBaseSquare';
         case 'agents':
             return currentRoute === 'agentList';
-        case 'integrations':
-            return currentRoute === 'integrations';
         case 'organizations':
             return currentRoute === 'organizationList';
         case 'creatChat':
@@ -493,6 +496,7 @@ const filteredGroupedSessions = computed(() => {
         bucket.items.map((item) => ({
             ...item,
             path: `chat/${item.id}`,
+            title: item.title || '',
         })),
         dateBucketLabels.value,
         (session) => classifyDateBucket(session.updated_at || session.created_at),
@@ -646,6 +650,7 @@ const buildSessionMenuOptions = (item: any) => {
         });
     }
     options.push(
+        { content: t('menu.renameSession'), value: 'rename', prefixIcon: () => h(TIcon, { name: 'edit-1', size: '16px' }) },
         { content: t('menu.clearMessages'), value: 'clearMessages', prefixIcon: () => h(TIcon, { name: 'clear', size: '16px' }) },
         { content: t('menu.batchManage'), value: 'batchManage', prefixIcon: () => h(TIcon, { name: 'queue', size: '16px' }) },
         { content: t('upload.deleteRecord'), value: 'delete', theme: 'error', prefixIcon: () => h(TIcon, { name: 'delete', size: '16px' }) },
@@ -666,6 +671,26 @@ const updateSessionInBuckets = (
     }
     sessionBuckets.value = next;
     syncMenuStoreFromBuckets();
+};
+
+const renameSessionTitle = async (item: any, title: string) => {
+    try {
+        const res: any = await updateSession(item.id, {
+            title,
+            description: item.description || '',
+        });
+        if (res && res.success) {
+            updateSessionInBuckets(item.id, {
+                title: res.data?.title || title,
+                isNoTitle: false,
+            });
+            MessagePlugin.success(t('menu.renameSessionSuccess'));
+        } else {
+            MessagePlugin.error(t('menu.renameSessionFailed'));
+        }
+    } catch {
+        MessagePlugin.error(t('menu.renameSessionFailed'));
+    }
 };
 
 const togglePin = (item: any, pin: boolean) => {
@@ -1052,8 +1077,6 @@ const handleMenuClick = async (path: string) => {
       router.push('/platform/shared-knowledge-bases')
     } else if (path === 'agents') {
         router.push('/platform/agents')
-    } else if (path === 'integrations') {
-        router.push('/platform/integrations')
     } else if (path === 'organizations') {
         // 组织菜单项：跳转到组织列表
         router.push('/platform/organizations')
