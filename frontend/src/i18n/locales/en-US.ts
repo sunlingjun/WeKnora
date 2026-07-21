@@ -53,7 +53,7 @@ export default {
     reopen: 'Product tour',
     steps: {
       welcome: {
-        title: 'Welcome to WeKnora',
+        title: 'Welcome to ZSK',
         desc: 'A few quick steps to get you familiar with knowledge bases, chat and agents. Click "Next" to begin.',
       },
       knowledge: {
@@ -1736,7 +1736,7 @@ export default {
   },
   initialization: {
     title: 'Initialization',
-    welcome: 'Welcome to WeKnora',
+    welcome: 'Welcome to ZSK',
     description: 'Please configure the system before starting',
     step1: 'Step 1: Configure LLM Model',
     step2: 'Step 2: Configure Embedding Model',
@@ -1997,11 +1997,11 @@ export default {
     backToLogin: 'Back to Login',
     registerNow: 'Register Now',
     loginHint: 'Sign in to continue, or create an account below if this is your first time.',
-    firstTime: 'New to WeKnora?',
+    firstTime: 'New to ZSK?',
     registerSuccess: 'Registration successful. Please sign in',
     registerFailed: 'Registration failed',
     subtitle: 'RAG Q&A, ReAct Agent and Wiki — an LLM-powered enterprise knowledge framework',
-    registerSubtitle: 'Create your account and start using WeKnora',
+    registerSubtitle: 'Create your account and start using ZSK',
     emailPlaceholder: 'Enter email address',
     passwordPlaceholder: 'Enter password (8-32 characters, including letters and numbers)',
     confirmPasswordPlaceholder: 'Enter password again',
@@ -2294,7 +2294,7 @@ export default {
     goToAgentSettings: 'Go to agent settings'
   },
   createChat: {
-    title: 'Hi, I am WeKnora — your knowledge, within reach',
+    title: 'Hi, I am ZSK — your knowledge, within reach',
     newSessionTitle: 'New Session',
     messages: {
       selectKnowledgeBase: 'Please select a knowledge base first',
