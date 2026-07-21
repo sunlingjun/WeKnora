@@ -173,15 +173,15 @@ var registry = map[string]settingSpec{
 	// NOT retroactively resize already-existing tenants (they keep the
 	// quota stored on their row at creation; superusers can edit
 	// individual tenants via the existing tenant-update path).
-	// 0 or negative = use the in-code default (10 GB).
+	// 0 or negative = use the in-code default (1 GB).
 	"tenant.default_storage_quota_gb": {
 		Type:     "int",
 		EnvName:  "WEKNORA_TENANT_DEFAULT_STORAGE_QUOTA_GB",
-		Default:  int64(10),
+		Default:  int64(1),
 		Category: "tenant",
 		Description: "新建空间时默认分配的存储配额（GB），包含向量、原文、文本、索引等。" +
 			"仅在创建时读取，修改后只对之后新建的空间生效，不会回写已存在的空间。" +
-			"0 或负数表示使用内置默认值 10GB。",
+			"0 或负数表示使用内置默认值 1GB。",
 	},
 	// tenant.auto_create_api_key restores the legacy behaviour where creating
 	// a tenant also minted a full-access API key and returned its plaintext

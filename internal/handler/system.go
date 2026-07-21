@@ -2095,10 +2095,10 @@ func (h *SystemHandler) ApplyDefaultStorageQuotaToAllTenants(c *gin.Context) {
 		ctx,
 		"tenant.default_storage_quota_gb",
 		"WEKNORA_TENANT_DEFAULT_STORAGE_QUOTA_GB",
-		10,
+		1,
 	)
 	if gb <= 0 {
-		gb = 10
+		gb = 1
 	}
 	quotaBytes := gb * 1024 * 1024 * 1024
 

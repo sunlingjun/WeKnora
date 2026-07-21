@@ -321,10 +321,10 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 			ctx,
 			"tenant.default_storage_quota_gb",
 			"WEKNORA_TENANT_DEFAULT_STORAGE_QUOTA_GB",
-			10,
+			1,
 		)
 		if gb <= 0 {
-			gb = 10
+			gb = 1
 		}
 		tenantData.StorageQuota = gb * 1024 * 1024 * 1024
 	}
