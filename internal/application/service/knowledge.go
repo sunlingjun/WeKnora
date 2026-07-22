@@ -924,28 +924,33 @@ func (s *knowledgeService) SearchKnowledge(ctx context.Context, keyword string, 
 		scopes = append(scopes, types.KnowledgeSearchScope{TenantID: tid, KBID: kbID})
 	}
 
+	// Layer 1 (official): all document KBs in the current workspace.
+	ownKBs, err := s.kbService.ListKnowledgeBases(ctx)
+	if err != nil {
+		logger.Warnf(ctx, "SearchKnowledge: ListKnowledgeBases failed: %v", err)
+	} else {
+		for _, kb := range ownKBs {
+			if kb != nil && kb.Type == types.KnowledgeBaseTypeDocument {
+				addScope(tenantID, kb.ID)
+			}
+		}
+	}
+
+	// Layer 2 (NXIN plaza): cross-tenant shared KBs the caller joined.
 	if s.sharedKBService != nil {
-		userKBs, err := s.sharedKBService.ListUserKnowledgeBases(ctx, true)
-		if err != nil {
-			logger.Warnf(ctx, "SearchKnowledge: ListUserKnowledgeBases failed: %v", err)
+		joinedKBs, jerr := s.sharedKBService.ListJoinedSharedKnowledgeBases(ctx)
+		if jerr != nil {
+			logger.Warnf(ctx, "SearchKnowledge: ListJoinedSharedKnowledgeBases failed: %v", jerr)
 		} else {
-			for _, kb := range userKBs {
+			for _, kb := range joinedKBs {
 				if kb != nil && kb.Type == types.KnowledgeBaseTypeDocument {
 					addScope(kb.TenantID, kb.ID)
 				}
 			}
 		}
-	} else {
-		ownKBs, err := s.kbService.ListKnowledgeBases(ctx)
-		if err == nil {
-			for _, kb := range ownKBs {
-				if kb != nil && kb.Type == types.KnowledgeBaseTypeDocument {
-					addScope(tenantID, kb.ID)
-				}
-			}
-		}
 	}
 
+	// Layer 3 (official org share): KBs shared into the caller's orgs.
 	callerTenantRole := types.TenantRoleFromContext(ctx)
 	if s.kbShareService != nil {
 		sharedList, err := s.kbShareService.ListSharedKnowledgeBases(ctx, tenantID, callerTenantRole)

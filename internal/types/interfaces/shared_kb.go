@@ -34,6 +34,10 @@ type SharedKnowledgeBaseService interface {
 	// ListUserKnowledgeBases 列出用户的知识库（个人 + 加入的共享知识库）
 	ListUserKnowledgeBases(ctx context.Context, includeShared bool) ([]*types.KnowledgeBase, error)
 
+	// ListJoinedSharedKnowledgeBases 列出用户在知识库广场已加入、且归属非当前空间的共享知识库。
+	// 与官方「本空间全量」列表解耦：仅供「全部」分段与检索增量叠加。
+	ListJoinedSharedKnowledgeBases(ctx context.Context) ([]*types.KnowledgeBase, error)
+
 	// GetMemberRoleByKBAndUser 获取用户在指定知识库中的角色
 	GetMemberRoleByKBAndUser(ctx context.Context, kbID string, userID string) (string, error)
 }

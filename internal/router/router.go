@@ -551,6 +551,7 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		kb.POST("/shared", handler.CreateSharedKnowledgeBase)
 		kb.GET("/shared", handler.ListSharedKnowledgeBases)
 		kb.GET("/user", handler.ListUserKnowledgeBases)
+		kb.GET("/joined", g.Viewer(), handler.ListJoinedSharedKnowledgeBases)
 		kb.POST("/:id/join", handler.JoinSharedKnowledgeBase)
 		kb.POST("/:id/leave", handler.LeaveSharedKnowledgeBase)
 		kb.GET("/:id/members", handler.ListKnowledgeBaseMembers)

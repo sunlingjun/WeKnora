@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { listKnowledgeBases, getKnowledgeBaseById } from '@/api/knowledge-base'
+import { listKnowledgeBases, listJoinedKnowledgeBases, getKnowledgeBaseById } from '@/api/knowledge-base'
 import { listAgents, type CustomAgent } from '@/api/agent'
 import { listModels, type ModelConfig } from '@/api/model'
 import { listWebSearchProviders, type WebSearchProviderEntity } from '@/api/web-search-provider'
@@ -22,7 +22,10 @@ function isKbModelReady(kb: any): boolean {
 }
 
 export const useChatResourcesStore = defineStore('chatResources', () => {
+  /** Official current-tenant KB list (GET /knowledge-bases). */
   const rawKnowledgeBases = ref<any[]>([])
+  /** NXIN plaza-joined cross-tenant KBs (GET /knowledge-bases/joined). */
+  const joinedKnowledgeBases = ref<any[]>([])
   const agents = ref<CustomAgent[]>([])
   const disabledOwnAgentIds = ref<string[]>([])
   const allModels = ref<ModelConfig[]>([])
@@ -44,7 +47,17 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
   const kbDetailCache = new Map<string, { at: number; data: any }>()
   const kbDetailInflight = new Map<string, Promise<any | null>>()
 
-  const validKnowledgeBases = computed(() => rawKnowledgeBases.value.filter(isKbModelReady))
+  /** Tenant KBs + plaza-joined, for @-mention / readiness checks. */
+  const validKnowledgeBases = computed(() => {
+    const seen = new Set<string>()
+    const out: any[] = []
+    for (const kb of [...rawKnowledgeBases.value, ...joinedKnowledgeBases.value]) {
+      if (!kb?.id || seen.has(kb.id) || !isKbModelReady(kb)) continue
+      seen.add(kb.id)
+      out.push(kb)
+    }
+    return out
+  })
   const chatModels = computed(() => allModels.value.filter((m) => m.type === 'KnowledgeQA'))
 
   function isFresh(key: ResourceKey): boolean {
@@ -65,6 +78,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
 
   /**
    * 知识库列表（支持 creator 筛选）。creator=all 时写入缓存供对话页复用。
+   * 同时刷新广场已加入增量（不污染本空间 tenant 列表）。
    */
   async function fetchKnowledgeBasesForList(
     params?: { creator?: ListCreatorFilter },
@@ -85,9 +99,14 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     const gen = ++kbAllGen
     kbAllInflight = (async () => {
       try {
-        const res: any = await listKnowledgeBases()
+        const [res, joinedRes]: any[] = await Promise.all([
+          listKnowledgeBases(),
+          listJoinedKnowledgeBases().catch(() => ({ data: [] })),
+        ])
         const data = res?.data && Array.isArray(res.data) ? res.data : []
+        const joined = joinedRes?.data && Array.isArray(joinedRes.data) ? joinedRes.data : []
         rawKnowledgeBases.value = data
+        joinedKnowledgeBases.value = joined
         loadedAt.value.knowledgeBases = Date.now()
         const orgStore = useOrganizationStore()
         await orgStore.fetchSharedKnowledgeBases({ force })
@@ -250,6 +269,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     if (keys.length === 0) {
       loadedAt.value = {}
       rawKnowledgeBases.value = []
+      joinedKnowledgeBases.value = []
       agents.value = []
       disabledOwnAgentIds.value = []
       allModels.value = []
@@ -268,6 +288,8 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
       inflight.delete(k)
     })
     if (keys.includes('knowledgeBases')) {
+      rawKnowledgeBases.value = []
+      joinedKnowledgeBases.value = []
       agentKbCache.clear()
       agentKbInflight.clear()
       kbAllInflight = null
@@ -280,6 +302,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
 
   return {
     rawKnowledgeBases,
+    joinedKnowledgeBases,
     validKnowledgeBases,
     agents,
     disabledOwnAgentIds,

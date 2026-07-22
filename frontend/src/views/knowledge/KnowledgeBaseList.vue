@@ -133,15 +133,17 @@
             <!-- 本空间 · 仅查看：本空间里同事创建、对当前 contributor 不可编辑。
                  当前卡片必须是非置顶（否则归在「已置顶」），且前一张要么
                  不存在、要么是「共享给我」、要么是我创建、要么是置顶卡片
-                 （置顶→非置顶的过渡同样要打这个标题）。 -->
+                 （置顶→非置顶的过渡同样要打这个标题）。广场已加入不进本段。 -->
             <div v-if="showShareGroupHeaders
               && kb.isMine
+              && !(kb as any).joinedViaPlaza
               && !isMyKb(kb as KB)
               && !kb.is_pinned
               && (index === 0
                 || !filteredKnowledgeBases[index - 1].isMine
                 || isMyKb(filteredKnowledgeBases[index - 1] as KB)
-                || (filteredKnowledgeBases[index - 1] as any).is_pinned)" class="kb-section-header" role="button"
+                || (filteredKnowledgeBases[index - 1] as any).is_pinned
+                || (filteredKnowledgeBases[index - 1] as any).joinedViaPlaza)" class="kb-section-header" role="button"
               tabindex="0" @click="toggleKbSection('tenantOthers')"
               @keydown.enter.prevent="toggleKbSection('tenantOthers')"
               @keydown.space.prevent="toggleKbSection('tenantOthers')">
@@ -151,7 +153,21 @@
               <t-icon class="kb-section-toggle"
                 :name="isKbSectionCollapsed('tenantOthers') ? 'chevron-right' : 'chevron-down'" size="14px" />
             </div>
-            <!-- 共享给我 · 可编辑：从「我的（含同事）」首次过渡到共享 + 可编辑 -->
+            <!-- 我加入的共享：广场跨空间已加入（NXIN 增量，仅「全部」） -->
+            <div v-if="showShareGroupHeaders
+              && (kb as any).joinedViaPlaza
+              && !kb.is_pinned
+              && (index === 0 || !(filteredKnowledgeBases[index - 1] as any).joinedViaPlaza)"
+              class="kb-section-header" role="button" tabindex="0" @click="toggleKbSection('joinedShared')"
+              @keydown.enter.prevent="toggleKbSection('joinedShared')"
+              @keydown.space.prevent="toggleKbSection('joinedShared')">
+              <t-icon name="usergroup-add" size="14px" />
+              <span>{{ $t('knowledgeList.sections.joinedShared') }}</span>
+              <span class="kb-section-count">{{ filteredKbSectionCounts.joinedShared }}</span>
+              <t-icon class="kb-section-toggle"
+                :name="isKbSectionCollapsed('joinedShared') ? 'chevron-right' : 'chevron-down'" size="14px" />
+            </div>
+            <!-- 共享给我 · 可编辑：从「我的（含同事/广场加入）」首次过渡到共享 + 可编辑 -->
             <div v-if="showShareGroupHeaders
               && !kb.isMine
               && isSharedKbEditable((kb as any).permission)
@@ -998,6 +1014,11 @@ const kbResourceIndex = computed(() => {
   for (const kb of kbs.value) {
     map.set(kb.id, { kb, isMine: true })
   }
+  for (const kb of chatResources.joinedKnowledgeBases || []) {
+    if (kb?.id && !map.has(kb.id)) {
+      map.set(kb.id, { kb, isMine: true })
+    }
+  }
   for (const shared of sharedKbs.value) {
     if (!shared.knowledge_base) continue
     if (!map.has(shared.knowledge_base.id)) {
@@ -1094,7 +1115,7 @@ const tenantSectionIconName = computed(() =>
 // 分组折叠：ephemeral，只在当前会话里生效，不落 localStorage/服务器。
 // 之所以走"折叠集合"而不是"展开集合"，是因为默认全展开——空 Set
 // 即表示初始的全展开状态，避免每次新加分段还得回头维护默认值。
-type KbSectionKey = 'pinned' | 'mine' | 'tenantOthers' | 'sharedByMe' | 'sharedEditable' | 'sharedReadonly'
+type KbSectionKey = 'pinned' | 'mine' | 'tenantOthers' | 'joinedShared' | 'sharedByMe' | 'sharedEditable' | 'sharedReadonly'
 const collapsedKbSections = ref<Set<KbSectionKey>>(new Set())
 const isKbSectionCollapsed = (key: KbSectionKey) => collapsedKbSections.value.has(key)
 const toggleKbSection = (key: KbSectionKey) => {
@@ -1115,8 +1136,10 @@ const toggleKbSection = (key: KbSectionKey) => {
 //   2. sortedMineKbs 的元素就是原始 KB，无 isMine、也无 permission 字段。
 // 跨空间共享条目一定带 `permission`，本空间条目永远没有，所以"无 permission"
 // 是本空间的安全标识。综合：先看 isMine，再回退到 permission 是否存在。
+// 广场已加入（joinedViaPlaza）独立成段，绝不进「本空间 · 其他成员」。
 const kbSectionOf = (kb: any): KbSectionKey => {
-  if (kb?.is_pinned) return 'pinned'
+  if (kb?.is_pinned && !kb?.joinedViaPlaza) return 'pinned'
+  if (kb?.joinedViaPlaza) return 'joinedShared'
   const isOwnTenant = kb?.isMine === true || (kb?.isMine !== false && kb?.permission == null)
   if (isOwnTenant) return isMyKb(kb) ? 'mine' : 'tenantOthers'
   return isSharedKbEditable(kb?.permission) ? 'sharedEditable' : 'sharedReadonly'
@@ -1133,7 +1156,7 @@ const isSpaceKbCollapsed = (shared: any): boolean => isKbSectionCollapsed(spaceK
 // 每个分组里实际有多少张卡片——直接把分组判定函数复用一遍。组标题上展示
 // "(N)" 让用户一眼知道折叠后会藏掉多少，也方便核对筛选结果。
 const emptyKbCounts = (): Record<KbSectionKey, number> => ({
-  pinned: 0, mine: 0, tenantOthers: 0, sharedByMe: 0, sharedEditable: 0, sharedReadonly: 0,
+  pinned: 0, mine: 0, tenantOthers: 0, joinedShared: 0, sharedByMe: 0, sharedEditable: 0, sharedReadonly: 0,
 })
 const filteredKbSectionCounts = computed<Record<KbSectionKey, number>>(() => {
   const c = emptyKbCounts()
@@ -1165,22 +1188,18 @@ const filteredKnowledgeBases = computed(() => {
     return recentsList.value
   }
   if (spaceSelection.value === 'mine') {
+    // 本空间：仅官方 tenant 全量，不含广场已加入。
     return kbs.value.map(kb => ({ ...kb, isMine: true as const }))
   }
   if (spaceSelection.value !== 'all') {
     return []
   }
-  // The "All" scope merges own + shared KBs. The card template keys each
-  // row by `kb.id`, so the same KB surfacing twice — owned *and* shared
-  // back, or shared into the caller's view through two different orgs —
-  // produced duplicate `v-for` keys and blanked the list once there were
-  // ≥2 entries (#795). mergeAllScopeKnowledgeBases de-duplicates by KB id
-  // (owned wins; most-privileged share kept) while preserving the existing
-  // pinned → mine → teammate → shared(editable-first) ordering.
+  // The "All" scope merges own + plaza-joined + org-shared KBs.
   return mergeAllScopeKnowledgeBases(
     kbs.value as unknown as OwnedKnowledgeBase[],
     sharedKbs.value as unknown as SharedKnowledgeBaseLike[],
     authStore.user?.id,
+    (chatResources.joinedKnowledgeBases || []) as unknown as OwnedKnowledgeBase[],
   ) as unknown as Array<(KB & { isMine: true }) | (SharedKnowledgeBase['knowledge_base'] & { isMine: false; permission: string; shared_at: string; share_id: string } & any)>
 })
 

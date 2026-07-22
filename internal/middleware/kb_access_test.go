@@ -157,6 +157,10 @@ func (s *stubSharedKBForGuard) RemoveMember(context.Context, string, string) err
 func (s *stubSharedKBForGuard) CheckMemberPermission(context.Context, string, string) (bool, error) {
 	panic("not implemented")
 }
+func (s *stubSharedKBForGuard) ListJoinedSharedKnowledgeBases(context.Context) ([]*types.KnowledgeBase, error) {
+	return nil, nil
+}
+
 func (s *stubSharedKBForGuard) ListUserKnowledgeBases(context.Context, bool) ([]*types.KnowledgeBase, error) {
 	panic("not implemented")
 }

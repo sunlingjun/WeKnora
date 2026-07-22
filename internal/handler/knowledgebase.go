@@ -682,22 +682,14 @@ func (h *KnowledgeBaseHandler) ListKnowledgeBases(c *gin.Context) {
 		return
 	}
 
-	// Get all knowledge bases for this tenant (including direct shared via ListUserKnowledgeBases)
-	kbs, err := h.sharedKBService.ListUserKnowledgeBases(ctx, true)
+	// Official v0.7.0: all non-temporary KBs in the current tenant.
+	// Plaza-joined (cross-tenant) KBs stay on GET /knowledge-bases/joined —
+	// do not mix them back into this path or "本空间" will be polluted again.
+	kbs, err := h.service.ListKnowledgeBases(ctx)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, nil)
 		c.Error(apperrors.NewInternalServerError(err.Error()))
 		return
-	}
-
-	// knowledge_count / chunk_count 为派生字段，ListUserKnowledgeBases 不填充
-	for _, kb := range kbs {
-		if kb == nil {
-			continue
-		}
-		if fillErr := h.service.FillKnowledgeBaseCounts(ctx, kb); fillErr != nil {
-			logger.Warnf(ctx, "FillKnowledgeBaseCounts failed for KB %s: %v", kb.ID, fillErr)
-		}
 	}
 
 	creatorFilter := strings.ToLower(strings.TrimSpace(c.Query("creator")))
@@ -1683,6 +1675,50 @@ func (h *KnowledgeBaseHandler) ListUserKnowledgeBases(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    result,
+	})
+}
+
+// ListJoinedSharedKnowledgeBases lists cross-tenant plaza-joined shared KBs.
+// Same-tenant KBs are intentionally excluded — use GET /knowledge-bases for
+// the official workspace list. Frontend "全部" / @-mention layers this on top.
+// @Summary      列出广场已加入的跨空间共享知识库
+// @Description  仅返回当前用户已加入、且知识库归属非当前工作空间的共享知识库
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}  "知识库列表"
+// @Failure      500  {object}  errors.AppError         "服务器错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/joined [get]
+func (h *KnowledgeBaseHandler) ListJoinedSharedKnowledgeBases(c *gin.Context) {
+	ctx := c.Request.Context()
+	if h.sharedKBService == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": []interface{}{}})
+		return
+	}
+
+	kbs, err := h.sharedKBService.ListJoinedSharedKnowledgeBases(ctx)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	for _, kb := range kbs {
+		if kb == nil {
+			continue
+		}
+		if fillErr := h.service.FillKnowledgeBaseCounts(ctx, kb); fillErr != nil {
+			logger.Warnf(ctx, "FillKnowledgeBaseCounts failed for joined KB %s: %v", kb.ID, fillErr)
+		}
+	}
+
+	enrichKBCreatorNames(ctx, h.userService, kbs)
+
+	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    h.buildKBListResponse(ctx, kbs, callerTenantID),
 	})
 }
 

@@ -369,6 +369,70 @@ func (s *sharedKnowledgeBaseService) ListUserKnowledgeBases(ctx context.Context,
 	return result, nil
 }
 
+// ListJoinedSharedKnowledgeBases returns plaza-joined shared KBs that are NOT
+// already covered by the caller's current-tenant list. Same-tenant shared KBs
+// (whether owned by the caller or a teammate) belong to the official
+// workspace list; this method only surfaces cross-tenant joins so the "全部"
+// view / @-mention / SearchKnowledge can layer them independently.
+func (s *sharedKnowledgeBaseService) ListJoinedSharedKnowledgeBases(ctx context.Context) ([]*types.KnowledgeBase, error) {
+	userID, _ := ctx.Value(types.UserIDContextKey).(string)
+	if userID == "" {
+		return nil, errors.New("user ID not found in context")
+	}
+	tenantID, _ := ctx.Value(types.TenantIDContextKey).(uint64)
+
+	members, err := s.memberRepo.ListMembersByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return []*types.KnowledgeBase{}, nil
+	}
+
+	kbIDs := make([]string, 0, len(members))
+	seen := make(map[string]struct{}, len(members))
+	for _, member := range members {
+		if member == nil || member.KnowledgeBaseID == "" {
+			continue
+		}
+		if _, ok := seen[member.KnowledgeBaseID]; ok {
+			continue
+		}
+		seen[member.KnowledgeBaseID] = struct{}{}
+		kbIDs = append(kbIDs, member.KnowledgeBaseID)
+	}
+	if len(kbIDs) == 0 {
+		return []*types.KnowledgeBase{}, nil
+	}
+
+	kbs, err := s.kbRepo.GetKnowledgeBaseByIDs(ctx, kbIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*types.KnowledgeBase, 0, len(kbs))
+	for _, kb := range kbs {
+		if kb == nil {
+			continue
+		}
+		if kb.Visibility != types.KnowledgeBaseVisibilityShared {
+			continue
+		}
+		if kb.OwnerID == userID {
+			continue
+		}
+		// Current-tenant KBs are already returned by ListKnowledgeBases.
+		if kb.TenantID == tenantID {
+			continue
+		}
+		if kb.IsTemporary {
+			continue
+		}
+		result = append(result, kb)
+	}
+	return result, nil
+}
+
 // GetMemberRoleByKBAndUser 获取用户在指定知识库中的角色
 func (s *sharedKnowledgeBaseService) GetMemberRoleByKBAndUser(ctx context.Context, kbID string, userID string) (string, error) {
 	member, err := s.memberRepo.GetMemberByKBAndUser(ctx, kbID, userID)

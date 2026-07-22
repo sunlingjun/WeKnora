@@ -130,9 +130,14 @@ export function listSharedKnowledgeBases(params?: {
   return get(`/api/v1/knowledge-bases/shared${query}`);
 }
 
-// 列出用户的知识库（个人 + 加入的共享知识库）
+// 列出用户的知识库（个人 + 加入的共享知识库）— 广场专用，不替代主列表
 export function listUserKnowledgeBases(includeShared: boolean = true) {
   return get(`/api/v1/knowledge-bases/user?include_shared=${includeShared}`);
+}
+
+/** 广场已加入的跨空间共享知识库（NXIN 增量；不进「本空间」） */
+export function listJoinedKnowledgeBases() {
+  return get('/api/v1/knowledge-bases/joined');
 }
 
 // 加入共享知识库

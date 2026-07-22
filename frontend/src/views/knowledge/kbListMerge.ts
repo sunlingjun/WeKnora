@@ -12,6 +12,8 @@
 //   2. The very same KB can be shared into the caller's view through more
 //      than one organization. Each share is a distinct row (its own
 //      `share_id`) but carries the identical `knowledge_base.id`.
+//   3. Plaza-joined (cross-tenant) KBs arrive via GET /knowledge-bases/joined
+//      and must stay in their own section — never under "本空间 · 其他成员".
 //
 // Either case yields two entries with the same `kb.id` once there are ≥2
 // knowledge bases, which is the #795 symptom: a single KB renders fine
@@ -43,7 +45,11 @@ export interface SharedKnowledgeBaseLike {
   [key: string]: unknown;
 }
 
-export type MergedOwnedKnowledgeBase = OwnedKnowledgeBase & { isMine: true };
+export type MergedOwnedKnowledgeBase = OwnedKnowledgeBase & {
+  isMine: true;
+  /** Plaza-joined cross-tenant KB (not a same-workspace teammate). */
+  joinedViaPlaza?: boolean;
+};
 export type MergedSharedKnowledgeBase = Record<string, unknown> & {
   id: string;
   isMine: false;
@@ -73,14 +79,8 @@ function permissionRank(perm: string | undefined): number {
   return (perm && PERMISSION_RANK[perm]) || 0;
 }
 
-function isMyKb(kb: { creator_id?: string }, currentUserId: string | undefined): boolean {
+export function isMyKb(kb: { creator_id?: string }, currentUserId: string | undefined): boolean {
   return !!(kb.creator_id && currentUserId && kb.creator_id === currentUserId);
-}
-
-function isJoinedDirectShared(kb: OwnedKnowledgeBase, currentUserId: string | undefined): boolean {
-  if (kb.visibility !== 'shared') return false;
-  const ownerId = kb.owner_id as string | undefined;
-  return !!(ownerId && currentUserId && ownerId !== currentUserId);
 }
 
 function pinnedTime(kb: OwnedKnowledgeBase): number {
@@ -90,48 +90,51 @@ function pinnedTime(kb: OwnedKnowledgeBase): number {
 /**
  * Build the de-duplicated, ordered list rendered by the "All" scope.
  *
- * Ordering (unchanged from the previous inline logic):
- *   1. pinned KBs (any creator the caller pinned), newest pin first
- *   2. the caller's own non-pinned KBs (private or shared they own)
- *   3. direct-shared KBs the caller joined (visibility=shared, not owner)
- *   4. teammate non-pinned KBs (own tenant, someone else created)
- *   5. shared KBs via organizations, editable grants before view-only
+ * Ordering:
+ *   1. pinned tenant KBs, newest pin first
+ *   2. caller's own non-pinned tenant KBs
+ *   3. teammate non-pinned tenant KBs (same workspace)
+ *   4. plaza-joined cross-tenant shared KBs (NXIN incremental layer)
+ *   5. organization shares, editable grants before view-only
  *
- * On top of that, every entry is unique by knowledge-base id: owned rows
- * win over shared duplicates, and repeated shares of one KB collapse to
- * the most-privileged permission.
+ * `tenantKbs` must be the official current-tenant list only.
+ * `joinedKbs` is the NXIN plaza joined list (cross-tenant); same-tenant
+ * rows are ignored if they accidentally appear there.
  */
 export function mergeAllScopeKnowledgeBases(
-  owned: OwnedKnowledgeBase[],
-  shared: SharedKnowledgeBaseLike[],
+  tenantKbs: OwnedKnowledgeBase[],
+  orgShared: SharedKnowledgeBaseLike[],
   currentUserId: string | undefined,
+  joinedKbs: OwnedKnowledgeBase[] = [],
 ): MergedKnowledgeBase[] {
   const result: MergedKnowledgeBase[] = [];
 
   const pinned: OwnedKnowledgeBase[] = [];
   const ownMine: OwnedKnowledgeBase[] = [];
-  const joinedShared: OwnedKnowledgeBase[] = [];
   const teammateMine: OwnedKnowledgeBase[] = [];
   const ownedIds = new Set<string>();
-  for (const kb of owned) {
+  for (const kb of tenantKbs) {
     ownedIds.add(kb.id);
-    if (kb.is_pinned && kb.visibility !== 'shared') pinned.push(kb);
-    else if (isJoinedDirectShared(kb, currentUserId)) joinedShared.push(kb);
-    else if (isMyKb(kb, currentUserId) || kb.visibility === 'shared') ownMine.push(kb);
+    if (kb.is_pinned) pinned.push(kb);
+    else if (isMyKb(kb, currentUserId)) ownMine.push(kb);
     else teammateMine.push(kb);
   }
   pinned.sort((a, b) => pinnedTime(b) - pinnedTime(a));
 
   for (const kb of pinned) result.push({ ...kb, isMine: true as const });
   for (const kb of ownMine) result.push({ ...kb, isMine: true as const });
-  for (const kb of joinedShared) result.push({ ...kb, isMine: true as const });
   for (const kb of teammateMine) result.push({ ...kb, isMine: true as const });
 
+  for (const kb of joinedKbs) {
+    if (!kb?.id || ownedIds.has(kb.id)) continue;
+    ownedIds.add(kb.id);
+    result.push({ ...kb, isMine: true as const, joinedViaPlaza: true });
+  }
+
   // Collapse the shared rows by KB id, keeping the most-privileged grant,
-  // and drop any KB the caller already owns. This is what guarantees a
-  // unique `:key` per rendered card.
+  // and drop any KB the caller already sees via tenant/joined lists.
   const dedupedShared = new Map<string, SharedKnowledgeBaseLike>();
-  for (const entry of shared) {
+  for (const entry of orgShared) {
     const kb = entry?.knowledge_base;
     if (!kb) continue;
     if (ownedIds.has(kb.id)) continue;
