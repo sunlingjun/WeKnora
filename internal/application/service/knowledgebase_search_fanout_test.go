@@ -816,6 +816,21 @@ func TestAuthorizeKBAccess_ForeignTenantNoShare_NotFound(t *testing.T) {
 		"reject must surface as NotFound to avoid leaking foreign KB existence")
 }
 
+func TestAuthorizeKBAccess_OpenRetrieve_SkipsShareCheck(t *testing.T) {
+	t.Parallel()
+	share := &fakeKBShareForAuth{
+		allowed: map[string]map[uint64]bool{},
+	}
+	s := &knowledgeBaseService{kbShareService: share}
+	kbs := []*types.KnowledgeBase{
+		{ID: "kb-own", TenantID: 7},
+		{ID: "kb-foreign", TenantID: 99},
+	}
+	ctx := types.WithOpenRetrieve(ctxWithTenantForAuth(7))
+	err := s.authorizeKBAccess(ctx, kbs, 7)
+	require.NoError(t, err, "open retrieve must allow cross-tenant KB scope without share ACL")
+}
+
 func TestAuthorizeKBAccess_PermissionLookupError_500(t *testing.T) {
 	t.Parallel()
 	share := &fakeKBShareForAuth{err: stderrors.New("share infra down")}

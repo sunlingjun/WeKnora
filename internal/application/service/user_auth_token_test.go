@@ -66,6 +66,9 @@ func (s *stubUserRepoForAuth) GetUserByUsername(context.Context, string) (*types
 func (s *stubUserRepoForAuth) GetUserByTenantID(context.Context, uint64) (*types.User, error) {
 	return nil, nil
 }
+func (s *stubUserRepoForAuth) GetUserByCASUserID(context.Context, string) (*types.User, error) {
+	return nil, nil
+}
 func (s *stubUserRepoForAuth) UpdateUser(context.Context, *types.User) error {
 	s.updateCalls++
 	return nil

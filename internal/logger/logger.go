@@ -532,6 +532,9 @@ func CloneContext(ctx context.Context) context.Context {
 		// to the same trace opened by GinMiddleware, instead of each call
 		// auto-creating its own orphan trace.
 		types.LangfuseTraceContextKey,
+		// Open retrieve: keep the skip-share-auth flag across CloneContext
+		// so HybridSearch authorizeKBAccess still sees the open path.
+		types.OpenRetrieveContextKey,
 	} {
 		if v := ctx.Value(k); v != nil {
 			newCtx = context.WithValue(newCtx, k, v)

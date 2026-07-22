@@ -1429,7 +1429,10 @@ func (s *sessionService) SearchKnowledgeOpen(
 	}
 
 	primaryTenantID := searchTargets[0].TenantID
-	ctx2 := context.WithValue(ctx, types.TenantIDContextKey, primaryTenantID)
+	// Mark open-retrieve so HybridSearch skips tenant-share authorizeKBAccess;
+	// multi-KB queries may span tenants while context tenant is only the primary.
+	ctx2 := types.WithOpenRetrieve(ctx)
+	ctx2 = context.WithValue(ctx2, types.TenantIDContextKey, primaryTenantID)
 
 	var rc *types.RetrievalConfig
 	tenant, errTenant := s.tenantService.GetTenantByID(ctx2, primaryTenantID)

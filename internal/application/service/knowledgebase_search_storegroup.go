@@ -178,6 +178,15 @@ func (s *knowledgeBaseService) authorizeKBAccess(
 		return nil
 	}
 
+	// Open retrieve is gated by X-Open-Retrieve-Api-Key only. SearchKnowledgeOpen
+	// sets context tenant to the first target for model/rerank listing; multi-KB
+	// requests routinely span tenants. Skipping share checks here matches the
+	// open-retrieve contract (no user/visibility ACL) and avoids failing the
+	// whole combined HybridSearch when one KB is owned by another tenant.
+	if types.IsOpenRetrieve(ctx) {
+		return nil
+	}
+
 	callerTenantRole := types.TenantRoleFromContext(ctx)
 
 	for _, kb := range kbs {

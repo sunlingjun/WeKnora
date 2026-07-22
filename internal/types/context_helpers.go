@@ -150,6 +150,22 @@ func IsBackgroundTask(ctx context.Context) bool {
 	return v
 }
 
+// WithOpenRetrieve marks ctx as an open knowledge retrieve call
+// (POST /api/v1/open/knowledge/retrieve). See OpenRetrieveContextKey.
+func WithOpenRetrieve(ctx context.Context) context.Context {
+	return context.WithValue(ctx, OpenRetrieveContextKey, true)
+}
+
+// IsOpenRetrieve reports whether ctx is an open retrieve call gated by
+// X-Open-Retrieve-Api-Key (no user / tenant-share KB visibility checks).
+func IsOpenRetrieve(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(OpenRetrieveContextKey).(bool)
+	return v
+}
+
 // LanguageFromContext extracts the language locale string from ctx (e.g. "zh-CN", "en-US").
 // Returns ("zh-CN", false) when the key is absent.
 func LanguageFromContext(ctx context.Context) (string, bool) {

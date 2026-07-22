@@ -53,6 +53,10 @@ const (
 	// the agent emits a one-shot authorization notice and continues instead of
 	// blocking until the OAuth wait times out. See IsMCPOAuthNonInteractive.
 	MCPOAuthNonInteractiveContextKey ContextKey = "MCPOAuthNonInteractive"
+	// OpenRetrieveContextKey marks POST /api/v1/open/knowledge/retrieve.
+	// Security boundary is the open_retrieve API key; HybridSearch must skip
+	// tenant-share authorizeKBAccess so multi-KB queries can span tenants.
+	OpenRetrieveContextKey ContextKey = "OpenRetrieve"
 )
 
 // String returns the string representation of the context key
