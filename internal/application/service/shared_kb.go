@@ -38,12 +38,23 @@ func (s *sharedKnowledgeBaseService) CreateSharedKnowledgeBase(ctx context.Conte
 	userID := ctx.Value(types.UserIDContextKey).(string)
 	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
 
+	// 与 CreateKnowledgeBase 对齐：前端不传 id 时必须生成 UUID。
+	// 否则会以空字符串写入主键，第二次创建即触发 knowledge_bases_pkey 冲突。
+	if kb.ID == "" {
+		kb.ID = uuid.New().String()
+	}
+	now := time.Now()
+	kb.CreatedAt = now
+	kb.UpdatedAt = now
+	kb.TenantID = tenantID
+	kb.CreatorID = userID
+
 	// 设置共享知识库属性
 	kb.Visibility = types.KnowledgeBaseVisibilityShared
 	kb.OwnerID = userID
-	now := time.Now()
 	kb.SharedAt = &now
 	kb.MemberCount = 1 // 创建者自己
+	kb.EnsureDefaults()
 
 	// 创建知识库
 	if err := s.kbRepo.CreateKnowledgeBase(ctx, kb); err != nil {
