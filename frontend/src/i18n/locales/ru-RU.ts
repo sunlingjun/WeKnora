@@ -3060,7 +3060,27 @@ export default {
       leftSuccess: 'Вы вышли из общей базы знаний',
       leftFailed: 'Не удалось выйти',
       joinedSuccess: 'Вы присоединились к общей базе знаний',
-      joinedFailed: 'Не удалось присоединиться'
+      joinedFailed: 'Не удалось присоединиться',
+      fetchMembersFailed: 'Не удалось загрузить список участников',
+      roleUpdated: 'Роль участника обновлена',
+      roleUpdateFailed: 'Не удалось обновить роль участника',
+      memberRemoved: 'Участник удалён',
+      memberRemoveFailed: 'Не удалось удалить участника',
+    },
+    members: {
+      title: 'Участники',
+      description: 'Управление участниками базы знаний "{name}"',
+      searchPlaceholder: 'Поиск по email или имени',
+      empty: 'Нет участников',
+      unknownUser: 'Неизвестный пользователь',
+      joinedAt: 'Дата вступления',
+      confirmRemoveTitle: 'Удалить участника',
+      confirmRemoveMessage: 'Удалить участника "{name}"?',
+      actions: {
+        setEditor: 'Назначить редактором',
+        setViewer: 'Назначить наблюдателем',
+        remove: 'Удалить участника',
+      },
     },
     features: {
       knowledgeGraph: 'Граф знаний включен',

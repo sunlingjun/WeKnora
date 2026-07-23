@@ -18,6 +18,7 @@
 | 1d | **卡片品牌色取色** | `KnowledgeBaseList`/`AgentList`/`OrganizationList` 勿用硬编码 `rgba(7,192,95)`/`rgba(0,82,217)`，统一 `color-mix(... var(--td-brand-color) ...)`；共享空间 infinity 图标用 `currentColor` | ✅ 已补 |
 | 1e | **品牌文案 ZSK** | `index.html`→`NXIN-ZSK`；i18n 欢迎/首页；`config/prompt_templates/*`：`You are ZSK` + `developed by Nxin`（勿改 WeKnoraCloud/API 技术标识） | ✅ 已补（`24b7d999`；slj `975f98fd`） |
 | 1f | **共享知识库成员侧栏** | `KnowledgeBaseEditorModal` 的 `navGroups`「发布集成」必须 `pickItems(['members','share'])`（见 `kbEditorNavGroups.ts`）；仅写 `share` 会导致成员入口静默丢失 | ✅ 已补（2026-07-23） |
+| 1f2 | **共享知识库成员 i18n** | `knowledgeList.members.*` + `knowledgeList.messages.fetchMembersFailed/roleUpdated/...` 四语齐全；合并官方 locale 时勿冲掉（见 `kbMembersI18n.test.ts`） | ✅ 已补（2026-07-23） |
 | 1g | **CreateSharedKnowledgeBase UUID** | `shared_kb.go`：空 `id` 必须 `uuid.New()`，并写 `TenantID`/`CreatorID`/时间戳；否则第二次创建撞 `knowledge_bases_pkey` | ✅ 已补（2026-07-23，`dev`） |
 | 1h | **本空间 KB 列表可见性** | 对齐官方 v0.7.0：同空间成员可读全量；广场已加入勿标成「本空间·其他成员」 | ✅ 已补（`b60abf70` / `311c0893`） |
 | 2 | **CAS 公开路径** | `frontend/src/utils/request.ts`：`PUBLIC_AUTH_PATHS` 含 `/api/v1/cas/`；`.nxin.com` 上 401 回 `/` 触发守卫 | ✅ 已补 |
@@ -83,7 +84,8 @@
 
 官方改了 KnowledgeBaseEditorModal 侧栏为 navGroups？
   → 「发布集成」必须含 members（在 share 前）；用 kbEditorNavGroups.ts
-  → 验收：共享库 + is_owner → 侧栏出现「成员」；node --test kbEditorNavGroups.test.ts
+  → 验收：共享库 + is_owner → 侧栏出现「成员」；npx tsx --test kbEditorNavGroups.test.ts
+  → 同时核对 knowledgeList.members.* 四语文案（npx tsx --test kbMembersI18n.test.ts）
 
 官方改了 CreateSharedKnowledgeBase / shared_kb？
   → 空 id 必须生成 UUID + TenantID；勿再空字符串落主键
