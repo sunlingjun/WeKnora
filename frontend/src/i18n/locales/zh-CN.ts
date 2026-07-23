@@ -3873,6 +3873,7 @@ export default {
       multimodal: "图像处理",
       asr: "音频处理",
       datasource: "数据源",
+      members: "成员",
       share: "共享管理",
       indexing: "索引策略",
     },

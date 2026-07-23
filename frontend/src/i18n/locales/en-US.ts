@@ -2630,6 +2630,7 @@ export default {
       multimodal: 'Image Processing',
       asr: 'Audio',
       datasource: 'Data Sources',
+      members: 'Members',
       share: 'Sharing',
       indexing: 'Indexing Strategy',
     },

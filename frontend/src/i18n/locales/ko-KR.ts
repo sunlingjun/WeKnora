@@ -3842,6 +3842,7 @@ export default {
       graph: "지식 그래프",
       multimodal: "이미지 처리",
       asr: "오디오",
+      members: "멤버",
       share: "공유관리",
       storage: "스토리지 엔진",
       datasource: "데이터 소스",

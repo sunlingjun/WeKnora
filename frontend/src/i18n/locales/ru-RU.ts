@@ -3318,6 +3318,7 @@ export default {
       asr: 'Аудио',
       storage: 'Storage Engine',
       datasource: 'Источники данных',
+      members: 'Members',
       share: 'Sharing',
       indexing: 'Стратегия индексации',
     },

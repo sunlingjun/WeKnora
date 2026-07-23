@@ -490,6 +490,7 @@ import KBParserSettings from './settings/KBParserSettings.vue'
 import KBStorageSettings from './settings/KBStorageSettings.vue'
 import KBChunkingSettings from './settings/KBChunkingSettings.vue'
 import KnowledgeBaseMembers from './settings/KnowledgeBaseMembers.vue'
+import { KB_EDITOR_INTEGRATION_NAV_KEYS, pickKbEditorNavItems } from './kbEditorNavGroups'
 import KBVectorStoreSettings from './settings/KBVectorStoreSettings.vue'
 import KBAdvancedSettings from './settings/KBAdvancedSettings.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
@@ -641,9 +642,8 @@ const navItems = computed(() => {
 
 // 左侧导航分组（与 AgentEditorModal 对齐）
 const navGroups = computed(() => {
-  const itemMap = new Map(navItems.value.map((item) => [item.key, item]))
-  const pickItems = (keys: string[]) =>
-    keys.map((key) => itemMap.get(key)).filter(Boolean) as typeof navItems.value
+  const pickItems = (keys: readonly string[]) =>
+    pickKbEditorNavItems(navItems.value, keys)
   return [
     {
       key: 'basic',
@@ -663,7 +663,8 @@ const navGroups = computed(() => {
     {
       key: 'integration',
       label: t('knowledgeEditor.navGroups.integration'),
-      items: pickItems(['share']),
+      // members 必须与 share 同组：见 kbEditorNavGroups.ts / 合并基线清单。
+      items: pickItems(KB_EDITOR_INTEGRATION_NAV_KEYS),
     },
   ].filter((group) => group.items.length > 0)
 })
