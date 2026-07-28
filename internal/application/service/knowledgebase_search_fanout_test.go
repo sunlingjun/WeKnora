@@ -816,6 +816,33 @@ func TestAuthorizeKBAccess_ForeignTenantNoShare_NotFound(t *testing.T) {
 		"reject must surface as NotFound to avoid leaking foreign KB existence")
 }
 
+// fakeSharedKBForAuth covers plaza membership checks in authorizeKBAccess.
+type fakeSharedKBForAuth struct {
+	roles map[string]string // "kbID:userID" → role
+	err   error
+	interfaces.SharedKnowledgeBaseService
+}
+
+func (f *fakeSharedKBForAuth) GetMemberRoleByKBAndUser(_ context.Context, kbID, userID string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.roles[kbID+":"+userID], nil
+}
+
+func TestAuthorizeKBAccess_ForeignTenantViaPlazaMember_OK(t *testing.T) {
+	t.Parallel()
+	share := &fakeKBShareForAuth{allowed: map[string]map[uint64]bool{}}
+	plaza := &fakeSharedKBForAuth{
+		roles: map[string]string{"kb-plaza:u-1": types.KBMemberRoleViewer},
+	}
+	s := &knowledgeBaseService{kbShareService: share, sharedKBService: plaza}
+	kbs := []*types.KnowledgeBase{{ID: "kb-plaza", TenantID: 99}}
+	ctx := context.WithValue(ctxWithTenantForAuth(7), types.UserIDContextKey, "u-1")
+	err := s.authorizeKBAccess(ctx, kbs, 7)
+	require.NoError(t, err, "plaza membership must authorize HybridSearch for joined shared KBs")
+}
+
 func TestAuthorizeKBAccess_OpenRetrieve_SkipsShareCheck(t *testing.T) {
 	t.Parallel()
 	share := &fakeKBShareForAuth{

@@ -159,10 +159,14 @@ func classifyFactoryError(
 
 // authorizeKBAccess rejects multi-KB searches whose scope includes a KB
 // that the caller is not entitled to read. Same-tenant KBs always pass.
-// Foreign-tenant KBs (Organization-shared) must pass an explicit
-// tenant-scoped permission check via kbShareService.HasTenantKBPermission,
-// applying the 3-D cap (share role + caller's tenant-org role + tenant
-// Viewer cap) introduced in Plan 3 of #1303.
+// Foreign-tenant KBs must pass either:
+//   - Organization share: kbShareService.HasTenantKBPermission (3-D cap:
+//     share role + caller's tenant-org role + tenant Viewer), or
+//   - Plaza membership: sharedKBService.GetMemberRoleByKBAndUser
+//     (visibility=shared + knowledge_base_members), same as middleware /
+//     userCanAccessSharedKB.
+// Without the plaza branch, cmdk / HybridSearch silently returned empty
+// for joined shared KBs while the document list still worked.
 //
 // Returning NotFound rather than Forbidden avoids leaking the existence
 // of unauthorized KB IDs that the caller could not otherwise observe.
@@ -188,21 +192,39 @@ func (s *knowledgeBaseService) authorizeKBAccess(
 	}
 
 	callerTenantRole := types.TenantRoleFromContext(ctx)
+	userID, _ := types.UserIDFromContext(ctx)
 
 	for _, kb := range kbs {
 		if kb.TenantID == requestTenantID {
 			continue
 		}
-		hasPermission, permErr := s.kbShareService.HasTenantKBPermission(
-			ctx, kb.ID, requestTenantID, callerTenantRole, types.OrgRoleViewer)
-		if permErr != nil {
-			logger.ErrorWithFields(ctx, permErr, map[string]interface{}{
-				"caller_tenant_id": requestTenantID,
-				"kb_tenant_id":     kb.TenantID,
-				"kb_id":            kb.ID,
-				"reason":           "shared-KB permission lookup failed",
-			})
-			return apperrors.NewInternalServerError("failed to verify knowledge base access")
+		hasPermission := false
+		if s.kbShareService != nil {
+			ok, permErr := s.kbShareService.HasTenantKBPermission(
+				ctx, kb.ID, requestTenantID, callerTenantRole, types.OrgRoleViewer)
+			if permErr != nil {
+				logger.ErrorWithFields(ctx, permErr, map[string]interface{}{
+					"caller_tenant_id": requestTenantID,
+					"kb_tenant_id":     kb.TenantID,
+					"kb_id":            kb.ID,
+					"reason":           "shared-KB permission lookup failed",
+				})
+				return apperrors.NewInternalServerError("failed to verify knowledge base access")
+			}
+			hasPermission = ok
+		}
+		if !hasPermission && userID != "" && s.sharedKBService != nil {
+			role, memberErr := s.sharedKBService.GetMemberRoleByKBAndUser(ctx, kb.ID, userID)
+			if memberErr != nil {
+				logger.ErrorWithFields(ctx, memberErr, map[string]interface{}{
+					"caller_tenant_id": requestTenantID,
+					"kb_tenant_id":     kb.TenantID,
+					"kb_id":            kb.ID,
+					"reason":           "plaza member permission lookup failed",
+				})
+				return apperrors.NewInternalServerError("failed to verify knowledge base access")
+			}
+			hasPermission = role != ""
 		}
 		if !hasPermission {
 			logger.WarnWithFields(ctx, logger.Fields{
