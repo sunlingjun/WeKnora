@@ -165,6 +165,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useCommandPaletteStore } from '@/stores/commandPalette'
 import { useAuthStore } from '@/stores/auth'
+import { useChatResourcesStore } from '@/stores/chatResources'
 import { useCmdkSearch, type CmdkFileGroup, type CmdkChunk, type CmdkMsgGroup } from './GlobalCommandPalette/useSearch'
 import { highlightText } from './GlobalCommandPalette/useHighlight'
 import { useStartChat } from './GlobalCommandPalette/useStartChat'
@@ -571,7 +572,7 @@ const onGlobalKey = (e: KeyboardEvent) => {
 // `onDialogOpened` once the dialog's enter animation has finished — doing it
 // here in a plain `nextTick` is too early for t-dialog (the input may not be
 // attached to the document yet, so `.focus()` silently no-ops).
-watch(open, (val) => {
+watch(open, async (val) => {
   if (val) {
     query.value = initialQuery.value || ''
     selectedKey.value = null
@@ -580,11 +581,14 @@ watch(open, (val) => {
     scopeDismissed.value = false
     const kbIdFromRoute = typeof route.params.kbId === 'string' ? route.params.kbId : ''
     if (kbIdFromRoute) {
-      // Best-effort name resolution; falls back to short id.
+      // Best-effort name: list → detail API（共享/广场库常不在本空间列表里）
       const match = knowledgeBases.value.find((k) => k.id === kbIdFromRoute)
       activeKbScope.value = {
         id: kbIdFromRoute,
         name: match?.name || kbIdFromRoute,
+      }
+      if (!match?.name) {
+        void resolveScopeName(kbIdFromRoute)
       }
     } else {
       activeKbScope.value = null
@@ -596,6 +600,23 @@ watch(open, (val) => {
     activeKbScope.value = null
   }
 })
+
+/** Resolve chip label for shared / plaza KBs missing from the cmdk list. */
+async function resolveScopeName(kbId: string) {
+  if (!activeKbScope.value || activeKbScope.value.id !== kbId) return
+  if (activeKbScope.value.name !== kbId) return
+  try {
+    const chatResources = useChatResourcesStore()
+    const detail = await chatResources.fetchKnowledgeBaseById(kbId)
+    const name = (detail?.name || '').trim()
+    if (!name) return
+    if (activeKbScope.value?.id === kbId) {
+      activeKbScope.value = { id: kbId, name }
+    }
+  } catch {
+    /* keep uuid fallback */
+  }
+}
 
 // Fired by t-dialog after its open animation finishes — DOM is guaranteed
 // attached, focus sticks. We also schedule a couple of retries because
