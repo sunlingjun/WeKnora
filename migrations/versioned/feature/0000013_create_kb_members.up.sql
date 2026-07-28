@@ -12,9 +12,13 @@ CREATE TABLE IF NOT EXISTS knowledge_base_members (
     
     CONSTRAINT fk_kb_members_kb FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     CONSTRAINT fk_kb_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_kb_members_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
-    CONSTRAINT uk_kb_members_kb_user UNIQUE (knowledge_base_id, user_id, deleted_at)  -- 唯一约束（支持软删除）
+    CONSTRAINT fk_kb_members_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
+
+-- 活跃成员唯一：允许多条历史软删行，禁止重复活跃成员（与 tenant_members 一致）
+CREATE UNIQUE INDEX IF NOT EXISTS uk_kb_members_kb_user_active
+    ON knowledge_base_members (knowledge_base_id, user_id)
+    WHERE deleted_at IS NULL;
 
 -- 添加索引
 CREATE INDEX IF NOT EXISTS idx_kb_members_kb_id ON knowledge_base_members(knowledge_base_id);

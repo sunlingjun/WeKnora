@@ -140,20 +140,27 @@ func (s *sharedKnowledgeBaseService) JoinSharedKnowledgeBase(ctx context.Context
 		return errors.New("already a member of this knowledge base")
 	}
 
-	// 创建成员记录
-	member := &types.KnowledgeBaseMember{
-		ID:              uuid.New().String(),
-		KnowledgeBaseID: kbID,
-		UserID:          userID,
-		TenantID:        tenantID,
-		Role:            types.KBMemberRoleViewer, // 默认角色为 viewer
-		JoinedAt:        time.Now(),
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
-	}
-
-	if err := s.memberRepo.CreateMember(ctx, member); err != nil {
-		return fmt.Errorf("failed to join knowledge base: %w", err)
+	// 再次加入：恢复最近一条软删记录，避免堆叠历史行触发旧唯一约束
+	if softDeleted, sdErr := s.memberRepo.GetSoftDeletedMemberByKBAndUser(ctx, kbID, userID); sdErr == nil && softDeleted != nil {
+		softDeleted.TenantID = tenantID
+		softDeleted.Role = types.KBMemberRoleViewer
+		if err := s.memberRepo.RestoreMember(ctx, softDeleted); err != nil {
+			return fmt.Errorf("failed to join knowledge base: %w", err)
+		}
+	} else {
+		member := &types.KnowledgeBaseMember{
+			ID:              uuid.New().String(),
+			KnowledgeBaseID: kbID,
+			UserID:          userID,
+			TenantID:        tenantID,
+			Role:            types.KBMemberRoleViewer, // 默认角色为 viewer
+			JoinedAt:        time.Now(),
+			CreatedAt:       time.Now(),
+			UpdatedAt:       time.Now(),
+		}
+		if err := s.memberRepo.CreateMember(ctx, member); err != nil {
+			return fmt.Errorf("failed to join knowledge base: %w", err)
+		}
 	}
 
 	// 更新成员数量

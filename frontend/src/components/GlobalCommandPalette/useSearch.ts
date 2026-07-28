@@ -105,21 +105,30 @@ export function useCmdkSearch(options: {
       try {
         const chatResources = useChatResourcesStore()
         await chatResources.ensureKnowledgeBases()
+        // Scope must cover: 本空间库 + 广场已加入共享库 + 组织分享库
+        // （ensureKnowledgeBases 已拉 joined；此前 cmdk 漏了 joined，导致搜不到共享知识库）
         const own: CmdkKb[] = chatResources.rawKnowledgeBases.map((kb: any) => ({
           id: String(kb.id),
           name: kb.name || '',
           type: kb.type,
         }))
-        const ownIds = new Set(own.map(k => k.id))
-        const sharedList: CmdkKb[] = (orgStore.sharedKnowledgeBases || [])
+        const seen = new Set(own.map(k => k.id))
+        const joinedList: CmdkKb[] = (chatResources.joinedKnowledgeBases || [])
+          .filter((kb: any) => kb?.id && !seen.has(String(kb.id)))
+          .map((kb: any) => {
+            const id = String(kb.id)
+            seen.add(id)
+            return { id, name: kb.name || '', type: kb.type }
+          })
+        const orgSharedList: CmdkKb[] = (orgStore.sharedKnowledgeBases || [])
           .filter((s: any) => s?.knowledge_base != null)
           .map((s: any) => ({
             id: String(s.knowledge_base.id),
             name: s.knowledge_base.name || '',
             type: s.knowledge_base.type,
           }))
-          .filter((k: CmdkKb) => !ownIds.has(k.id))
-        knowledgeBases.value = [...own, ...sharedList]
+          .filter((k: CmdkKb) => !seen.has(k.id))
+        knowledgeBases.value = [...own, ...joinedList, ...orgSharedList]
         kbsLoaded.value = true
       } catch (e) {
         console.error('[cmdk] failed to load knowledge bases', e)

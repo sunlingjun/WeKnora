@@ -50,6 +50,9 @@ type KnowledgeBaseMemberRepository interface {
 	// GetMemberByKBAndUser 根据知识库和用户查询成员
 	GetMemberByKBAndUser(ctx context.Context, kbID string, userID string) (*types.KnowledgeBaseMember, error)
 
+	// GetSoftDeletedMemberByKBAndUser 查询最近一条已软删的成员记录（用于再次加入时恢复）
+	GetSoftDeletedMemberByKBAndUser(ctx context.Context, kbID string, userID string) (*types.KnowledgeBaseMember, error)
+
 	// ListMembersByKB 列出知识库所有成员（支持分页，支持 keyword 按 email/username/cas_real_name 搜索）
 	ListMembersByKB(ctx context.Context, kbID string, keyword string, page, pageSize int) ([]*types.KnowledgeBaseMember, int64, error)
 
@@ -58,6 +61,9 @@ type KnowledgeBaseMemberRepository interface {
 
 	// UpdateMemberRole 更新成员角色
 	UpdateMemberRole(ctx context.Context, kbID string, userID string, role string) error
+
+	// RestoreMember 恢复软删成员记录
+	RestoreMember(ctx context.Context, member *types.KnowledgeBaseMember) error
 
 	// DeleteMember 软删除成员
 	DeleteMember(ctx context.Context, kbID string, userID string) error

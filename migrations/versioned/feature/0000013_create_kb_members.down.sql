@@ -1,4 +1,5 @@
 -- 删除索引
+DROP INDEX IF EXISTS uk_kb_members_kb_user_active;
 DROP INDEX IF EXISTS idx_kb_members_deleted_at;
 DROP INDEX IF EXISTS idx_kb_members_role;
 DROP INDEX IF EXISTS idx_kb_members_tenant_id;
