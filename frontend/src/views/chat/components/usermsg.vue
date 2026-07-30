@@ -48,7 +48,7 @@
 </template>
 <script setup>
 import { computed, ref, watch, onMounted, nextTick } from "vue";
-import { hydrateProtectedFileImages } from '@/utils/security';
+import { hydrateProtectedFileImages, collectSessionKnowledgeBaseIds } from '@/utils/security';
 import picturePreview from '@/components/picture-preview.vue';
 import { useI18n } from 'vue-i18n';
 import { useChatAttachmentPreviewDrawer } from '@/composables/useChatAttachmentPreviewDrawer';
@@ -161,7 +161,11 @@ const openAttachmentPreview = (attachment) => {
 
 const hydrateImages = async () => {
     await nextTick();
-    await hydrateProtectedFileImages(containerRef.value);
+    await hydrateProtectedFileImages(
+        containerRef.value,
+        undefined,
+        collectSessionKnowledgeBaseIds({ mentioned_items: props.mentioned_items }),
+    );
 };
 
 watch(() => props.images, hydrateImages);

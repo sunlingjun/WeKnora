@@ -81,7 +81,7 @@ import RagPipelineProgress from './RagPipelineProgress.vue';
 import ChatRequestInfoButton from '@/components/ChatRequestInfoButton.vue';
 import ChatCitationFloat from '@/components/ChatCitationFloat.vue';
 import picturePreview from '@/components/picture-preview.vue';
-import { sanitizeMarkdownHTML, safeMarkdownToHTML, createSafeImage, isValidImageURL, hydrateProtectedFileImages } from '@/utils/security';
+import { sanitizeMarkdownHTML, safeMarkdownToHTML, createSafeImage, isValidImageURL, hydrateProtectedFileImages, collectSessionKnowledgeBaseIds } from '@/utils/security';
 import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUIStore } from '@/stores/ui';
@@ -300,7 +300,11 @@ watch(renderedHTML, () => {
 // 渲染 Mermaid 图表的函数
 onUpdated(() => {
     nextTick(async () => {
-        await hydrateProtectedFileImages(parentMd.value);
+        await hydrateProtectedFileImages(
+            parentMd.value,
+            undefined,
+            collectSessionKnowledgeBaseIds(props.session),
+        );
         refreshMarkdownEnhancements(parentMd.value);
         if (props.session?.is_completed) {
             await renderMermaidInContainer(parentMd.value);
@@ -315,7 +319,11 @@ onMounted(async () => {
             parentMd.value.addEventListener('click', handleMarkdownImageClick, true);
         }
         rebindCitations();
-        await hydrateProtectedFileImages(parentMd.value);
+        await hydrateProtectedFileImages(
+            parentMd.value,
+            undefined,
+            collectSessionKnowledgeBaseIds(props.session),
+        );
         await enhanceMarkdownContainer(parentMd.value);
     });
 });
