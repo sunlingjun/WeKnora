@@ -956,9 +956,7 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 	if cfg.Auth.NXINCASAuth.CacheTTLSeconds <= 0 {
 		cfg.Auth.NXINCASAuth.CacheTTLSeconds = 600
 	}
-	if len(cfg.Auth.NXINCASAuth.AllowedPathGlobs) == 0 {
-		cfg.Auth.NXINCASAuth.AllowedPathGlobs = []string{"/api/v1/*"}
-	}
+	// AllowedPathGlobs 仅取自 config.yaml（auth.nxin_cas_auth.allowed_path_globs），不在此硬编码。
 }
 
 // applyAuditDefaults fills in defaults for the Audit config section
