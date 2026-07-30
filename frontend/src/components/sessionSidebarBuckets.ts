@@ -81,7 +81,7 @@ export function buildBucketDefinitions(
     embedChannel: (name: string) => string
     api: string
   },
-  options: { includeAdminChannelBuckets?: boolean } = {},
+  options: { includeAdminChannelBuckets?: boolean; includeApiBucket?: boolean } = {},
 ): BucketDefinition[] {
   const includeChannels = options.includeAdminChannelBuckets ?? options.includeApiBucket ?? false
   const imDefs = includeChannels

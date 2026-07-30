@@ -7,6 +7,8 @@ export type ListCardSectionKey =
   | 'pinned'
   | 'mine'
   | 'tenantOthers'
+  | 'tenantReadonly'
+  | 'joinedShared'
   | 'builtin'
   | 'sharedByMe'
   | 'sharedEditable'
