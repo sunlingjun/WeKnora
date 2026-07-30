@@ -56,6 +56,7 @@ type knowledgeService struct {
 	tagService      interfaces.KnowledgeTagService
 	fileSvc         interfaces.FileService
 	storageResolver interfaces.StorageBackendResolver
+	resourceCatalog interfaces.ResourceCatalog
 	modelService    interfaces.ModelService
 	task            interfaces.TaskEnqueuer
 	taskInspector   interfaces.TaskInspector
@@ -77,6 +78,7 @@ type knowledgeService struct {
 	// handled because the public surface is the SpanTracker interface,
 	// which has a no-op fallback. See knowledge_span_tracker.go.
 	spanTracker SpanTracker
+	audit       interfaces.AuditLogService
 }
 
 const (
@@ -99,6 +101,7 @@ func NewKnowledgeService(
 	tagService interfaces.KnowledgeTagService,
 	fileSvc interfaces.FileService,
 	storageResolver interfaces.StorageBackendResolver,
+	resourceCatalog interfaces.ResourceCatalog,
 	modelService interfaces.ModelService,
 	task interfaces.TaskEnqueuer,
 	taskInspector interfaces.TaskInspector,
@@ -113,6 +116,7 @@ func NewKnowledgeService(
 	wikiService interfaces.WikiPageService,
 	taskPendingRepo interfaces.TaskPendingOpsRepository,
 	spanTracker SpanTracker,
+	audit interfaces.AuditLogService,
 ) (interfaces.KnowledgeService, error) {
 	return &knowledgeService{
 		config:          config,
@@ -127,6 +131,7 @@ func NewKnowledgeService(
 		tagService:      tagService,
 		fileSvc:         fileSvc,
 		storageResolver: storageResolver,
+		resourceCatalog: resourceCatalog,
 		modelService:    modelService,
 		task:            task,
 		taskInspector:   taskInspector,
@@ -141,6 +146,7 @@ func NewKnowledgeService(
 		wikiService:     wikiService,
 		taskPendingRepo: taskPendingRepo,
 		spanTracker:     spanTracker,
+		audit:           audit,
 	}, nil
 }
 

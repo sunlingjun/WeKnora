@@ -1,8 +1,9 @@
 # 2026-07-20 WeKnora-slj 合并 v0.7.0 后：NXIN 定制补全清单
 
 > **目的**：指导「官方 Tag → WeKnora-slj 合并」之后，如何核对并补回 NXIN 定制，避免再次出现 CAS 进 `/login`、Linux 编不过、CORS 漏端口等问题。  
-> **基线分支**：`stable/2026-07-20-nxin-v0.7.0`（merge 官方 `v0.7.0` + 本清单补丁）  
-> **下游**：NXIN-WEKNORA 只引用 slj 的 `nxin-v0.7.0-stable.*`，再叠部署差分（Dockerfile GOPROXY / DuckDB 预下载 / Jenkins / compose）。
+> **基线分支**：`stable/2026-07-20-nxin-v0.7.0`  
+> **稳定 Tag（2026-07-30 重指向）**：`nxin-v0.7.0-stable.1` → `68a800ea`（含业务回补 + `/files` CAS 放行 + 构建/compose 收口）  
+> **下游模型（2026-07-30 起）**：WeKnora-slj = **唯一合并基线**（官方升级 + 自研特性 + 构建加固）。NXIN-WEKNORA **简单合入**该 Tag/分支，**不再**在 NXIN 分支回灌业务/Dockerfile/compose；NXIN 仅保留密钥 env 与机房脚本。
 
 ---
 
@@ -16,20 +17,28 @@
 | 1b | **知识库广场路由** | `shared-knowledge-bases` → `SharedKnowledgeBaseSquare.vue`；`knowledge-bases/:kbId/members` 须在 `/:kbId` 前 | ✅ 已补 |
 | 1c | **网页导入标题** | `KbUploadSourceDropdown` 必填 title + URL 预填；`KnowledgeBase`/`createKnowledgeFromURL` 传 `title` | ✅ 已补 |
 | 1d | **卡片品牌色取色** | `KnowledgeBaseList`/`AgentList`/`OrganizationList` 勿用硬编码 `rgba(7,192,95)`/`rgba(0,82,217)`，统一 `color-mix(... var(--td-brand-color) ...)`；共享空间 infinity 图标用 `currentColor` | ✅ 已补 |
-| 1e | **品牌文案 ZSK** | `index.html`→`NXIN-ZSK`；i18n 欢迎/首页；`config/prompt_templates/*`：`You are ZSK` + `developed by Nxin`（勿改 WeKnoraCloud/API 技术标识） | ✅ 已补（`24b7d999`；slj `975f98fd`） |
-| 1f | **共享知识库成员侧栏** | `KnowledgeBaseEditorModal` 的 `navGroups`「发布集成」必须 `pickItems(['members','share'])`（见 `kbEditorNavGroups.ts`）；仅写 `share` 会导致成员入口静默丢失 | ✅ 已补（2026-07-23） |
-| 1f2 | **共享知识库成员 i18n** | `knowledgeList.members.*` + `knowledgeList.messages.fetchMembersFailed/roleUpdated/...` 四语齐全；合并官方 locale 时勿冲掉（见 `kbMembersI18n.test.ts`） | ✅ 已补（2026-07-23） |
-| 1g | **CreateSharedKnowledgeBase UUID** | `shared_kb.go`：空 `id` 必须 `uuid.New()`，并写 `TenantID`/`CreatorID`/时间戳；否则第二次创建撞 `knowledge_bases_pkey` | ✅ 已补（2026-07-23，`dev`） |
-| 1h | **本空间 KB 列表可见性** | 对齐官方 v0.7.0：同空间成员可读全量；广场已加入勿标成「本空间·其他成员」 | ✅ 已补（`b60abf70` / `311c0893`） |
-| 2 | **CAS 公开路径** | `frontend/src/utils/request.ts`：`PUBLIC_AUTH_PATHS` 含 `/api/v1/cas/`；`.nxin.com` 上 401 回 `/` 触发守卫 | ✅ 已补 |
+| 1e | **品牌文案 ZSK** | `index.html`→`NXIN-ZSK`；i18n 欢迎/首页；`config/prompt_templates/*`：`You are ZSK` + `developed by Nxin`（勿改 WeKnoraCloud/API 技术标识） | ✅ 已补 |
+| 1f | **共享知识库成员侧栏** | `KnowledgeBaseEditorModal` 的 `navGroups`「发布集成」必须 `pickItems(['members','share'])`（见 `kbEditorNavGroups.ts`） | ✅ 已补 |
+| 1f2 | **共享知识库成员 i18n** | `knowledgeList.members.*` + messages 四语齐全（见 `kbMembersI18n.test.ts`） | ✅ 已补 |
+| 1g | **CreateSharedKnowledgeBase UUID** | `shared_kb.go`：空 `id` 必须 `uuid.New()` | ✅ 已补 |
+| 1h | **本空间 KB 列表可见性** | 同空间成员可读全量；广场已加入勿标成「本空间·其他成员」 | ✅ 已补 |
+| 1i | **CAS X-Tenant-ID 切空间** | `middleware/auth.go`：`tryNXINCASAuth` 经 `resolveNXINCASTargetTenant`，与 JWT 分支同权 | ✅ 已补（`2057b6dc`，自 NXIN 回补） |
+| 1j | **CAS 放行 `/files`** | `config.yaml` `nxin_cas_auth.allowed_path_globs` 含 `/api/v1/*` 与 `/files`（聊天引用图） | ✅ 已补（`6fa5c16b`） |
+| 1k | **Redis Cluster SSE** | `stream.NewStreamManager(rdb UniversalClient)`，禁止另起 `redis.NewClient(REDIS_ADDR)` | ✅ 已补（`2057b6dc`） |
+| 1l | **CAS 本地密码规则工具** | `internal/utils/cas_local_password.go`（规则源进基线） | ✅ 已补 |
+| 2 | **CAS 公开路径** | `request.ts`：`PUBLIC_AUTH_PATHS` 含 `/api/v1/cas/` | ✅ 已补 |
 | 3 | **CAS 退出** | `UserMenu.vue`：`.nxin.com` → `casStore.logout()` | ✅ 已补 |
-| 4 | **CAS 后端** | `handler/cas_auth.go`、`middleware.tryNXINCASAuth`、`RegisterCASRoutes`、`config nxin_cas_auth` | ✅ merge 已保留 |
-| 5 | **KB 静态路由顺序** | `/knowledge-bases/user`、`/shared` **在** `/:id` **之前** | ✅ merge 已保留 |
-| 6 | **CORS** | `url.Parse` + `Hostname()` 放行 `*.nxin.com`；`AllowHeaders` 含 `pd`/`systemid` 等 | ✅ 已补强 |
-| 7 | **open_retrieve** | middleware + routes + config | ✅ merge 已保留 |
-| 8 | **跨平台 listen** | `cmd/server/sockopt_unix.go` + `sockopt_windows.go`，`listen.go` 调 `setReuseAddr`（勿在共用文件写 `syscall.Handle`） | ✅ 已补 |
-| 9 | **前端 API base** | `api-base.ts` 读 `VITE_APP_BASE_API`，**不硬编码** `zsk.t.nxin.com:8080` | ✅ 已补 |
-| 10 | **前端 env 模板** | `frontend/env.development.example` / `env.production.example`（含 `VITE_APP_CAS`） | ✅ 已补 |
+| 4 | **CAS 后端** | `handler/cas_auth.go`、`tryNXINCASAuth`、`RegisterCASRoutes`、`nxin_cas_auth` | ✅ 已保留 |
+| 5 | **KB 静态路由顺序** | `/knowledge-bases/user`、`/shared` **在** `/:id` **之前** | ✅ 已保留 |
+| 6 | **CORS** | `Hostname()` 放行 `*.nxin.com`；企联网头 | ✅ 已补强 |
+| 7 | **open_retrieve** | middleware + routes + config | ✅ 已保留 |
+| 8 | **跨平台 listen** | `sockopt_unix.go` / `sockopt_windows.go` | ✅ 已补 |
+| 9 | **前端 API base** | `api-base.ts` 读 `VITE_APP_BASE_API` | ✅ 已补 |
+| 10 | **前端 env 模板** | `env.development.example` / `env.production.example`（含 `VITE_APP_CAS`） | ✅ 已补 |
+| 11 | **构建加固** | `Dockerfile.app`：GOPROXY 多源、`GODEBUG=http2client=0`、DuckDB curl 预下载、无 BuildKit mount | ✅ 已收口进 slj（`68a800ea`） |
+| 12 | **DuckDB LOAD-first** | `cmd/download/duckdb/duckdb.go` | ✅ 已收口进 slj |
+| 13 | **compose CAS_ENVIRONMENT** | `docker-compose.yml` 透传 `CAS_ENVIRONMENT`；测试/生产拓扑 depends_on/profile 与现网一致 | ✅ 已收口进 slj |
+| 14 | **进程内 HTTPS** | `config.yaml` 默认注释掉 https（Nginx 终结 TLS） | ✅ 已收口进 slj |
 
 ---
 
@@ -39,20 +48,23 @@
 |---|--------|------|----------|
 | 1 | 品牌外链隐藏 | `UserMenu`：`showUpstreamMenuLinks = false` | ✅ 已补 |
 | 2 | Redis 集群 asynq | 勿仅依赖 `REDIS_ADDR` | ✅ 已有 |
-| 3 | ParadeDB | compose 主文件 `v0.22.2-pg17`；`docker-compose.test.yml` 合并时对照 | ⚠ 合并后复核 test compose |
-| 4 | DuckDB / GOPROXY | **优先留在 NXIN 部署仓** Dockerfile；slj 可不强制默认国内代理 | 部署侧 |
+| 3 | ParadeDB | `docker-compose.test.yml` 对齐 `v0.22.2-pg17` | ✅ 已收口 |
+| 4 | 品牌/配额脚本 | `scripts/2026-07-21-verify-zsk-brand.py` 等 | ✅ 已收口 |
 
 ---
 
-## 3. 仅 NXIN 部署仓保留（不要强行并进 slj 业务线）
+## 3. 仅 NXIN 部署仓保留（密钥与机房脚本）
+
+升 0.7.1 起：**禁止**再把业务/Dockerfile/compose 差分只留在 NXIN。
 
 | 项 | 原因 |
 |----|------|
-| Jenkins / `deploy.sh` fail-fast | 环境运维 |
-| Dockerfile `GOPROXY` + DuckDB curl 预下载 | 国内构建机 |
-| `.env.test` / `.env.prod` 真实密钥 | 密钥不出库 |
-| `cmd/migrate-cas-user-password` | 一次性运维工具 |
-| 大量 `docs/2026-*` 运维笔记 | 部署知识库 |
+| `.env.test` / `.env.prod` / `frontend/.env.*` 真实密钥 | 密钥不出库 |
+| Jenkins / 服务器 `deploy.sh` fail-fast | 机房运维脚本，可不进 Git 或仅 NXIN 私有 |
+| 一次性运维 SQL / `migrate-cas-user-password` | 运维工具 |
+| 环境专属运维笔记（可选） | 部署知识库；**合并基线说明仍写在 slj `docs/`** |
+
+**NXIN 合入方式**：`fetch` slj 稳定 Tag → merge/ff 到 `dev`/`master` → 保留本地未跟踪的 `.env*` → 构建部署。无业务冲突预期。
 
 ---
 
@@ -60,13 +72,13 @@
 
 ```
 官方改了 Login / router.beforeEach？
-  → 合完后立刻对照 NXIN 旧版，把 CAS 分支接回去（未登录 ≠ /login）
+  → 合完后立刻把 CAS 分支接回去（未登录 ≠ /login）
 
 官方改了 CORS AllowOriginFunc？
-  → 用 Hostname()，不要 HasSuffix(origin, ".nxin.com")（带端口会漏）
+  → 用 Hostname()，不要 HasSuffix(origin, ".nxin.com")
 
 官方改了 listen / SO_REUSEADDR？
-  → 拆 sockopt_unix.go / sockopt_windows.go，Linux 构建不能出现 syscall.Handle
+  → 拆 sockopt_unix.go / sockopt_windows.go
 
 官方改了 api-base / 环境变量名？
   → 保留 VITE_APP_CAS / VITE_APP_APP / VITE_APP_BASE_API
@@ -75,20 +87,16 @@
   → 静态路由永远写在参数路由前面
 
 官方改了 prompt_templates 或 i18n 欢迎语？
-  → 跑 scripts/2026-07-21-restore-zsk-brand-copy.py：WeKnora/Tencent → ZSK/Nxin；勿动 WeKnoraCloud
+  → ZSK/Nxin 品牌；勿动 WeKnoraCloud
 
-官方改了知识库/智能体/共享空间卡片样式？
-  → 禁止硬编码 rgba(7,192,95)/rgba(0,82,217)；统一 color-mix(--td-brand-color)
-  → OrganizationList infinity 图标用 inline SVG + currentColor（勿用 organization-green.svg 硬绿）
-  → 可跑 scripts/2026-07-21-fix-org-brand-color.py / fix-card-brand-color.py
+官方改了 StreamManager / Redis 初始化？
+  → 保持 NewStreamManager(UniversalClient)，Cluster 勿直连 REDIS_ADDR
 
-官方改了 KnowledgeBaseEditorModal 侧栏为 navGroups？
-  → 「发布集成」必须含 members（在 share 前）；用 kbEditorNavGroups.ts
-  → 验收：共享库 + is_owner → 侧栏出现「成员」；npx tsx --test kbEditorNavGroups.test.ts
-  → 同时核对 knowledgeList.members.* 四语文案（npx tsx --test kbMembersI18n.test.ts）
+官方改了 nxin_cas_auth / Auth 中间件？
+  → 保留 X-Tenant-ID resolve；allowed_path_globs 含 /files
 
-官方改了 CreateSharedKnowledgeBase / shared_kb？
-  → 空 id 必须生成 UUID + TenantID；勿再空字符串落主键
+官方改了 Dockerfile / duckdb 下载？
+  → 保留 GOPROXY 多源、curl 预下载、LOAD-first、legacy builder 兼容
 ```
 
 ---
@@ -96,24 +104,31 @@
 ## 5. 建议的本地验收（打 Tag 前）
 
 ```bash
-# 后端
 go build -o server.exe ./cmd/server
+go test ./internal/stream/ ./internal/utils/ -count=1
 
 # 前端（复制 env 模板）
 cp frontend/env.development.example frontend/.env.development
-# 按需改 VITE_IS_DOCKER / proxy
-cd frontend && npm run build_dev   # 或现有脚本
+cd frontend && npm run build_dev
 
-# 浏览器
-# 访问业务首页（非 /login）→ 应跳转 cas.t.nxin.com
-# 日志无 tenant_api_keys_key_hash_key（见占位 hash 修正文档）
+# 浏览器：CAS 首页、切空间、聊天引用图、共享 KB、图谱（Neo4j）
 ```
 
 ---
 
 ## 6. 与升级主方案的关系
 
-主流程仍见：`docs/2026-07-20-升级至v0.7.0-WeKnora-slj与NXIN先后方案.md`。  
-本文件是 **Phase A 收尾检查表**：merge 完成 ≠ 可打 Tag；过完 §1 P0 再 `nxin-v0.7.0-stable.*`。
+- 0.7.0 主流程：`docs/2026-07-20-升级至v0.7.0-WeKnora-slj与NXIN先后方案.md`
+- **0.7.1 主流程**：`docs/2026-07-30-升级至v0.7.1-WeKnora-slj与NXIN先后方案.md`
+- 本文件是 **合并基线核对表**：merge 完成 ≠ 可打 Tag；过完 §1 P0 再 `nxin-vX.Y.Z-stable.*`
 
-库侧占位 hash：`docs/2026-07-20-tenant_api_keys占位hash修正-本机测试生产.md`。
+---
+
+## 7. 2026-07-30 Tag 收口记录
+
+| 提交 | 说明 |
+|------|------|
+| `2057b6dc` | 自 NXIN 回补：CAS X-Tenant-ID、Stream Cluster、cas_local_password |
+| `6fa5c16b` | CAS `allowed_path_globs` 增加 `/files` |
+| `68a800ea` | Dockerfile/DuckDB/compose/https-off/脚本收口进 slj |
+| Tag | `git tag -f nxin-v0.7.0-stable.1` → `68a800ea`（若远端已有旧 Tag，需 `git push --force origin nxin-v0.7.0-stable.1`） |
