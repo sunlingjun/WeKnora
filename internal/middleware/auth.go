@@ -363,14 +363,17 @@ func tryNXINCASAuth(
 	if entry, ok := getNXINCASAuthCache(c.Request.Context(), redisClient, cacheKey); ok {
 		user, err := userService.GetUserByID(c.Request.Context(), entry.UserID)
 		if err == nil && user != nil && user.IsActive {
-			tenant, err := tenantService.GetTenantByID(c.Request.Context(), entry.TenantID)
-			if err == nil && tenant != nil {
-				if !setAuthenticatedUserContext(c, memberService, user, tenant, entry.TenantID, cfg) {
-					return true
-				}
-				c.Next()
+			tenant, targetTenantID, ok := resolveNXINCASTargetTenant(
+				c, user, entry.TenantID, tenantService, memberService, cfg,
+			)
+			if !ok {
 				return true
 			}
+			if !setAuthenticatedUserContext(c, memberService, user, tenant, targetTenantID, cfg) {
+				return true
+			}
+			c.Next()
+			return true
 		}
 	}
 
@@ -397,15 +400,78 @@ func tryNXINCASAuth(
 		return true
 	}
 
-	if !setAuthenticatedUserContext(c, memberService, user, tenant, tenant.ID, cfg) {
+	resolvedTenant, targetTenantID, ok := resolveNXINCASTargetTenant(
+		c, user, tenant.ID, tenantService, memberService, cfg,
+	)
+	if !ok {
 		return true
 	}
+	if !setAuthenticatedUserContext(c, memberService, user, resolvedTenant, targetTenantID, cfg) {
+		return true
+	}
+	// Cache keeps the CAS-bound home tenant; per-request X-Tenant-ID still switches workspace.
 	_ = setNXINCASAuthCache(c.Request.Context(), redisClient, cacheKey, nxinCASAuthCacheEntry{
 		UserID:   user.ID,
 		TenantID: tenant.ID,
 	}, cacheTTL)
 	c.Next()
 	return true
+}
+
+// resolveNXINCASTargetTenant mirrors the JWT X-Tenant-ID branch so cookie/CAS
+// auth can switch among memberships the same way the ZSK portal does.
+func resolveNXINCASTargetTenant(
+	c *gin.Context,
+	user *types.User,
+	defaultTenantID uint64,
+	tenantService interfaces.TenantService,
+	memberService interfaces.TenantMemberService,
+	cfg *config.Config,
+) (*types.Tenant, uint64, bool) {
+	targetTenantID := defaultTenantID
+	tenantHeader := c.GetHeader("X-Tenant-ID")
+	if tenantHeader != "" {
+		parsedTenantID, err := strconv.ParseUint(tenantHeader, 10, 64)
+		if err != nil || parsedTenantID == 0 {
+			log.Printf("Invalid X-Tenant-ID header from CAS user=%s: %q (err=%v)", user.ID, tenantHeader, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid X-Tenant-ID header"})
+			c.Abort()
+			return nil, 0, false
+		}
+		if !IsTenantAccessible(c.Request.Context(), user, parsedTenantID, memberService, cfg) {
+			log.Printf("CAS user %s attempted to access tenant %d without permission", user.ID, parsedTenantID)
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "Forbidden: insufficient permissions to access target workspace",
+			})
+			c.Abort()
+			return nil, 0, false
+		}
+		targetTenant, err := tenantService.GetTenantByID(c.Request.Context(), parsedTenantID)
+		if err != nil || targetTenant == nil {
+			log.Printf("Error getting target tenant by ID: %v, tenantID: %d", err, parsedTenantID)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid target workspace ID"})
+			c.Abort()
+			return nil, 0, false
+		}
+		if parsedTenantID != defaultTenantID {
+			log.Printf("CAS user %s switching to tenant %d via X-Tenant-ID", user.ID, parsedTenantID)
+		}
+		return targetTenant, parsedTenantID, true
+	}
+
+	if targetTenantID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: invalid workspace"})
+		c.Abort()
+		return nil, 0, false
+	}
+	tenant, err := tenantService.GetTenantByID(c.Request.Context(), targetTenantID)
+	if err != nil || tenant == nil {
+		log.Printf("Error getting tenant by ID: %v, tenantID: %d, userID: %s", err, targetTenantID, user.ID)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: invalid workspace"})
+		c.Abort()
+		return nil, 0, false
+	}
+	return tenant, targetTenantID, true
 }
 
 func isNXINCASAuthPathAllowed(path string, patterns []string) bool {

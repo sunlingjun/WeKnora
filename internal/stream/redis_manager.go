@@ -6,33 +6,27 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisStreamManager implements StreamManager using Redis Lists for append-only event streaming
+// RedisStreamManager implements StreamManager using Redis Lists for append-only event streaming.
+// The client is redis.UniversalClient so both standalone and cluster modes work
+// (same client created by initRedisClient via REDIS_MODE / REDIS_CLUSTER_ADDRS).
 type RedisStreamManager struct {
-	client *redis.Client
+	client redis.UniversalClient
 	ttl    time.Duration // TTL for stream data in Redis
 	prefix string        // Redis key prefix
 }
 
-// NewRedisStreamManager creates a new Redis-based stream manager
-func NewRedisStreamManager(redisAddr, redisUsername, redisPassword string,
-	redisDB int, prefix string, ttl time.Duration,
-) (*RedisStreamManager, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:      redisAddr,
-		Username:  redisUsername,
-		Password:  redisPassword,
-		DB:        redisDB,
-		TLSConfig: common.RedisTLSConfig(),
-	})
+// NewRedisStreamManager creates a Redis-backed stream manager from an existing
+// UniversalClient (standalone or cluster). Does not take ownership of the client.
+func NewRedisStreamManager(client redis.UniversalClient, prefix string, ttl time.Duration) (*RedisStreamManager, error) {
+	if client == nil {
+		return nil, fmt.Errorf("redis client is nil")
+	}
 
-	// Verify connection
-	_, err := client.Ping(context.Background()).Result()
-	if err != nil {
+	if _, err := client.Ping(context.Background()).Result(); err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
@@ -128,11 +122,6 @@ func (r *RedisStreamManager) GetEvents(
 	nextOffset := fromOffset + len(results)
 
 	return events, nextOffset, nil
-}
-
-// Close closes the Redis connection
-func (r *RedisStreamManager) Close() error {
-	return r.client.Close()
 }
 
 // Ensure RedisStreamManager implements StreamManager interface
