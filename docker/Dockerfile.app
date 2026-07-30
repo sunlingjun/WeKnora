@@ -5,7 +5,8 @@ WORKDIR /app
 
 # 通过构建参数接收敏感信息
 ARG GOPRIVATE_ARG
-ARG GOPROXY_ARG
+# 国内构建机访问 proxy.golang.org 常超时；goproxy.cn 偶发 HTTP/2 GOAWAY，故默认多源 + 关闭 HTTP/2
+ARG GOPROXY_ARG=https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,direct
 ARG GOSUMDB_ARG=off
 ARG APK_MIRROR_ARG
 
@@ -13,22 +14,54 @@ ARG APK_MIRROR_ARG
 ENV GOPRIVATE=${GOPRIVATE_ARG}
 ENV GOPROXY=${GOPROXY_ARG}
 ENV GOSUMDB=${GOSUMDB_ARG}
+# 规避 goproxy.cn 大批量下载时 http2 GOAWAY 断连
+ENV GODEBUG=http2client=0
 
 # Install dependencies
 RUN if [ -n "$APK_MIRROR_ARG" ]; then \
         sed -i "s@deb.debian.org@${APK_MIRROR_ARG}@g" /etc/apt/sources.list.d/debian.sources; \
     fi && \
     apt-get update && \
-    apt-get install -y git build-essential libsqlite3-dev
+    apt-get install -y git build-essential libsqlite3-dev curl ca-certificates gzip
 
-# Install migrate tool
-RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+# Install migrate tool（网络抖动时重试；避免 dash 下 $((...)) 语法问题）
+RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest \
+    || (echo "migrate install retry 1" && sleep 5 && go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest) \
+    || (echo "migrate install retry 2" && sleep 10 && go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest) \
+    || (echo "migrate install retry 3" && sleep 15 && go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest) \
+    || (echo "migrate install retry 4" && sleep 20 && go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest)
 
 # Copy go mod and sum files
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+# go mod download：HTTP/2 GOAWAY / 代理抖动时重试
+# 不使用 RUN --mount（需 BuildKit）；兼容生产 Jenkins DOCKER_BUILDKIT=0
+RUN go mod download \
+    || (echo "go mod download retry 1" && sleep 5 && go mod download) \
+    || (echo "go mod download retry 2" && sleep 10 && go mod download) \
+    || (echo "go mod download retry 3" && sleep 15 && go mod download) \
+    || (echo "go mod download retry 4" && sleep 20 && go mod download)
 COPY cmd/download cmd/download
-RUN go run cmd/download/duckdb/duckdb.go
+# DuckDB 扩展：先使用 curl 预下载并解压，避免 DuckDB INSTALL 在构建时触发更短超时的远程下载。
+#
+# 注意：URL 与路径版本号来自 DuckDB extension release（当前失败日志为 v1.5.2）。
+ARG DUCKDB_EXTENSION_VERSION=1.5.2
+RUN mkdir -p "/root/.duckdb/extensions/v${DUCKDB_EXTENSION_VERSION}/linux_amd64" && \
+    for ext in httpfs spatial excel; do \
+      url="https://extensions.duckdb.org/v${DUCKDB_EXTENSION_VERSION}/linux_amd64/${ext}.duckdb_extension.gz"; \
+      echo "Downloading DuckDB extension: ${url}"; \
+      curl -fsSL \
+        --retry 5 --retry-delay 10 \
+        --connect-timeout 30 \
+        --max-time 600 \
+        -o "/root/.duckdb/extensions/v${DUCKDB_EXTENSION_VERSION}/linux_amd64/${ext}.duckdb_extension.gz" \
+        "${url}"; \
+      gunzip -f "/root/.duckdb/extensions/v${DUCKDB_EXTENSION_VERSION}/linux_amd64/${ext}.duckdb_extension.gz"; \
+    done
+RUN go run cmd/download/duckdb/duckdb.go \
+    || (echo "duckdb extensions retry 1" && sleep 5 && go run cmd/download/duckdb/duckdb.go) \
+    || (echo "duckdb extensions retry 2" && sleep 10 && go run cmd/download/duckdb/duckdb.go) \
+    || (echo "duckdb extensions retry 3" && sleep 15 && go run cmd/download/duckdb/duckdb.go) \
+    || (echo "duckdb extensions retry 4" && sleep 20 && go run cmd/download/duckdb/duckdb.go)
 COPY . .
 
 # Get version and commit info for build injection
@@ -43,9 +76,9 @@ ENV COMMIT_ID=${COMMIT_ID_ARG}
 ENV BUILD_TIME=${BUILD_TIME_ARG}
 ENV GO_VERSION=${GO_VERSION_ARG}
 
-# Build the application with version info
-RUN --mount=type=cache,target=/go/pkg/mod make build-prod
-RUN --mount=type=cache,target=/go/pkg/mod cp -r /go/pkg/mod/github.com/yanyiwu/ /app/yanyiwu/
+# Build the application with version info（无 BuildKit cache mount，兼容 legacy builder）
+RUN make build-prod
+RUN cp -r /go/pkg/mod/github.com/yanyiwu/ /app/yanyiwu/
 
 # Final stage
 FROM debian:12.12-slim

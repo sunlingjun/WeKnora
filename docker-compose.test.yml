@@ -105,7 +105,8 @@ services:
 
   # PostgreSQL（开源镜像）
   postgres:
-    image: paradedb/paradedb:v0.21.4-pg17
+    # 与主 compose / 测试一致；扩展目录与镜像主版本应对齐（见 docs）
+    image: paradedb/paradedb:v0.22.2-pg17
     container_name: WeKnora-postgres-test
     ports:
       - "${DB_PORT:-5432}:5432"

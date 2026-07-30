@@ -61,3 +61,8 @@ fix-docker.sh
 
 # WeChat Mini Program local/private configuration
 miniprogram/project.private.config.json
+
+.superpowers/
+
+# 分享页归档在 nxin-doc，不纳入本仓库
+docs/share/
