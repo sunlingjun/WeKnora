@@ -155,8 +155,10 @@ auth:
     enabled: true
     cache_ttl_seconds: 600
     require_https: true
+    # /files 在 /api/v1 之外，但聊天引用图鉴权灌水依赖它；不放行时 CAS 用户会 401 missing authentication
     allowed_path_globs:
       - "/api/v1/*"
+      - "/files"
 
 # CAS 单点登录配置
 cas:
