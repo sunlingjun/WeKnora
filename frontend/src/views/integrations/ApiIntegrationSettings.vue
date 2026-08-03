@@ -162,6 +162,14 @@
                           <t-button
                             shape="square"
                             variant="text"
+                            :title="$t('integrations.api.copyMcpConfig')"
+                            @click="copyMcpConfig(key.api_key)"
+                          >
+                            <t-icon name="root-list" />
+                          </t-button>
+                          <t-button
+                            shape="square"
+                            variant="text"
                             theme="danger"
                             :title="$t('integrations.api.deleteApiKey')"
                             @click="confirmDeleteAPIKey(key.id)"
@@ -175,6 +183,21 @@
                 </table>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-band">
+        <div class="row">
+          <div class="row-info">
+            <label>{{ $t('integrations.api.mcpRetrieveUrl') }}</label>
+            <p>{{ $t('integrations.api.mcpRetrieveUrlDesc') }}</p>
+          </div>
+          <div class="row-control copy-field">
+            <t-input :model-value="mcpRetrieveUrl" readonly class="mono-input" />
+            <t-button variant="text" :title="$t('integrations.api.copy')" @click="copy(mcpRetrieveUrl)">
+              <t-icon name="file-copy" />
+            </t-button>
           </div>
         </div>
       </section>
@@ -785,6 +808,29 @@ const apiBaseUrl = computed(() => {
   const origin = typeof window !== 'undefined' && window.location.origin !== 'null' ? window.location.origin : ''
   return `${configured || origin}/api/v1`
 })
+
+const mcpRetrieveUrl = computed(() => `${apiBaseUrl.value}/mcp/retrieve`)
+
+function buildMcpConfigJSON(apiKey: string) {
+  const key = (apiKey || '').trim() || '<YOUR_API_KEY>'
+  // Headers/URL/server id must stay ASCII: some MCP clients (Chromium ByteString)
+  // reject non-ASCII header values and fail with "character ... greater than 255".
+  return JSON.stringify({
+    mcpServers: {
+      'nxin-zsk-retrieve': {
+        type: 'http',
+        url: mcpRetrieveUrl.value,
+        headers: {
+          'X-API-Key': key,
+        },
+      },
+    },
+  }, null, 2)
+}
+
+async function copyMcpConfig(apiKey: string) {
+  await copy(buildMcpConfigJSON(apiKey))
+}
 
 const showLanUrlUnavailableHint = computed(() => (
   showDesktopBindPublicSetting.value

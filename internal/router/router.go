@@ -22,6 +22,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/handler"
 	"github.com/Tencent/WeKnora/internal/handler/session"
+	"github.com/Tencent/WeKnora/internal/knowledge_mcp"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/middleware"
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
@@ -96,6 +97,7 @@ type RouterParams struct {
 	OpenRetrieveHandler          *handler.OpenRetrieveHandler
 	WeKnoraCloudHandler          *handler.WeKnoraCloudHandler
 	WikiPageHandler              *handler.WikiPageHandler
+	WikiPageService              interfaces.WikiPageService
 }
 
 // defaultTrustedPrivateProxies 当 behind_proxy 开启但未配置 trusted_proxies 时的保守默认值（私网 + 本机）。
@@ -363,6 +365,12 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterDataSourceRoutes(v1, params.DataSourceHandler, params.DataSourceCredentialsHandler, rbacGuards)
 		RegisterWeKnoraCloudRoutes(v1, params.WeKnoraCloudHandler, rbacGuards)
 		RegisterWikiPageRoutes(v1, params.WikiPageHandler, rbacGuards)
+		if params.KBService != nil && params.WikiPageService != nil {
+			RegisterKnowledgeMCPRoutes(v1, knowledge_mcp.GinHandler(knowledge_mcp.Dependencies{
+				KBService:   params.KBService,
+				WikiService: params.WikiPageService,
+			}), rbacGuards)
+		}
 		RegisterChunkerDebugRoutes(v1, rbacGuards)
 
 		// 开放检索（无用户登录；X-Open-Retrieve-Api-Key，见 config.open_retrieve）
