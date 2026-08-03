@@ -106,6 +106,9 @@ function isEmbedPage(): boolean {
 function redirectToLogin() {
   if (typeof window === 'undefined') return;
   if (window.location.pathname === '/login') return;
+  // Enterprise CAS invite landing must stay on-page (retry / CAS), never
+  // fall through to the local login/register form.
+  if (window.location.pathname === '/join-cas') return;
   // Embed 渠道用 Embed token 鉴权，匿名访问不应被踢到登录页
   if (isEmbedPage()) return;
   // NXIN：401 后回首页触发路由守卫里的 CAS，避免直接落到密码登录页

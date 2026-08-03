@@ -65,6 +65,16 @@ const router = createRouter({
       meta: { requiresAuth: false, requiresInit: false }
     },
     {
+      path: "/join-cas",
+      name: "joinCas",
+      // Enterprise invite landing: lookup → CAS (page-owned) → join.
+      // requiresAuth false so the guard does not bounce to /login; do
+      // NOT add this path to the logged-in→KB redirect (logged-in users
+      // still need to AcceptByToken via this page).
+      component: () => import("../views/auth/JoinCas.vue"),
+      meta: { requiresAuth: false, requiresInit: false }
+    },
+    {
       path: "/onboarding/workspace",
       name: "workspaceOnboarding",
       component: () => import("../views/auth/WorkspaceOnboarding.vue"),

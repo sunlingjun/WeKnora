@@ -46,12 +46,47 @@ func buildInviteRegisterURL(cfg *config.Config, plainToken string) string {
 	return frontendBaseURLFor(cfg) + "/register?token=" + plainToken
 }
 
+// inviteKindCASMarker is stored in TenantInvitation.Message when an
+// Owner creates a share-link with link_mode=cas and no custom message.
+// projectInvitationWithLink reads it so pending-list re-copy keeps
+// /join-cas without a DB schema change.
+const inviteKindCASMarker = "invite_kind:cas"
+
+// buildInviteCASURL composes the enterprise CAS join URL Owners hand
+// to invitees (SPA route /join-cas). Same token rules as register URLs.
+func buildInviteCASURL(cfg *config.Config, plainToken string) string {
+	if plainToken == "" {
+		return ""
+	}
+	return frontendBaseURLFor(cfg) + "/join-cas?token=" + plainToken
+}
+
+// isCASInviteKind reports whether Message marks a CAS share-link so
+// list/create projections can rebuild /join-cas invite URLs.
+func isCASInviteKind(message string) bool {
+	return strings.Contains(message, inviteKindCASMarker)
+}
+
+// normalizeInviteLinkMode maps create-body link_mode to a canonical
+// value. Empty / unknown → "register" (local register flow).
+func normalizeInviteLinkMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "cas":
+		return "cas"
+	default:
+		return "register"
+	}
+}
+
 // createInviteLinkRequest is the body for POST /tenants/:id/invite-links.
 // Only role + optional message — share-link rows have no specific
 // invitee, so the Owner just picks "what role does the holder get".
+// LinkMode selects the landing path: ""|"register" → /register,
+// "cas" → /join-cas (enterprise CAS join).
 type createInviteLinkRequest struct {
-	Role    types.TenantRole `json:"role"    binding:"required"`
-	Message string           `json:"message"`
+	Role     types.TenantRole `json:"role" binding:"required"`
+	Message  string           `json:"message"`
+	LinkMode string           `json:"link_mode"` // ""|"register"|"cas"; default register
 }
 
 // CreateInviteLink godoc
@@ -82,13 +117,19 @@ func (h *TenantInvitationHandler) CreateInviteLink(c *gin.Context) {
 		return
 	}
 
+	message := req.Message
+	if normalizeInviteLinkMode(req.LinkMode) == "cas" && strings.TrimSpace(message) == "" {
+		// Persist a marker so pending-list re-copy also emits /join-cas.
+		message = inviteKindCASMarker
+	}
+
 	caller, _ := types.UserIDFromContext(ctx)
 	var invitedBy *string
 	if caller != "" && !types.IsSyntheticUserID(caller) {
 		invitedBy = &caller
 	}
 
-	inv, _, err := h.invitationService.CreateShareLink(ctx, tenantID, req.Role, invitedBy, req.Message)
+	inv, _, err := h.invitationService.CreateShareLink(ctx, tenantID, req.Role, invitedBy, message)
 	if err != nil {
 		if errors.Is(err, service.ErrAPIKeyCannotAssignOwner) {
 			c.Error(apperrors.NewForbiddenError(err.Error()))

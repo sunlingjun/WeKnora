@@ -12,6 +12,8 @@ export interface TenantMember {
   user_id: string
   email: string
   username: string
+  /** CAS SSO real name when available; preferred for member list display. */
+  cas_real_name?: string
   avatar?: string
   role: TenantRole
   status: TenantMemberStatus

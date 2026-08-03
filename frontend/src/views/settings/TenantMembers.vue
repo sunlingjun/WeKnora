@@ -52,15 +52,6 @@
       </div>
       <p class="section-description">
         {{ $t('tenantMember.sectionDescription') }}
-        <a
-          class="doc-link"
-          href="https://github.com/Tencent/WeKnora/blob/main/docs/RBAC%E8%AF%B4%E6%98%8E.md"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {{ $t('tenantMember.learnRbacGuide') }}
-          <t-icon name="link" class="link-icon" />
-        </a>
       </p>
     </div>
 
@@ -109,19 +100,22 @@
                 <div class="member-cell">
                   <template v-if="row.is_share_link">
                     <span class="member-name share-link-title">
-                      <t-icon name="link" size="14px" />
-                      {{ $t('tenantInvitation.shareLink.cellTitle') }}
+                      <t-icon :name="isCASInvite(row) ? 'usergroup' : 'link'" size="14px" />
+                      {{ isCASInvite(row)
+                        ? $t('tenantInvitation.enterpriseLink.cellTitle')
+                        : $t('tenantInvitation.shareLink.cellTitle') }}
                     </span>
                     <span class="member-email">
-                      {{ (row.accepted_count ?? 0) > 0
-                        ? $t('tenantInvitation.shareLink.cellAccepted', { count: row.accepted_count })
-                        : $t('tenantInvitation.shareLink.cellEmpty') }}
+                      {{ invitationSecondaryLine(row) }}
                     </span>
                   </template>
                   <template v-else>
                     <span class="member-name">{{ inviteePrimary(row) }}</span>
                     <span v-if="row.invitee_email && row.invitee_name" class="member-email">{{ row.invitee_email
                       }}</span>
+                    <span v-else-if="invitationDisplayMessage(row)" class="member-email">{{
+                      invitationDisplayMessage(row)
+                    }}</span>
                   </template>
                 </div>
               </template>
@@ -159,7 +153,9 @@
                        table cell so the user keeps spatial context. -->
                 <t-popconfirm v-if="row.status === 'pending'" theme="warning"
                   :content="row.is_share_link
-                    ? $t('tenantInvitation.shareLink.revokeConfirm')
+                    ? (isCASInvite(row)
+                      ? $t('tenantInvitation.enterpriseLink.revokeConfirm')
+                      : $t('tenantInvitation.shareLink.revokeConfirm'))
                     : $t('tenantInvitation.revoke.confirmBody', {
                         email: row.invitee_email || row.invitee_user_id,
                       })"
@@ -304,6 +300,67 @@
                 </div>
               </template>
             </t-popup>
+            <!-- Enterprise CAS invite link. Same multi-use share-link
+                 backend as register links, but landing on /join-cas so
+                 invitees authenticate via CAS instead of local register. -->
+            <t-popup v-if="canManage" v-model="enterpriseLinkPopupVisible" trigger="click" placement="bottom-end"
+              destroy-on-close overlay-class-name="member-invite-popup-overlay">
+              <t-button theme="default" variant="outline" shape="square" size="small" class="members-list-add-btn"
+                :title="$t('tenantMember.inviteEnterprise')"
+                :aria-label="$t('tenantMember.inviteEnterprise')">
+                <template #icon><t-icon name="usergroup" /></template>
+              </t-button>
+              <template #content>
+                <div class="member-invite-popup-inner" @click.stop>
+                  <div class="member-invite-popup-title">
+                    {{
+                      enterpriseLinkResult
+                        ? $t('tenantInvitation.enterpriseLink.resultTitle')
+                        : $t('tenantInvitation.enterpriseLinkTitle')
+                    }}
+                  </div>
+                  <div v-if="!enterpriseLinkResult" class="member-invite-form">
+                    <p class="invite-confirm-body">
+                      {{ $t('tenantInvitation.enterpriseLink.description', { days: INVITATION_TTL_DAYS }) }}
+                    </p>
+                    <t-form :data="enterpriseLinkForm" :label-width="80">
+                      <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
+                        <t-select v-model="enterpriseLinkForm.role" :options="roleOptions"
+                          :popup-props="roleSelectPopupProps" />
+                      </t-form-item>
+                    </t-form>
+                  </div>
+                  <div v-else class="share-link-result">
+                    <p class="invite-confirm-body">
+                      {{ $t('tenantInvitation.enterpriseLink.resultBody') }}
+                    </p>
+                    <div class="share-link-row">
+                      <input class="share-link-row__input"
+                        :value="absoluteInviteURL(enterpriseLinkResult.invite_url || '')"
+                        readonly @click="($event.target as HTMLInputElement).select()" />
+                      <t-button size="small" theme="primary" variant="outline"
+                        @click="copyText(absoluteInviteURL(enterpriseLinkResult.invite_url || ''))">
+                        <template #icon><t-icon name="copy" /></template>
+                        {{ $t('tenantInvitation.copyLink') }}
+                      </t-button>
+                    </div>
+                  </div>
+                  <div class="invite-popup-footer">
+                    <t-button v-if="!enterpriseLinkResult" variant="outline" :disabled="creatingEnterpriseLink"
+                      @click="enterpriseLinkPopupVisible = false">
+                      {{ $t('common.cancel') }}
+                    </t-button>
+                    <t-button v-else variant="outline" @click="enterpriseLinkPopupVisible = false">
+                      {{ $t('common.close') }}
+                    </t-button>
+                    <t-button v-if="!enterpriseLinkResult" theme="primary" :loading="creatingEnterpriseLink"
+                      @click="submitEnterpriseLink">
+                      {{ $t('tenantInvitation.enterpriseLink.generate') }}
+                    </t-button>
+                  </div>
+                </div>
+              </template>
+            </t-popup>
           </div>
         </div>
         <div v-if="loading && members.length === 0" class="loading-inline">
@@ -353,7 +410,7 @@
               <template #actions="{ row }">
                 <t-popconfirm
                   v-if="canManage && row.user_id !== currentUserId"
-                  :content="$t('tenantMember.remove.confirmBody', { name: row.username || row.email })"
+                  :content="$t('tenantMember.remove.confirmBody', { name: memberPrimary(row) })"
                   :confirm-btn="{ content: $t('tenantMember.remove.confirm'), theme: 'danger' }"
                   :cancel-btn="{ content: $t('common.cancel') }"
                   placement="left"
@@ -563,6 +620,11 @@ const shareLinkPopupVisible = ref(false)
 const shareLinkForm = reactive<{ role: TenantRole }>({ role: 'contributor' })
 const creatingShareLink = ref(false)
 const shareLinkResult = ref<TenantInvitation | null>(null)
+// Enterprise CAS invite-link popup (link_mode=cas → /join-cas?token=).
+const enterpriseLinkPopupVisible = ref(false)
+const enterpriseLinkForm = reactive<{ role: TenantRole }>({ role: 'contributor' })
+const creatingEnterpriseLink = ref(false)
+const enterpriseLinkResult = ref<TenantInvitation | null>(null)
 // Two-step invite inside the popup: 'form' renders the email/role inputs;
 // 'confirm' swaps the body for an in-place summary; primary CTA toggles label.
 const addDialogStep = ref<'form' | 'confirm'>('form')
@@ -581,7 +643,7 @@ const invitationsPage = ref(1)
 const invitationsPageSize = ref(20)
 
 /** 历次分页载荷里见过的成员展示字段，补齐审计表里不在当前页的 user id */
-const memberDisplayByUserId = reactive<Record<string, { username?: string; email?: string }>>({})
+const memberDisplayByUserId = reactive<Record<string, { cas_real_name?: string; username?: string; email?: string }>>({})
 
 // Pending invitations live alongside members but in a distinct section
 // at the top of the Members tab — they're "people we've asked to
@@ -732,14 +794,16 @@ const columns = computed(() => [
   { colKey: 'actions', title: t('tenantMember.columns.operations'), width: 88, align: 'left' },
 ])
 
-function memberPrimary(row: { username?: string; email?: string }) {
-  return row.username?.trim() || row.email?.trim() || '—'
+function memberPrimary(row: { cas_real_name?: string; username?: string; email?: string }) {
+  return row.cas_real_name?.trim() || row.username?.trim() || row.email?.trim() || '—'
 }
 
-function memberSecondary(row: { username?: string; email?: string }) {
-  const name = row.username?.trim()
+function memberSecondary(row: { cas_real_name?: string; username?: string; email?: string }) {
+  const primary = memberPrimary(row)
   const mail = row.email?.trim()
-  if (name && mail) return mail
+  if (mail && mail !== primary) return mail
+  const name = row.username?.trim()
+  if (name && name !== primary) return name
   return ''
 }
 
@@ -792,7 +856,11 @@ function formatDate(s: string | undefined): string {
 
 function rememberMembersForAudit(rows: TenantMember[]) {
   for (const m of rows) {
-    memberDisplayByUserId[m.user_id] = { username: m.username, email: m.email }
+    memberDisplayByUserId[m.user_id] = {
+      cas_real_name: m.cas_real_name,
+      username: m.username,
+      email: m.email,
+    }
   }
 }
 
@@ -887,6 +955,35 @@ function inviteePrimary(row: TenantInvitation): string {
 
 function inviterPrimary(row: TenantInvitation): string {
   return row.inviter_name?.trim() || row.inviter_email?.trim() || row.invited_by || '—'
+}
+
+// Backend stores invite_kind:cas in Message for CAS share-links (no
+// schema change). Never surface the literal marker in the UI.
+const INVITE_KIND_CAS_MARKER = 'invite_kind:cas'
+
+function isCASInvite(row: TenantInvitation): boolean {
+  return !!row.message && row.message.includes(INVITE_KIND_CAS_MARKER)
+}
+
+/** Strip invite_kind:cas so any leftover custom note can still show. */
+function invitationDisplayMessage(row: TenantInvitation): string {
+  if (!row.message) return ''
+  return row.message
+    .split(INVITE_KIND_CAS_MARKER)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function invitationSecondaryLine(row: TenantInvitation): string {
+  if ((row.accepted_count ?? 0) > 0) {
+    return t('tenantInvitation.shareLink.cellAccepted', { count: row.accepted_count })
+  }
+  const note = invitationDisplayMessage(row)
+  if (note) return note
+  return isCASInvite(row)
+    ? t('tenantInvitation.enterpriseLink.cellEmpty')
+    : t('tenantInvitation.shareLink.cellEmpty')
 }
 
 // loadInvitations is called from the same trigger as loadMembers so
@@ -1063,11 +1160,15 @@ function formatAuditAction(action: AuditAction): string {
 // 再退到历次分页积累的 memberDisplayByUserId，最后是原始 id。
 function actorDisplayName(userId: string): string {
   const cur = members.value.find((x) => x.user_id === userId)
-  if (cur?.username?.trim()) return cur.username.trim()
-  if (cur?.email?.trim()) return cur.email.trim()
+  if (cur) {
+    const label = memberPrimary(cur)
+    if (label !== '—') return label
+  }
   const memo = memberDisplayByUserId[userId]
-  if (memo?.username?.trim()) return memo.username!.trim()
-  if (memo?.email?.trim()) return memo.email!.trim()
+  if (memo) {
+    const label = memberPrimary(memo)
+    if (label !== '—') return label
+  }
   return userId
 }
 
@@ -1255,6 +1356,12 @@ watch(shareLinkPopupVisible, (open) => {
   shareLinkResult.value = null
 })
 
+watch(enterpriseLinkPopupVisible, (open) => {
+  if (!open) return
+  enterpriseLinkForm.role = 'contributor'
+  enterpriseLinkResult.value = null
+})
+
 // absoluteInviteURL turns the backend's potentially-host-relative
 // invite_url into a copy-friendly absolute URL. The backend returns
 // "/register?token=…" when FRONTEND_BASE_URL is unset (the typical
@@ -1291,6 +1398,27 @@ async function submitShareLink() {
     MessagePlugin.error(err?.message || t('tenantInvitation.errors.generic'))
   } finally {
     creatingShareLink.value = false
+  }
+}
+
+async function submitEnterpriseLink() {
+  creatingEnterpriseLink.value = true
+  try {
+    const resp = await createInviteLink(activeTenantId.value, {
+      role: enterpriseLinkForm.role,
+      link_mode: 'cas',
+    })
+    if (!resp.success || !resp.data) {
+      MessagePlugin.error(resp.message || t('tenantInvitation.errors.generic'))
+      return
+    }
+    enterpriseLinkResult.value = resp.data
+    invitationsPage.value = 1
+    await loadInvitations()
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('tenantInvitation.errors.generic'))
+  } finally {
+    creatingEnterpriseLink.value = false
   }
 }
 

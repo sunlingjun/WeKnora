@@ -208,6 +208,10 @@ export async function declineInvitation(invId: number): Promise<SimpleResponse> 
 export interface CreateInviteLinkRequest {
   role: TenantRole
   message?: string
+  // link_mode selects the invite landing URL the backend embeds in
+  // invite_url: "register" → /register?token= (local form); "cas" →
+  // /join-cas?token= (enterprise CAS join, no local register).
+  link_mode?: 'register' | 'cas'
 }
 
 export interface CreateInviteLinkResponse {

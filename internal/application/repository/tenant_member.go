@@ -94,7 +94,7 @@ func (r *tenantMemberRepository) ListByTenant(ctx context.Context, tenantID uint
 }
 
 // CountFilteredByTenant counts active tenant membership rows, optionally
-// restricted to users whose email or username matches search.
+// restricted to users whose email, username, or cas_real_name matches search.
 func (r *tenantMemberRepository) CountFilteredByTenant(
 	ctx context.Context, tenantID uint64, search string,
 ) (int64, error) {
@@ -109,7 +109,7 @@ func (r *tenantMemberRepository) CountFilteredByTenant(
 		like := "%" + escapeLikePattern(search) + "%"
 		err = q.
 			Joins(`INNER JOIN users ON users.id = tenant_members.user_id AND users.deleted_at IS NULL`).
-			Where(`(LOWER(users.email) LIKE LOWER(?) OR LOWER(users.username) LIKE LOWER(?))`, like, like).
+			Where(`(LOWER(users.email) LIKE LOWER(?) OR LOWER(users.username) LIKE LOWER(?) OR LOWER(users.cas_real_name) LIKE LOWER(?))`, like, like, like).
 			Count(&total).Error
 	}
 	return total, err
@@ -134,7 +134,7 @@ func (r *tenantMemberRepository) ListPagedByTenant(
 		like := "%" + escapeLikePattern(search) + "%"
 		err = q.
 			Joins(`INNER JOIN users ON users.id = tenant_members.user_id AND users.deleted_at IS NULL`).
-			Where(`(LOWER(users.email) LIKE LOWER(?) OR LOWER(users.username) LIKE LOWER(?))`, like, like).
+			Where(`(LOWER(users.email) LIKE LOWER(?) OR LOWER(users.username) LIKE LOWER(?) OR LOWER(users.cas_real_name) LIKE LOWER(?))`, like, like, like).
 			Find(&members).Error
 	}
 	if err != nil {

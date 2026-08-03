@@ -133,7 +133,11 @@ func (h *TenantInvitationHandler) projectInvitationWithLink(
 ) types.TenantInvitationResponse {
 	resp := projectInvitation(inv, usersByID, tenantsByID)
 	if inv.Status == types.TenantInvitationStatusPending && inv.Token != "" {
-		resp.InviteURL = buildInviteRegisterURL(h.configInfo, inv.Token)
+		if isCASInviteKind(inv.Message) {
+			resp.InviteURL = buildInviteCASURL(h.configInfo, inv.Token)
+		} else {
+			resp.InviteURL = buildInviteRegisterURL(h.configInfo, inv.Token)
+		}
 	}
 	return resp
 }

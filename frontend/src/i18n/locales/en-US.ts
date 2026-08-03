@@ -2008,6 +2008,14 @@ export default {
     passwordTooShort: 'Password must be at least 6 characters',
     passwordMismatch: 'Passwords do not match',
   },
+  joinCas: {
+    title: 'Join workspace',
+    loading: 'Joining "{tenant}"…',
+    invalidToken: 'This invitation link is invalid or revoked. Ask the inviter for a new one.',
+    joinFailed: 'Failed to join; please try again',
+    retry: 'Retry',
+    roleLabel: 'Role: {role}',
+  },
   auth: {
     login: 'Login',
     logout: 'Logout',
@@ -6881,6 +6889,7 @@ export default {
     title: 'Members',
     sectionDescription: 'Invite teammates to the workspace and manage their roles. Only Owner can add or remove members.',
     learnRbacGuide: 'Learn about RBAC',
+    inviteEnterprise: 'Invite enterprise members',
     totalCount: '{n} members',
     listTitle: 'Workspace members',
     filterMatched: '{n} matched',
@@ -7015,6 +7024,19 @@ export default {
     copyLink: 'Copy invite link',
     copied: 'Copied to clipboard',
     copyFailed: 'Copy failed; please select the text manually',
+    enterpriseLinkTitle: 'Generate enterprise invite link',
+    enterpriseLink: {
+      cellTitle: 'Enterprise invite link',
+      cellEmpty: 'No one has joined yet',
+      description:
+        'Generate a multi-use enterprise join link you can drop in a group chat. Invitees sign in with their enterprise CAS account and join this workspace. Expires in {days} days, or revoke it any time from the list.',
+      generate: 'Generate link',
+      resultTitle: 'Enterprise invite link ready',
+      resultBody:
+        'Copy the link below and share it. Invitees will sign in with their enterprise account and join this workspace. The link is also saved in the list — you can re-copy or revoke it later.',
+      revokeConfirm:
+        "Revoking will block anyone who hasn't joined yet from using this link. Generate a new one to re-share.",
+    },
     shareLink: {
       button: 'Generate share link',
       label: 'Share link',

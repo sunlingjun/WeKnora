@@ -116,6 +116,10 @@ func isTenantOptionalAPI(path, method string) bool {
 		return true
 	case path == "/api/v1/auth/switch-tenant" && method == http.MethodPost:
 		return true
+	case path == "/api/v1/auth/join-by-invite-cas" && method == http.MethodPost:
+		// Same class as switch-tenant: join then switch into invited workspace
+		// even when JWT has no home tenant yet (edge after tenantless provision).
+		return true
 	case path == "/api/v1/tenants" && method == http.MethodPost:
 		return true
 	case strings.HasPrefix(path, "/api/v1/me/invitations"):

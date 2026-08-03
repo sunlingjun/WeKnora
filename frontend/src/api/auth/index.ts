@@ -489,3 +489,20 @@ export async function registerByInvite(data: RegisterByInviteRequest): Promise<L
     return { success: false, message: error.message || t('error.auth.registerFailed') }
   }
 }
+
+/**
+ * Join a workspace via enterprise invite link after CAS (or existing JWT)
+ * session is established. Backend AcceptByToken + SwitchTenant and returns
+ * a login-shaped payload (token / user / tenant / memberships).
+ */
+export async function joinByInviteCas(data: {
+  token: string
+  refresh_token?: string
+}): Promise<LoginResponse> {
+  try {
+    const response = await post('/api/v1/auth/join-by-invite-cas', data)
+    return response as unknown as LoginResponse
+  } catch (error: any) {
+    return { success: false, message: error.message || 'join failed' }
+  }
+}

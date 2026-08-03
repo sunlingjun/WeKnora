@@ -988,6 +988,9 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	r.POST("/auth/auto-setup", handler.AutoSetup)
 	r.GET("/auth/config", handler.GetAuthConfig)
 	r.POST("/auth/switch-tenant", handler.SwitchTenant)
+	// Join after CAS SSO: requires JWT (not public). Reuses share-link
+	// AcceptByToken then SwitchTenant so the response matches login shape.
+	r.POST("/auth/join-by-invite-cas", handler.JoinByInviteCAS)
 	r.GET("/auth/oidc/config", handler.GetOIDCConfig)
 	r.GET("/auth/oidc/url", handler.GetOIDCAuthorizationURL)
 	r.GET("/auth/oidc/callback", handler.OIDCRedirectCallback)

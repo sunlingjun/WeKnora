@@ -17,6 +17,8 @@ func TestTenantOptionalAPISurface(t *testing.T) {
 		{http.MethodGet, "/api/v1/auth/me", true},
 		{http.MethodPut, "/api/v1/auth/me", true},
 		{http.MethodPut, "/api/v1/auth/me/preferences", true},
+		{http.MethodPost, "/api/v1/auth/switch-tenant", true},
+		{http.MethodPost, "/api/v1/auth/join-by-invite-cas", true},
 		{http.MethodPost, "/api/v1/tenants", true},
 		{http.MethodGet, "/api/v1/me/invitations", true},
 		{http.MethodPost, "/api/v1/me/invitations/12/accept", true},

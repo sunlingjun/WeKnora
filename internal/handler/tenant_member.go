@@ -86,11 +86,11 @@ func parseTenantIDFromPath(c *gin.Context) (uint64, bool) {
 
 // ListMembers godoc
 // @Summary      列出空间成员
-// @Description  分页返回当前空间内 active 成员（含每位成员的角色、邮箱、头像）；支持 q 按邮箱/用户名筛选
+// @Description  分页返回当前空间内 active 成员（含每位成员的角色、邮箱、头像、CAS 真实姓名）；支持 q 按邮箱/用户名/CAS 真实姓名筛选
 // @Tags         空间成员
 // @Produce      json
 // @Param        id         path   string  true   "空间 ID"
-// @Param        q          query  string  false  "按邮箱/用户名模糊筛选"
+// @Param        q          query  string  false  "按邮箱/用户名/CAS真实姓名模糊筛选"
 // @Param        page       query  int     false  "页码（从 1 起）"  default(1)
 // @Param        page_size  query  int     false  "每页数量（最大 100）"  default(20)
 // @Success      200  {object}  map[string]interface{}
@@ -145,6 +145,7 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 		if u, ok := usersByID[m.UserID]; ok && u != nil {
 			row.Email = u.Email
 			row.Username = u.Username
+			row.CASRealName = u.CASRealName
 			row.Avatar = u.Avatar
 		}
 		resp = append(resp, row)
@@ -257,14 +258,15 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 	// list endpoint uses, so the UI can swap "Add Member" UX into the
 	// table without an extra round-trip.
 	resp := types.TenantMemberResponse{
-		UserID:    member.UserID,
-		Email:     user.Email,
-		Username:  user.Username,
-		Avatar:    user.Avatar,
-		Role:      member.Role,
-		Status:    member.Status,
-		InvitedBy: member.InvitedBy,
-		JoinedAt:  member.JoinedAt,
+		UserID:      member.UserID,
+		Email:       user.Email,
+		Username:    user.Username,
+		CASRealName: user.CASRealName,
+		Avatar:      user.Avatar,
+		Role:        member.Role,
+		Status:      member.Status,
+		InvitedBy:   member.InvitedBy,
+		JoinedAt:    member.JoinedAt,
 	}
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,

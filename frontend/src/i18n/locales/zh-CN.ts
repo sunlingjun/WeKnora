@@ -1873,6 +1873,14 @@ export default {
     passwordTooShort: "密码至少 6 位",
     passwordMismatch: "两次输入的密码不一致",
   },
+  joinCas: {
+    title: "加入工作空间",
+    loading: "正在加入「{tenant}」…",
+    invalidToken: "邀请链接无效或已撤销，请联系邀请人重新发送。",
+    joinFailed: "加入失败，请稍后重试",
+    retry: "重试",
+    roleLabel: "角色：{role}",
+  },
   auth: {
     login: "登录",
     logout: "退出",
@@ -6932,6 +6940,7 @@ export default {
     title: "成员管理",
     sectionDescription: "邀请伙伴加入当前空间并分配角色。只有 Owner 可以新增或移除成员。",
     learnRbacGuide: "了解 RBAC",
+    inviteEnterprise: "邀请企业人员",
     totalCount: "共 {n} 位成员",
     listTitle: "空间成员",
     filterMatched: "筛选出 {n} 位",
@@ -7066,6 +7075,17 @@ export default {
     copyLink: "复制邀请链接",
     copied: "已复制到剪贴板",
     copyFailed: "复制失败，请手动选中文本",
+    enterpriseLinkTitle: "生成企业邀请链接",
+    enterpriseLink: {
+      cellTitle: "企业邀请链接",
+      cellEmpty: "尚无企业成员加入",
+      description:
+        "生成一条企业账号加入链接，发到群里即可；对方通过企业 CAS 登录后加入当前空间。链接 {days} 天后过期，或随时可在列表中撤销。",
+      generate: "生成链接",
+      resultTitle: "企业邀请链接已生成",
+      resultBody: "复制下方链接发给被邀请人。对方将通过企业账号登录并加入当前空间。链接也会保存在下方列表中，随时可以重新复制或撤销。",
+      revokeConfirm: "撤销后，所有还未通过此链接加入的人都无法再使用；如需重发请生成新链接。",
+    },
     shareLink: {
       button: "生成共享链接",
       label: "共享链接",
