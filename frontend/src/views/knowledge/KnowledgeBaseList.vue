@@ -2701,11 +2701,11 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &.question {
-    background: rgba(0, 150, 136, 0.08);
-    color: var(--td-success-color);
+    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+    color: var(--td-brand-color);
 
     &:hover {
-      background: rgba(0, 150, 136, 0.12);
+      background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
     }
   }
 
