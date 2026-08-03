@@ -17,8 +17,15 @@
               <t-tooltip :content="canManageOrg ? $t('organization.createOrg') : noPermissionTip" placement="bottom">
                 <t-button variant="text" theme="default" size="small" class="header-action-btn"
                   style="--wails-draggable: no-drag" :disabled="!canManageOrg" @click="handleCreateOrganization">
-                  <template #icon><img src="@/assets/img/organization-green.svg" class="org-create-icon" alt=""
-                      aria-hidden="true" /></template>
+                  <template #icon>
+                    <svg class="org-create-icon" width="16" height="16" viewBox="0 0 20 20" fill="none"
+                      xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <path
+                        d="M10 10C8.8 7.5 7.8 3.8 4.8 3.8C2.2 3.8 0.8 6.8 0.8 10C0.8 13.2 2.2 16.2 4.8 16.2C7.8 16.2 8.8 12.5 10 10C11.2 7.5 12.5 5.5 14.5 5.5C16.5 5.5 18 7.5 18 10C18 12.5 16.5 14.5 14.5 14.5C12.5 14.5 11.2 12.5 10 10Z"
+                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                        fill="none" />
+                    </svg>
+                  </template>
                 </t-button>
               </t-tooltip>
             </div>
@@ -189,8 +196,15 @@
             </t-tooltip>
             <t-tooltip :content="noPermissionTip" placement="top" :disabled="canManageOrg">
               <t-button class="org-create-btn" :disabled="!canManageOrg" @click="handleCreateOrganization">
-                <template #icon><img src="@/assets/img/organization-green.svg" class="org-create-icon" alt=""
-                    aria-hidden="true" /></template>
+                <template #icon>
+                  <svg class="org-create-icon" width="16" height="16" viewBox="0 0 20 20" fill="none"
+                    xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path
+                      d="M10 10C8.8 7.5 7.8 3.8 4.8 3.8C2.2 3.8 0.8 6.8 0.8 10C0.8 13.2 2.2 16.2 4.8 16.2C7.8 16.2 8.8 12.5 10 10C11.2 7.5 12.5 5.5 14.5 5.5C16.5 5.5 18 7.5 18 10C18 12.5 16.5 14.5 14.5 14.5C12.5 14.5 11.2 12.5 10 10Z"
+                      stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                      fill="none" />
+                  </svg>
+                </template>
                 {{ $t('organization.createOrg') }}
               </t-button>
             </t-tooltip>
@@ -1207,7 +1221,7 @@ onUnmounted(() => {
 }
 
 .org-join-btn {
-  border-color: rgba(7, 192, 95, 0.5);
+  border-color: color-mix(in srgb, var(--td-brand-color) 50%, transparent);
   color: var(--td-brand-color);
   font-weight: 500;
   transition: all 0.2s ease;
@@ -1217,7 +1231,7 @@ onUnmounted(() => {
   }
 
   &:hover {
-    background: rgba(7, 192, 95, 0.08);
+    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
     border-color: var(--td-brand-color);
     color: var(--td-brand-color);
 
@@ -1232,18 +1246,19 @@ onUnmounted(() => {
   border: none;
   color: var(--td-text-color-anti);
   font-weight: 500;
-  box-shadow: 0 2px 8px rgba(7, 192, 95, 0.25);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--td-brand-color) 25%, transparent);
   transition: all 0.25s ease;
 
   &:hover {
     background: var(--td-brand-color);
-    box-shadow: 0 4px 14px rgba(7, 192, 95, 0.35);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--td-brand-color) 35%, transparent);
   }
 
   .org-create-icon {
     width: 16px;
     height: 16px;
-    filter: brightness(0) invert(1);
+    color: var(--td-text-color-anti);
+    display: block;
   }
 }
 
@@ -1287,6 +1302,7 @@ onUnmounted(() => {
   :deep(.org-create-icon) {
     width: 16px;
     height: 16px;
+    display: block;
   }
 }
 
@@ -1383,7 +1399,7 @@ onUnmounted(() => {
   }
 
   &:focus-visible {
-    box-shadow: 0 0 0 2px var(--td-brand-color-focus, rgba(0, 82, 217, 0.2));
+    box-shadow: 0 0 0 2px var(--td-brand-color-focus, color-mix(in srgb, var(--td-brand-color) 20%, transparent));
   }
 
   .t-icon {
@@ -1444,29 +1460,29 @@ onUnmounted(() => {
     right: 0;
     width: 120px;
     height: 80px;
-    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(7, 192, 95, 0.06) 0%, transparent 70%);
+    background: radial-gradient(ellipse 60% 50% at 100% 0%, color-mix(in srgb, var(--td-brand-color) 6%, transparent) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
 
   &.joined-org {
     &:hover {
-      border-color: rgba(7, 192, 95, 0.4);
-      box-shadow: 0 4px 16px rgba(7, 192, 95, 0.08);
+      border-color: color-mix(in srgb, var(--td-brand-color) 40%, transparent);
+      box-shadow: 0 4px 16px color-mix(in srgb, var(--td-brand-color) 8%, transparent);
     }
   }
 
   &:hover {
-    border-color: rgba(7, 192, 95, 0.5);
-    box-shadow: 0 6px 20px rgba(7, 192, 95, 0.12);
+    border-color: color-mix(in srgb, var(--td-brand-color) 50%, transparent);
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--td-brand-color) 12%, transparent);
   }
 
   .card-decoration {
-    color: rgba(7, 192, 95, 0.35);
+    color: color-mix(in srgb, var(--td-brand-color) 35%, transparent);
   }
 
   &:hover .card-decoration {
-    color: rgba(7, 192, 95, 0.55);
+    color: color-mix(in srgb, var(--td-brand-color) 55%, transparent);
   }
 
   .card-header {
@@ -1690,7 +1706,7 @@ onUnmounted(() => {
   }
 
   &.stat-kb {
-    background: rgba(7, 192, 95, 0.08);
+    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
     color: var(--td-brand-color);
 
     .t-icon {
@@ -1698,7 +1714,7 @@ onUnmounted(() => {
     }
 
     &:hover {
-      background: rgba(7, 192, 95, 0.12);
+      background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
     }
   }
 
@@ -1769,7 +1785,7 @@ onUnmounted(() => {
   }
 
   &.admin {
-    background: rgba(7, 192, 95, 0.12);
+    background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
     color: var(--td-brand-color);
 
     .t-icon {
@@ -1778,7 +1794,7 @@ onUnmounted(() => {
   }
 
   &.editor {
-    background: rgba(7, 192, 95, 0.08);
+    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
     color: var(--td-brand-color);
 
     .t-icon {
