@@ -2,8 +2,6 @@
 .*
 # 但不忽略特定隐藏文件和目录
 !.env
-!.env.test
-!.env.prod
 !.env.example
 !.gitignore
 !.github/
