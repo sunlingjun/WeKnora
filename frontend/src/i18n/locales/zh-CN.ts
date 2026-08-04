@@ -1874,6 +1874,7 @@ export default {
     passwordMismatch: "两次输入的密码不一致",
   },
   joinCas: {
+    documentTitle: "加入工作空间 · 农信知识中台",
     title: "加入工作空间",
     loading: "正在加入「{tenant}」…",
     invalidToken: "邀请链接无效或已撤销，请联系邀请人重新发送。",

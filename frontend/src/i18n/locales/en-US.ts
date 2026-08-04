@@ -2009,6 +2009,7 @@ export default {
     passwordMismatch: 'Passwords do not match',
   },
   joinCas: {
+    documentTitle: 'Join workspace · NXIN ZSK',
     title: 'Join workspace',
     loading: 'Joining "{tenant}"…',
     invalidToken: 'This invitation link is invalid or revoked. Ask the inviter for a new one.',

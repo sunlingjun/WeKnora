@@ -186,6 +186,7 @@ async function runFlow() {
 }
 
 onMounted(() => {
+  document.title = t('joinCas.documentTitle')
   void runFlow()
 })
 
