@@ -38,8 +38,8 @@ type Config struct {
 	// relative URL ("/register?token=…") which the SPA then resolves
 	// against window.location.origin — fine for typical single-origin
 	// deployments. Sourced from FRONTEND_BASE_URL env at startup.
-	FrontendBaseURL string `yaml:"frontend_base_url" json:"frontend_base_url"`
-	CAS             *CASConfig             `yaml:"cas"              json:"cas"`
+	FrontendBaseURL string     `yaml:"frontend_base_url" json:"frontend_base_url"`
+	CAS             *CASConfig `yaml:"cas"              json:"cas"`
 	// OpenRetrieve configures the no-login knowledge retrieve API for model/gateway callers.
 	OpenRetrieve *OpenRetrieveConfig `yaml:"open_retrieve" json:"open_retrieve"`
 }
@@ -325,8 +325,8 @@ type AuthConfig struct {
 	//   "invite_only"          — public registration is rejected; new
 	//                            users only enter through the invitation
 	//                            flow added in PR 3.
-	RegistrationMode string `yaml:"registration_mode" json:"registration_mode"`
-	NXINCASAuth      *NXINCASAuthConfig     `yaml:"nxin_cas_auth" json:"nxin_cas_auth"`
+	RegistrationMode string             `yaml:"registration_mode" json:"registration_mode"`
+	NXINCASAuth      *NXINCASAuthConfig `yaml:"nxin_cas_auth" json:"nxin_cas_auth"`
 	// DefaultTenantMode controls public password-registration provisioning.
 	// create_personal preserves the historical one-user-one-workspace default;
 	// tenantless creates only the identity and waits for an invitation or an
@@ -1178,9 +1178,55 @@ type WebSearchConfig struct {
 
 // CASConfig CAS 单点登录配置
 type CASConfig struct {
-	Environment string        `yaml:"environment" json:"environment"`
-	Production  *CASEnvConfig `yaml:"production"  json:"production"`
-	Test        *CASEnvConfig `yaml:"test"        json:"test"`
+	Environment string               `yaml:"environment"  json:"environment"`
+	Production  *CASEnvConfig        `yaml:"production"   json:"production"`
+	Test        *CASEnvConfig        `yaml:"test"         json:"test"`
+	UserCenter  *CASUserCenterConfig `yaml:"user_center"  json:"user_center"`
+}
+
+// CASUserCenterConfig is the service-credential directory API used by
+// CAS member import (findByAuthorizedPhone). Prefer env CAS_UC_*
+// (aliases CAS_USER_CENTER_* still work); do not commit cert in yaml.
+type CASUserCenterConfig struct {
+	URL      string `yaml:"url"       json:"url"`
+	SystemID string `yaml:"system_id" json:"system_id"`
+	Cert     string `yaml:"cert"      json:"cert"`
+}
+
+// ResolveUserCenter returns directory-API settings with env overrides.
+// Canonical names: CAS_UC_URL / CAS_UC_SYSTEM_ID / CAS_UC_CERT.
+func (c *CASConfig) ResolveUserCenter() CASUserCenterConfig {
+	out := CASUserCenterConfig{}
+	if c != nil && c.UserCenter != nil {
+		out = *c.UserCenter
+	}
+	if v := firstNonEmptyEnv("CAS_UC_URL", "CAS_USER_CENTER_URL"); v != "" {
+		out.URL = v
+	}
+	if v := firstNonEmptyEnv("CAS_UC_SYSTEM_ID", "CAS_USER_CENTER_SYSTEM_ID"); v != "" {
+		out.SystemID = v
+	}
+	if v := firstNonEmptyEnv("CAS_UC_CERT", "CAS_USER_CENTER_CERT"); v != "" {
+		out.Cert = v
+	}
+	out.URL = strings.TrimSpace(out.URL)
+	out.SystemID = strings.TrimSpace(out.SystemID)
+	out.Cert = strings.TrimSpace(out.Cert)
+	return out
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// Configured reports whether directory lookup can be attempted.
+func (u CASUserCenterConfig) Configured() bool {
+	return u.URL != "" && u.SystemID != "" && u.Cert != ""
 }
 
 // CASEnvConfig CAS 环境配置

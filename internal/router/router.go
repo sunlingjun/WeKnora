@@ -774,6 +774,7 @@ func RegisterChatRoutes(r *gin.RouterGroup, handler *session.Handler, g *rbacGua
 //   - GET/POST/DELETE /:id/api-keys   Owner+ (scoped API key management)
 //   - GET    /:id/members            Viewer+ (any member can see who else is in)
 //   - POST   /:id/members            Owner+ (only Owner can add new members)
+//   - POST   /:id/members/cas-import[/preview] Owner+ (农信用户导入)
 //   - PUT    /:id/members/:user_id   Owner+ (only Owner can change roles)
 //   - DELETE /:id/members/:user_id   Owner+ (only Owner can remove members)
 //   - POST   /:id/leave              Viewer+ (any member can quit on their own)
@@ -865,6 +866,8 @@ func RegisterTenantRoutes(
 			if memberHandler != nil {
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.ListMembers)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.AddMember)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/cas-import/preview", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.PreviewCASImport)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/cas-import", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.ConfirmCASImport)
 				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.UpdateMemberRole)
 				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.RemoveMember)
 				tenantByID.POST("/leave", g.Viewer(), memberHandler.LeaveTenant)

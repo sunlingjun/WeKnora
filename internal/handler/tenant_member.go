@@ -34,6 +34,7 @@ import (
 type TenantMemberHandler struct {
 	memberService interfaces.TenantMemberService
 	userService   interfaces.UserService
+	casImport     interfaces.CASMemberImportService
 }
 
 // NewTenantMemberHandler wires the dependencies. PR 1 already provides
@@ -49,6 +50,24 @@ func NewTenantMemberHandler(
 		memberService: memberService,
 		userService:   userService,
 	}
+}
+
+// WithCASImport attaches the optional 农信导入 service without changing
+// NewTenantMemberHandler's two-argument signature (existing tests).
+func (h *TenantMemberHandler) WithCASImport(svc interfaces.CASMemberImportService) *TenantMemberHandler {
+	if h != nil {
+		h.casImport = svc
+	}
+	return h
+}
+
+// NewTenantMemberHandlerWithCASImport is the dig constructor used in production.
+func NewTenantMemberHandlerWithCASImport(
+	memberService interfaces.TenantMemberService,
+	userService interfaces.UserService,
+	casImport interfaces.CASMemberImportService,
+) *TenantMemberHandler {
+	return NewTenantMemberHandler(memberService, userService).WithCASImport(casImport)
 }
 
 // addMemberRequest is the JSON body for POST /tenants/:id/members.

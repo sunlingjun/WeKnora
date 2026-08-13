@@ -200,6 +200,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewDatasetService))
 	must(container.Provide(service.NewEvaluationService))
 	must(container.Provide(service.NewUserService))
+	must(container.Provide(service.NewUserCenterDirectoryClient))
+	must(container.Provide(service.NewCASMemberImportService))
 	must(container.Provide(service.NewCASAuthService))
 	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewWeKnoraCloudService))
@@ -348,7 +350,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// HTTP handlers layer
 	logger.Debugf(ctx, "[Container] Registering HTTP handlers...")
 	must(container.Provide(handler.NewTenantHandler))
-	must(container.Provide(handler.NewTenantMemberHandler))
+	must(container.Provide(handler.NewTenantMemberHandlerWithCASImport))
 	must(container.Provide(handler.NewTenantInvitationHandler))
 	must(container.Provide(handler.NewAuditLogHandler))
 	must(container.Provide(handler.NewKnowledgeBaseHandler))

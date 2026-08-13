@@ -361,6 +361,11 @@
                 </div>
               </template>
             </t-popup>
+            <t-button v-if="canManage" theme="default" variant="outline" shape="square" size="small"
+              class="members-list-add-btn" :title="$t('tenantMember.casImport.button')"
+              :aria-label="$t('tenantMember.casImport.button')" @click="openCasImportDialog">
+              <template #icon><t-icon name="upload" /></template>
+            </t-button>
           </div>
         </div>
         <div v-if="loading && members.length === 0" class="loading-inline">
@@ -433,6 +438,77 @@
       </div>
 
     </div>
+
+    <t-dialog v-model:visible="casImportVisible" :header="$t('tenantMember.casImport.title')" width="880px"
+      attach="body" :footer="false" destroy-on-close class="cas-import-dialog" @close="resetCasImportDialog">
+      <div class="cas-import-body">
+        <p class="cas-import-desc">{{ $t('tenantMember.casImport.description') }}</p>
+
+        <template v-if="casImportStep === 'input'">
+          <t-form :data="{ role: casImportRole }" :label-width="108" class="cas-import-form">
+            <t-form-item :label="$t('tenantMember.casImport.roleLabel')">
+              <t-select v-model="casImportRole" :options="casImportRoleOptions"
+                :popup-props="roleSelectPopupProps" />
+            </t-form-item>
+            <t-form-item :label="$t('tenantMember.casImport.fileLabel')">
+              <div class="cas-import-file-row">
+                <input ref="casImportFileInput" type="file" accept=".xlsx,.xlsm,.csv,.txt" hidden
+                  @change="onCasImportFileChange" />
+                <t-button variant="outline" size="small" @click="casImportFileInput?.click()">
+                  {{ $t('tenantMember.casImport.chooseFile') }}
+                </t-button>
+                <span class="cas-import-file-name">{{ casImportFileName || $t('tenantMember.casImport.fileHint') }}</span>
+                <t-button variant="text" size="small" @click="downloadCasImportTemplate">
+                  {{ $t('tenantMember.casImport.downloadTemplate') }}
+                </t-button>
+              </div>
+            </t-form-item>
+            <t-form-item :label="$t('tenantMember.casImport.phonesLabel')">
+              <t-textarea v-model="casImportPhones" :autosize="{ minRows: 4, maxRows: 10 }"
+                :placeholder="$t('tenantMember.casImport.phonesPlaceholder')" />
+            </t-form-item>
+          </t-form>
+        </template>
+
+        <template v-else>
+          <p class="cas-import-summary">
+            {{ casImportStep === 'preview'
+              ? $t('tenantMember.casImport.summaryPreview', casImportPreviewCounts)
+              : $t('tenantMember.casImport.summaryResult', casImportResultCounts) }}
+          </p>
+          <div class="cas-import-table-wrap">
+            <t-table row-key="row" :data="casImportTableRows" :columns="casImportColumns" size="small" hover
+              max-height="360" />
+          </div>
+        </template>
+      </div>
+      <div class="cas-import-footer">
+        <t-button v-if="casImportStep === 'input'" variant="outline" :disabled="casImportBusy"
+          @click="casImportVisible = false">
+          {{ $t('common.cancel') }}
+        </t-button>
+        <t-button v-else-if="casImportStep === 'preview'" variant="outline" :disabled="casImportBusy"
+          @click="casImportStep = 'input'">
+          {{ $t('tenantMember.casImport.back') }}
+        </t-button>
+        <t-button v-else variant="outline" @click="downloadCasImportFailedRows"
+          :disabled="casImportFailedCount === 0">
+          {{ $t('tenantMember.casImport.downloadFailed') }}
+        </t-button>
+        <t-button v-if="casImportStep === 'input'" theme="primary" :loading="casImportPreviewing"
+          @click="runCasImportPreview">
+          {{ $t('tenantMember.casImport.preview') }}
+        </t-button>
+        <t-button v-else-if="casImportStep === 'preview'" theme="primary"
+          :loading="casImportConfirming" :disabled="!casImportPreview?.importable"
+          @click="runCasImportConfirm">
+          {{ $t('tenantMember.casImport.confirm') }}
+        </t-button>
+        <t-button v-else theme="primary" @click="casImportVisible = false">
+          {{ $t('tenantMember.casImport.done') }}
+        </t-button>
+      </div>
+    </t-dialog>
 
     <!-- Audit log drawer. Only rendered for Admin+ because the backend
          route is g.Admin()-gated; rendering it for lower roles would
@@ -576,8 +652,14 @@ import {
   listMembers,
   updateMemberRole,
   removeMember,
+  previewCasImport,
+  confirmCasImport,
   type TenantMember,
   type TenantRole,
+  type CASImportPreview,
+  type CASImportResult,
+  type CASImportPreviewRow,
+  type CASImportJSONBody,
 } from '@/api/tenant/members'
 import {
   listTenantInvitations,
@@ -625,6 +707,242 @@ const enterpriseLinkPopupVisible = ref(false)
 const enterpriseLinkForm = reactive<{ role: TenantRole }>({ role: 'contributor' })
 const creatingEnterpriseLink = ref(false)
 const enterpriseLinkResult = ref<TenantInvitation | null>(null)
+
+const casImportVisible = ref(false)
+const casImportStep = ref<'input' | 'preview' | 'result'>('input')
+const casImportRole = ref<Exclude<TenantRole, 'owner'>>('contributor')
+const casImportFile = ref<File | null>(null)
+const casImportFileName = ref('')
+const casImportPhones = ref('')
+const casImportFileInput = ref<HTMLInputElement | null>(null)
+const casImportPreviewing = ref(false)
+const casImportConfirming = ref(false)
+const casImportPreview = ref<CASImportPreview | null>(null)
+const casImportResult = ref<CASImportResult | null>(null)
+const casImportBusy = computed(() => casImportPreviewing.value || casImportConfirming.value)
+const casImportRoleOptions = computed(() => [
+  { label: t('tenantMember.role.admin'), value: 'admin' },
+  { label: t('tenantMember.role.contributor'), value: 'contributor' },
+  { label: t('tenantMember.role.viewer'), value: 'viewer' },
+])
+const casImportTableRows = computed(() =>
+  casImportStep.value === 'result'
+    ? (casImportResult.value?.rows || [])
+    : (casImportPreview.value?.rows || []),
+)
+const casImportPreviewCounts = computed(() => {
+  const p = casImportPreview.value
+  const fail = (p?.not_found || 0) + (p?.name_mismatch || 0) + (p?.invalid_phone || 0)
+    + (p?.ambiguous || 0) + (p?.local_conflict || 0) + (p?.failed || 0)
+  return {
+    total: p?.total ?? 0,
+    create: p?.will_create ?? 0,
+    add: p?.will_add ?? 0,
+    member: p?.already_member ?? 0,
+    fail,
+  }
+})
+const casImportResultCounts = computed(() => ({
+  imported: casImportResult.value?.imported ?? 0,
+  skipped: casImportResult.value?.skipped ?? 0,
+  failed: casImportResult.value?.failed ?? 0,
+}))
+const casImportFailedCount = computed(() => casImportResult.value?.failed ?? 0)
+const casImportColumns = computed(() => [
+  { colKey: 'phone_masked', title: t('tenantMember.casImport.columns.phone'), width: 128 },
+  {
+    colKey: 'name',
+    title: t('tenantMember.casImport.columns.name'),
+    width: 96,
+    cell: (_h: unknown, { row }: { row: CASImportPreviewRow }) => row.name || '—',
+  },
+  {
+    colKey: 'cas_real_name',
+    title: t('tenantMember.casImport.columns.casName'),
+    width: 96,
+    cell: (_h: unknown, { row }: { row: CASImportPreviewRow }) => row.cas_real_name || '—',
+  },
+  {
+    colKey: 'weknora_exists',
+    title: t('tenantMember.casImport.columns.account'),
+    width: 88,
+    cell: (_h: unknown, { row }: { row: CASImportPreviewRow }) =>
+      row.weknora_exists
+        ? t('tenantMember.casImport.accountYes')
+        : t('tenantMember.casImport.accountNo'),
+  },
+  {
+    colKey: 'already_in_tenant',
+    title: t('tenantMember.casImport.columns.member'),
+    width: 96,
+    cell: (_h: unknown, { row }: { row: CASImportPreviewRow }) =>
+      row.already_in_tenant
+        ? t('tenantMember.casImport.inTenantYes')
+        : t('tenantMember.casImport.inTenantNo'),
+  },
+  {
+    colKey: 'action',
+    title: t('tenantMember.casImport.columns.action'),
+    ellipsis: true,
+    cell: (_h: unknown, { row }: { row: CASImportPreviewRow }) => formatCasImportAction(row),
+  },
+])
+
+function formatCasImportAction(row: CASImportPreviewRow): string {
+  if (row.action === 'create_user' && (row.status === 'importable' || row.status === 'imported')) {
+    return t('tenantMember.casImport.action.create_user')
+  }
+  if (row.action === 'add_member' && (row.status === 'importable' || row.status === 'imported')) {
+    return t('tenantMember.casImport.action.add_member')
+  }
+  const key = `tenantMember.casImport.status.${row.status}`
+  const label = t(key)
+  return row.error && row.status === 'failed' ? `${label}：${row.error}` : label
+}
+
+function openCasImportDialog() {
+  resetCasImportDialog()
+  casImportVisible.value = true
+}
+
+function resetCasImportDialog() {
+  casImportStep.value = 'input'
+  casImportRole.value = 'contributor'
+  casImportFile.value = null
+  casImportFileName.value = ''
+  casImportPhones.value = ''
+  casImportPreview.value = null
+  casImportResult.value = null
+  casImportPreviewing.value = false
+  casImportConfirming.value = false
+  if (casImportFileInput.value) casImportFileInput.value.value = ''
+}
+
+function onCasImportFileChange(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0] || null
+  casImportFile.value = file
+  casImportFileName.value = file?.name || ''
+}
+
+function downloadCasImportTemplate() {
+  const csv = '\ufeff手机号,姓名\n13800138000,张三\n'
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = '农信用户导入模板.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadCasImportFailedRows() {
+  const rows = (casImportResult.value?.rows || []).filter(
+    (r) => r.status !== 'imported' && r.status !== 'skipped',
+  )
+  if (rows.length === 0) return
+  const lines = ['手机号,姓名,状态,原因']
+  for (const r of rows) {
+    const reason = (r.error || t(`tenantMember.casImport.status.${r.status}`)).replaceAll('"', '""')
+    lines.push(`"${r.phone_masked}","${r.name || ''}","${r.status}","${reason}"`)
+  }
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = '农信用户导入失败行.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function buildCasImportBody(): FormData | CASImportJSONBody | null {
+  if (casImportFile.value) {
+    const fd = new FormData()
+    fd.append('file', casImportFile.value)
+    fd.append('role', casImportRole.value)
+    const extra = casImportPhones.value.trim()
+    if (extra) fd.append('phones', extra)
+    return fd
+  }
+  const lines = casImportPhones.value
+    .split(/[\r\n;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return null
+  const phones: string[] = []
+  const names: string[] = []
+  for (const line of lines) {
+    const [p, n] = line.split(/[,\t]/, 2)
+    phones.push((p || '').trim())
+    names.push((n || '').trim())
+  }
+  return { phones, names, role: casImportRole.value }
+}
+
+function casImportErrMessage(err: any): string {
+  const msg = typeof err?.message === 'string' ? err.message : ''
+  if (err?.status === 503 || /未配置/.test(msg)) {
+    return t('tenantMember.casImport.unconfigured')
+  }
+  if (err?.status === 400 && /200/.test(msg)) {
+    return t('tenantMember.casImport.tooMany')
+  }
+  return msg || t('tenantMember.errors.generic')
+}
+
+async function runCasImportPreview() {
+  if (!activeTenantId.value) {
+    MessagePlugin.error(t('tenantMember.errors.noTenant'))
+    return
+  }
+  const body = buildCasImportBody()
+  if (!body) {
+    MessagePlugin.warning(t('tenantMember.casImport.noRows'))
+    return
+  }
+  casImportPreviewing.value = true
+  try {
+    const resp = await previewCasImport(activeTenantId.value, body)
+    if (!resp.success || !resp.data) {
+      MessagePlugin.error(resp.message || t('tenantMember.errors.generic'))
+      return
+    }
+    casImportPreview.value = resp.data
+    casImportStep.value = 'preview'
+  } catch (err: any) {
+    MessagePlugin.error(casImportErrMessage(err))
+  } finally {
+    casImportPreviewing.value = false
+  }
+}
+
+async function runCasImportConfirm() {
+  if (!activeTenantId.value) {
+    MessagePlugin.error(t('tenantMember.errors.noTenant'))
+    return
+  }
+  const body = buildCasImportBody()
+  if (!body) {
+    MessagePlugin.warning(t('tenantMember.casImport.noRows'))
+    return
+  }
+  casImportConfirming.value = true
+  try {
+    const resp = await confirmCasImport(activeTenantId.value, body)
+    if (!resp.success || !resp.data) {
+      MessagePlugin.error(resp.message || t('tenantMember.errors.generic'))
+      return
+    }
+    casImportResult.value = resp.data
+    casImportStep.value = 'result'
+    await loadMembers()
+  } catch (err: any) {
+    MessagePlugin.error(casImportErrMessage(err))
+  } finally {
+    casImportConfirming.value = false
+  }
+}
+
 // Two-step invite inside the popup: 'form' renders the email/role inputs;
 // 'confirm' swaps the body for an in-place summary; primary CTA toggles label.
 const addDialogStep = ref<'form' | 'confirm'>('form')
@@ -2640,4 +2958,49 @@ watch(
   box-sizing: border-box;
   overflow: hidden !important;
 }
+
+.cas-import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cas-import-desc,
+.cas-import-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--td-text-color-secondary);
+}
+
+.cas-import-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.cas-import-file-name {
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+  min-width: 0;
+  flex: 1 1 160px;
+}
+
+.cas-import-table-wrap {
+  max-height: 380px;
+  overflow: auto;
+}
+
+.cas-import-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--td-component-stroke);
+}
+
 </style>
