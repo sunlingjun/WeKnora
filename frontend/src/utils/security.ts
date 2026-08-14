@@ -10,14 +10,16 @@ import {
   markdownDomPurifyConfig,
   markdownDomPurifySecurityHooks,
 } from './markdownDomPurify.ts';
+import {
+  buildProtectedFileRequest,
+  isProtectedFileProxyPath,
+  isProviderFileURL,
+  PROVIDER_SCHEME_PATTERN,
+  resolveProtectedFileAccess,
+  type ProtectedFileAccessContext,
+} from './protectedFileAccess.ts';
 
 const PROVIDER_IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-const PROVIDER_SCHEME_PATTERN = 'resource|local|minio|cos|tos|s3|oss|ks3|obs';
-const PROVIDER_FILE_SCHEME_RE = new RegExp(`^(${PROVIDER_SCHEME_PATTERN}):\\/\\/\\S+$`, 'i');
-const STORAGE_BACKEND_FILE_SCHEME_RE = new RegExp(
-  `^storage:\\/\\/[0-9A-Za-z_-]+\\/(${PROVIDER_SCHEME_PATTERN}):\\/\\/\\S+$`,
-  'i',
-);
 const PROVIDER_IMG_SRC_RE = new RegExp(
   `<img\\b([^>]*?)\\ssrc=(["'])(${PROVIDER_SCHEME_PATTERN}):(?:\\/\\/|&#x2f;&#x2f;|&#47;&#47;)([^"']+)\\2([^>]*)>`,
   'gi',
@@ -190,11 +192,6 @@ function decodeProviderURL(raw: string): string {
     .replace(/&quot;/g, '"');
 }
 
-function isProviderFileURL(url: string): boolean {
-  const trimmed = url.trim();
-  return PROVIDER_FILE_SCHEME_RE.test(trimmed) || STORAGE_BACKEND_FILE_SCHEME_RE.test(trimmed);
-}
-
 function providerSourceFromImageSrc(src: string): string | null {
   const decodedSrc = decodeProviderURL(src);
   if (isProviderFileURL(decodedSrc)) {
@@ -204,10 +201,7 @@ function providerSourceFromImageSrc(src: string): string | null {
   try {
     const baseURL = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
     const url = new URL(decodedSrc, baseURL);
-    const isFileProxy =
-      url.pathname === '/files' ||
-      /^\/api\/v1\/embed\/[^/]+\/files$/.test(url.pathname);
-    if (!isFileProxy) {
+    if (!isProtectedFileProxyPath(url.pathname)) {
       return null;
     }
 
@@ -416,30 +410,15 @@ const protectedFileFailureCache = protectedFileCacheState.failures;
 const protectedFileInflight = protectedFileCacheState.inflight;
 const PROTECTED_FILE_RETRY_COOLDOWN_MS = 5000;
 
-function getProtectedFileRequestHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
-  try {
-    const token = (localStorage.getItem('weknora_token') || '').trim();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const selectedTenantId = (localStorage.getItem('weknora_selected_tenant_id') || '').trim();
-    if (selectedTenantId) {
-      // Always attach when a selected tenant is set. Same rationale as
-      // utils/request.ts / api/chat/streame.ts: the
-      // "selectedTenantId === defaultTenantId → skip" short-circuit
-      // silently drops the header whenever any code path writes the
-      // active tenant into weknora_tenant, leaving authenticated file
-      // fetches landing on the home tenant.
-      headers['X-Tenant-ID'] = selectedTenantId;
-    }
-  } catch {
-    // ignore localStorage read errors
-  }
-  return headers;
-}
-
+/**
+ * 将内容里的受保护图片（resource:// 等）通过对应的文件代理带鉴权拉取，
+ * 再以 blob URL 替换显示。
+ *
+ * 走哪条代理由 {@link resolveProtectedFileAccess} 决定：应用入口注册的默认
+ * 上下文（如嵌入应用的 Embed 平面）优先，组件只在同一鉴权平面内用
+ * `access` 细化作用域（如知识库）。聊天会话可再传入 kbIds，按共享库
+ * `/knowledge-bases/:id/files` 再回退本租户 `/files`。
+ */
 function normalizeKbIdList(kbIds?: string | string[] | null): string[] {
   if (!kbIds) return [];
   const list = Array.isArray(kbIds) ? kbIds : [kbIds];
@@ -454,24 +433,6 @@ function normalizeKbIdList(kbIds?: string | string[] | null): string[] {
   return out;
 }
 
-/** 合并显式 kbId 与 DOM 内引用标签上的 data-kb-id */
-function collectHydrateKbIds(root: ParentNode, kbIds?: string | string[] | null): string[] {
-  const seen = new Set<string>(normalizeKbIdList(kbIds));
-  try {
-    root.querySelectorAll?.('[data-kb-id]').forEach((el) => {
-      const id = (el.getAttribute('data-kb-id') || '').trim();
-      if (id) seen.add(id);
-    });
-  } catch {
-    // ignore
-  }
-  return [...seen];
-}
-
-/**
- * 从会话消息中收集可用于图片鉴权的知识库 ID（引用、@提及、请求参数、Agent 事件）。
- * 跨租户共享库图片必须带上，否则租户级 /files 会 403。
- */
 export function collectSessionKnowledgeBaseIds(
   session?: {
     knowledge_references?: Array<{ knowledge_base_id?: string } | null> | null;
@@ -518,35 +479,29 @@ export function collectSessionKnowledgeBaseIds(
   return [...seen];
 }
 
-/**
- * 构造鉴权拉取候选路径。
- * 共享/跨租户知识库图优先走 /api/v1/knowledge-bases/:id/files；本租户再回退 /files。
- */
-function buildFilesProxyCandidates(
-  sourceURL: string,
-  kbIds: string[],
-  embed?: { channelId: string; token: string },
-): string[] {
-  const qs = new URLSearchParams({ file_path: sourceURL }).toString();
-  if (embed?.channelId) {
-    return [`/api/v1/embed/${encodeURIComponent(embed.channelId)}/files?${qs}`];
+function buildHydrateAccessCandidates(
+  resolvedAccess: ProtectedFileAccessContext,
+  kbIds?: string | string[] | null,
+): ProtectedFileAccessContext[] {
+  if (resolvedAccess.mode === 'embed') {
+    return [resolvedAccess];
   }
-  const paths: string[] = [];
+  const candidates: ProtectedFileAccessContext[] = [];
   const seen = new Set<string>();
-  for (const kbId of kbIds) {
-    const id = String(kbId || '').trim();
-    if (!id) continue;
-    const p = `/api/v1/knowledge-bases/${encodeURIComponent(id)}/files?${qs}`;
-    if (!seen.has(p)) {
-      seen.add(p);
-      paths.push(p);
-    }
+  const push = (access: ProtectedFileAccessContext) => {
+    const key = access.mode === 'knowledgeBase' ? `kb:${access.kbId}` : access.mode;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push(access);
+  };
+  if (resolvedAccess.mode === 'knowledgeBase') {
+    push(resolvedAccess);
   }
-  const tenantPath = `/files?${qs}`;
-  if (!seen.has(tenantPath)) {
-    paths.push(tenantPath);
+  for (const id of normalizeKbIdList(kbIds)) {
+    push({ mode: 'knowledgeBase', kbId: id });
   }
-  return paths;
+  push({ mode: 'tenant' });
+  return candidates;
 }
 
 /**
@@ -596,7 +551,7 @@ function applyHydratedProtectedImage(root: ParentNode, sourceURL: string, blobUR
 
 export async function hydrateProtectedFileImages(
   root: ParentNode | null | undefined,
-  embed?: { channelId: string; token: string },
+  access?: ProtectedFileAccessContext,
   kbIds?: string | string[] | null,
 ): Promise<void> {
   if (!root || typeof window === 'undefined') {
@@ -610,13 +565,8 @@ export async function hydrateProtectedFileImages(
     return;
   }
 
-  // Embed visitors carry no Bearer/tenant context; route through the
-  // embed-scoped file proxy (auth via the Embed header, tenant from the channel).
-  const headers = embed
-    ? { Authorization: `Embed ${embed.token}` }
-    : getProtectedFileRequestHeaders();
-
-  const candidateKbIds = collectHydrateKbIds(root, kbIds);
+  const resolvedAccess = resolveProtectedFileAccess(access);
+  const accessCandidates = buildHydrateAccessCandidates(resolvedAccess, kbIds);
 
   await Promise.all(Array.from(images).map(async (img) => {
     const normalizedSourceURL = normalizeProtectedImageElement(img);
@@ -635,33 +585,22 @@ export async function hydrateProtectedFileImages(
     }
     img.dataset.authHydrated = '1';
 
-    const isProviderScheme = isProviderFileURL(sourceURL);
-    if (!isProviderScheme) {
-      img.dataset.authHydrated = '0';
-      return;
-    }
+    let sawRetryableFailure = false;
+    let builtAnyRequest = false;
+    for (const candidateAccess of accessCandidates) {
+      const request = buildProtectedFileRequest(sourceURL, candidateAccess);
+      if (!request) {
+        continue;
+      }
+      builtAnyRequest = true;
+      const { url: requestURL, headers } = request;
 
-    // When KB context is known, try KB-scoped proxy first (RequireKBAccess /
-    // org-shared / agent-visible). Tenant-scoped /files rejects cross-tenant
-    // resource:// / local://<owner>/... paths with 403.
-    const imgKbId = (img.getAttribute('data-kb-id') || '').trim();
-    const orderedKbIds = imgKbId
-      ? [imgKbId, ...candidateKbIds.filter((id) => id !== imgKbId)]
-      : candidateKbIds;
-    const requestURLs = buildFilesProxyCandidates(sourceURL, orderedKbIds, embed);
-
-    for (const requestURL of requestURLs) {
       const cachedBlobURL = protectedFileBlobCache.get(requestURL);
       if (cachedBlobURL) {
-        protectedFileBlobBySource.set(sourceURL, cachedBlobURL);
         applyHydratedProtectedImage(root, sourceURL, cachedBlobURL);
         return;
       }
-    }
 
-    let sawMissing = false;
-    let sawRetryableFailure = false;
-    for (const requestURL of requestURLs) {
       const lastFailure = protectedFileFailureCache.get(requestURL);
       if (lastFailure !== undefined && Date.now() - lastFailure < PROTECTED_FILE_RETRY_COOLDOWN_MS) {
         sawRetryableFailure = true;
@@ -685,16 +624,12 @@ export async function hydrateProtectedFileImages(
               throw new Error(`HTTP ${resp.status}`);
             }
             const blob = await resp.blob();
-            const type = (blob.type || '').toLowerCase();
-            if (type.includes('application/json') || type.includes('text/html')) {
-              throw new Error(`files proxy returned ${type || 'non-image'}`);
-            }
             const blobURL = URL.createObjectURL(blob);
             protectedFileBlobCache.set(requestURL, blobURL);
             protectedFileFailureCache.delete(requestURL);
             return { status: 'loaded', blobURL };
           } catch (error) {
-            console.warn('[security] hydrateProtectedFileImages failed:', requestURL, error);
+            console.warn('[security] hydrateProtectedFileImages failed:', error);
             protectedFileFailureCache.set(requestURL, Date.now());
             return { status: 'failed' };
           } finally {
@@ -706,28 +641,21 @@ export async function hydrateProtectedFileImages(
 
       const result = await loadTask;
       if (result.status === 'loaded') {
-        for (const url of requestURLs) {
-          if (!protectedFileBlobCache.has(url)) {
-            protectedFileBlobCache.set(url, result.blobURL);
-          }
-        }
         protectedFileBlobBySource.set(sourceURL, result.blobURL);
         protectedFileMissingSources.delete(sourceURL);
         applyHydratedProtectedImage(root, sourceURL, result.blobURL);
         return;
       }
-      if (result.status === 'missing') {
-        sawMissing = true;
-        continue;
+      if (result.status === 'failed') {
+        sawRetryableFailure = true;
       }
-      sawRetryableFailure = true;
     }
 
-    if (sawMissing && !sawRetryableFailure) {
-      protectedFileMissingSources.add(sourceURL);
-      removeMissingProtectedImages(root, sourceURL);
+    if (!builtAnyRequest || sawRetryableFailure) {
+      img.dataset.authHydrated = '0';
       return;
     }
-    img.dataset.authHydrated = '0';
+    protectedFileMissingSources.add(sourceURL);
+    removeMissingProtectedImages(root, sourceURL);
   }));
 }

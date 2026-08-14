@@ -506,12 +506,8 @@ import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
 import i18n from '@/i18n';
-import {
-  hydrateProtectedFileImages,
-  clearProtectedFileFailureCache,
-  sanitizeMarkdownHTML,
-  collectSessionKnowledgeBaseIds,
-} from '@/utils/security';
+import { hydrateProtectedFileImages, clearProtectedFileFailureCache, sanitizeMarkdownHTML, collectSessionKnowledgeBaseIds } from '@/utils/security';
+import type { ProtectedFileAccessContext } from '@/utils/protectedFileAccess';
 import { unwrapFinalAnswerWrappers, thinkingEqualsAnswer } from '@/utils/finalAnswer';
 import { getAgentToolIconName } from '@/utils/agent-tool-icons';
 import { getQueryText, getWikiPageText } from '@/utils/agent-tool-display';
@@ -681,7 +677,7 @@ const currentWikiKbId = ref<string>('');
 function getTypeTheme(type: string): string {
   const map: Record<string, string> = {
     summary: 'primary', entity: 'success', concept: 'warning',
-    synthesis: 'primary', comparison: 'danger', index: 'default', log: 'default',
+    synthesis: 'primary', comparison: 'danger', index: 'default',
   };
   return map[type] || 'default';
 }
@@ -694,7 +690,6 @@ function getTypeLabel(type: string): string {
     synthesis: t('knowledgeEditor.wikiBrowser.filterSynthesis'),
     comparison: t('knowledgeEditor.wikiBrowser.filterComparison'),
     index: 'Index',
-    log: 'Log',
   };
   return map[type] || type;
 }
@@ -724,7 +719,7 @@ const wikiDrawerContent = computed(() => {
 watch(wikiDrawerContent, async () => {
   await nextTick();
   if (wikiDrawerBodyRef.value) {
-    await hydrateRootImages(wikiDrawerBodyRef.value, currentWikiKbId.value);
+    await hydrateSessionImages(wikiDrawerBodyRef.value);
   }
 });
 
@@ -790,8 +785,6 @@ interface SessionData {
   isAgentMode?: boolean;
   agentEventStream?: any[];
   knowledge_references?: any[];
-  mentioned_items?: any[];
-  knowledge_base_ids?: string[];
   [key: string]: unknown;
 }
 
@@ -821,25 +814,23 @@ const embedAuthProps = computed(() => ({
   embedVisitorId: props.embedVisitorId,
 }));
 
-/** 聊天/Wiki 灌水：优先 KB 代理，兼容跨租户共享库 resource:// */
-const hydrateRootImages = async (
-  root?: ParentNode | null,
-  extraKbId?: string | string[] | null,
-) => {
-  const embed =
-    props.embeddedMode && props.embedChannelId && props.embedToken
-      ? { channelId: props.embedChannelId, token: props.embedToken }
-      : undefined;
-  await hydrateProtectedFileImages(
-    root ?? rootElement.value,
-    embed,
-    collectSessionKnowledgeBaseIds(props.session, extraKbId),
-  );
-};
-
 const showRequestInfo = computed(
   () => !props.embeddedMode && !!(props.session?.request_id || props.session?.id),
 );
+
+// Agent answers embed exported charts and knowledge-base images as
+// `resource://` handles. An embed visitor has no Bearer token, so they must be
+// fetched through the channel-scoped proxy rather than the tenant one.
+const protectedFileAccess = computed<ProtectedFileAccessContext | undefined>(() =>
+  props.embeddedMode && props.embedChannelId && props.embedToken
+    ? { mode: 'embed', channelId: props.embedChannelId, token: props.embedToken }
+    : undefined,
+);
+
+const sessionKnowledgeBaseIds = computed(() => collectSessionKnowledgeBaseIds(props.session));
+
+const hydrateSessionImages = (root: ParentNode | null | undefined) =>
+  hydrateProtectedFileImages(root, protectedFileAccess.value, sessionKnowledgeBaseIds.value);
 
 const {
   float: citationFloat,
@@ -1248,7 +1239,7 @@ watch(eventStream, (stream) => {
   activeThinkingVersion.value++;
 
   nextTick(async () => {
-    await hydrateRootImages(rootElement.value);
+    await hydrateSessionImages(rootElement.value);
     await enhanceMarkdownContainer(rootElement.value);
     // Auto-scroll thinking detail content to bottom during streaming
     if (newActiveIds.size > 0 && rootElement.value) {
@@ -1425,7 +1416,7 @@ watch(answerFullyRendered, (ready) => {
   // suppressed by the missing-source cache.
   clearProtectedFileFailureCache();
   nextTick(async () => {
-    await hydrateRootImages(rootElement.value);
+    await hydrateSessionImages(rootElement.value);
   });
 }, { immediate: true });
 
@@ -1895,7 +1886,7 @@ const toggleIntermediateSteps = () => {
   showIntermediateSteps.value = !showIntermediateSteps.value;
   nextTick(async () => {
     if (rootElement.value) {
-      await hydrateRootImages(rootElement.value);
+      await hydrateSessionImages(rootElement.value);
     }
   });
 };
@@ -2215,7 +2206,7 @@ onMounted(() => {
     (root as any).__citationKeydown__ = keydownListener;
     root.addEventListener('keydown', keydownListener, true);
     rebindCitations();
-    await hydrateRootImages(rootElement.value);
+    await hydrateSessionImages(rootElement.value);
   });
 });
 
@@ -2239,7 +2230,7 @@ onUpdated(() => {
     // and idempotent: blob results are cached per URL, in-flight fetches are
     // de-duped, and failures back off for a cooldown — so a not-yet-ready file
     // simply retries later (and the answerFullyRendered pass is the backstop).
-    await hydrateRootImages(rootElement.value);
+    await hydrateSessionImages(rootElement.value);
   });
 });
 

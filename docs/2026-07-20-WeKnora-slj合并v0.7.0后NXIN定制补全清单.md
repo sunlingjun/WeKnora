@@ -120,6 +120,7 @@ cd frontend && npm run build_dev
 
 - 0.7.0 主流程：`docs/2026-07-20-升级至v0.7.0-WeKnora-slj与NXIN先后方案.md`
 - **0.7.1 主流程**：`docs/2026-07-30-升级至v0.7.1-WeKnora-slj与NXIN先后方案.md`
+- **0.7.2 主流程**：`docs/2026-08-14-升级至v0.7.2-WeKnora-slj与NXIN先后方案.md`
 - 本文件是 **合并基线核对表**：merge 完成 ≠ 可打 Tag；过完 §1 P0 再 `nxin-vX.Y.Z-stable.*`
 
 ---

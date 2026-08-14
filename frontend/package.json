@@ -1,16 +1,19 @@
 {
   "name": "knowledage-base",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --mode development",
-    "test": "vite build --mode development",
     "build": "vite build --mode production",
     "build-with-types": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "build-only": "vite build",
-    "type-check": "vue-tsc --build"
+    "type-check": "vue-tsc --build",
+    "test": "tsx --test",
+    "check-i18n": "tsx --test src/i18n/localeKeyAudit.test.ts",
+    "scan-i18n-gaps": "tsx src/i18n/localeGapScan.ts",
+    "regenerate-i18n-locales": "tsx src/i18n/regeneratePrunedLocales.ts"
   },
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",

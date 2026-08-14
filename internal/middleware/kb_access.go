@@ -284,6 +284,10 @@ func RequireKBAccess(
 			_ = c.Error(apperrors.NewForbiddenError("Permission denied to access this knowledge base"))
 			c.Abort()
 			return
+		case stderrors.Is(err, errKBAccessBadRequest):
+			_ = c.Error(apperrors.NewBadRequestError("invalid agent_source_tenant_id"))
+			c.Abort()
+			return
 		case err != nil:
 			logger.ErrorWithFields(ctx, err, nil)
 			// Transient/internal -> 503 so monitoring catches the
@@ -392,7 +396,11 @@ func resolveKBAccessOnce(
 
 	// 4. Shared agent that carries this KB — only ever grants read.
 	if requiredPermission == types.OrgRoleViewer && agentShareService != nil {
-		if access := resolveSharedAgentAccess(ctx, c, tenantID, callerTenantRole, kb, agentShareService); access != nil {
+		access, agentErr := resolveSharedAgentAccess(ctx, c, tenantID, callerTenantRole, kb, agentShareService)
+		if agentErr != nil {
+			return nil, agentErr
+		}
+		if access != nil {
 			return access, nil
 		}
 	}
@@ -419,17 +427,21 @@ func resolveSharedAgentAccess(
 	callerTenantRole types.TenantRole,
 	kb *types.KnowledgeBase,
 	agentShareService interfaces.AgentShareService,
-) *KBAccess {
+) (*KBAccess, error) {
 	agentID := c.Query("agent_id")
 	if agentID != "" {
-		agent, err := agentShareService.GetSharedAgentForTenant(ctx, tenantID, callerTenantRole, agentID)
+		sourceTenantID, err := types.ParseAgentSourceTenantID(c.Query(types.AgentSourceTenantIDParam))
+		if err != nil {
+			return nil, errKBAccessBadRequest
+		}
+		agent, err := agentShareService.GetSharedAgentForTenant(ctx, tenantID, callerTenantRole, agentID, sourceTenantID)
 		if err != nil || agent == nil {
-			return nil
+			return nil, nil
 		}
 		if kb.TenantID != agent.TenantID {
 			logger.Warnf(ctx, "[kb_access] shared agent workspace mismatch: kb=%s kb.tenant=%d agent.tenant=%d",
 				kb.ID, kb.TenantID, agent.TenantID)
-			return nil
+			return nil, nil
 		}
 		switch agent.Config.KBSelectionMode {
 		case "all":
@@ -439,7 +451,7 @@ func resolveSharedAgentAccess(
 				KnowledgeBase:     kb,
 				EffectiveTenantID: kb.TenantID,
 				Permission:        types.OrgRoleViewer,
-			}
+			}, nil
 		case "selected":
 			for _, allowedID := range agent.Config.KnowledgeBases {
 				if allowedID == kb.ID {
@@ -449,11 +461,11 @@ func resolveSharedAgentAccess(
 						KnowledgeBase:     kb,
 						EffectiveTenantID: kb.TenantID,
 						Permission:        types.OrgRoleViewer,
-					}
+					}, nil
 				}
 			}
 		}
-		return nil
+		return nil, nil
 	}
 
 	can, err := agentShareService.TenantCanAccessKBViaSomeSharedAgent(ctx, tenantID, callerTenantRole, kb)
@@ -463,9 +475,9 @@ func resolveSharedAgentAccess(
 			KnowledgeBase:     kb,
 			EffectiveTenantID: kb.TenantID,
 			Permission:        types.OrgRoleViewer,
-		}
+		}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // kbMemberRoleToOrgPermission maps NXIN direct-member roles to org-level
@@ -487,4 +499,5 @@ var (
 	errKBAccessUnauthorized = stderrors.New("kb_access: unauthorized")
 	errKBAccessNotFound     = stderrors.New("kb_access: not found")
 	errKBAccessForbidden    = stderrors.New("kb_access: forbidden")
+	errKBAccessBadRequest   = stderrors.New("kb_access: bad request")
 )

@@ -34,7 +34,7 @@ function hasLeaf(src: string, path: string): boolean {
     : path.includes('.members.')
       ? /members:\s*\{[\s\S]*?actions:\s*\{/
       : /messages:\s*\{[\s\S]*?memberRemoveFailed/
-  const m = src.match(/knowledgeList:\s*\{[\s\S]*?\r?\n  \},?\r?\n  sharedKbSquare:/)
+  const m = src.match(/knowledgeList:\s*\{[\s\S]*?\n  \}/)
   const block = m?.[0] ?? ''
   if (!section.test(block) && path.includes('.members.')) return false
   return new RegExp(`${leaf}\\s*:`).test(block)
