@@ -23,6 +23,7 @@
 | 1f3 | **共享知识库广场 i18n** | 四语必须有顶层 `sharedKbSquare.*`（title/subtitle/searchPlaceholder/join/noDescription/fetchFailed 等）以及 `knowledgeList.sharedTag` / `leave` / `role.*` / `sections.joinedShared` / `messages.joinedSuccess`。官方 prune 会整棵删掉 `sharedKbSquare`，且 `localeKeyAudit` 扫描正则只匹配**现有**顶层 namespace，删掉后 `$t('sharedKbSquare.*')` 扫不到、审计仍绿。合完必须跑 `sharedKbI18n.test.ts`；`CRITICAL_LOCALE_KEYS` 已列入保底 | ✅ 已补 |
 | 1f4 | **创建共享知识库** | `KnowledgeBaseEditorModal` 基本信息须有可见性单选；`visibility==='shared'` 时走 `createSharedKnowledgeBase`（`POST /knowledge-bases/shared`）。官方编辑器只 `createKnowledgeBase`，合完会变成只能建个人库。锁：`kbEditorNavGroups.test.ts` + `knowledgeEditor.basic.visibilityLabel` | ✅ 已补 |
 | 1m | **农信用户导入路由** | `routes_auth_tenant.go`：`POST /tenants/:id/members/cas-import[/preview]` 必须挂在 `AddMember` 之后、`/:user_id` 之前。handler 在仓内不等于路由在；官方拆 router 后这两条会丢。锁：`router_cas_import_test.go` | ✅ 已补 |
+| 1n | **Agent 步骤图标 CSS mask** | `AgentStreamDisplay.vue` 折叠根/思考行用 `maskIconStyle(agentIcon\|thinkingIcon)` + `.icon-mask`，勿改回官方 `<SvgIcon name="agent\|thinking">`。官方 `AgentStreamDisplay.style.test.mjs` 会反向锁定 SvgIcon，合完必须改测锁定 mask，否则 Jenkins `npm run test` 红。锁：同文件 `agent steps use compact muted timeline styling` | ✅ 已补 |
 | 1g | **CreateSharedKnowledgeBase UUID** | `shared_kb.go`：空 `id` 必须 `uuid.New()` | ✅ 已补 |
 | 1h | **本空间 KB 列表可见性** | 同空间成员可读全量；广场已加入勿标成「本空间·其他成员」 | ✅ 已补 |
 | 1i | **CAS X-Tenant-ID 切空间** | `middleware/auth.go`：`tryNXINCASAuth` 经 `resolveNXINCASTargetTenant`，与 JWT 分支同权 | ✅ 已补（`2057b6dc`，自 NXIN 回补） |

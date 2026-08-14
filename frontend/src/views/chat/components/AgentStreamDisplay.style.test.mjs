@@ -15,10 +15,17 @@ test('agent steps use compact muted timeline styling', () => {
   assert.match(source, /overflow-y:\s*visible/)
   assert.match(source, /\.tree-root \.action-name\s*\{[\s\S]*font-size:\s*14px/)
   assert.match(source, /\.tree-child \.action-title-icon\s*\{[\s\S]*position:\s*absolute/)
-  assert.match(source, /SvgIcon name="agent"/)
-  assert.match(source, /SvgIcon name="thinking"/)
-  assert.doesNotMatch(source, /function maskIconStyle\(src: string, size = 18\)/)
-  assert.doesNotMatch(source, /\.action-title \.action-title-icon,\s*\n\s*\.icon-mask\s*\{/)
+  // NXIN keeps CSS-mask SVG so agent/thinking icons follow --td-brand / step color.
+  // Official v0.7.2 switched these to <SvgIcon>; do not revert that lock here.
+  assert.match(source, /maskIconStyle\(agentIcon\)/)
+  assert.match(source, /maskIconStyle\(thinkingIcon\)/)
+  assert.match(source, /function maskIconStyle\(src: string, size = 18\)/)
+  assert.match(source, /import agentIcon from '@\/assets\/img\/agent\.svg'/)
+  assert.match(source, /import thinkingIcon from '@\/assets\/img\/Frame3718\.svg'/)
+  assert.match(source, /\.icon-mask\s*\{[\s\S]*mask-size:\s*contain/)
+  assert.match(source, /\.icon-mask\s*\{[\s\S]*background-color:\s*var\(--agent-step-icon-color\)/)
+  assert.doesNotMatch(source, /SvgIcon name="agent"/)
+  assert.doesNotMatch(source, /SvgIcon name="thinking"/)
 })
 
 test('expanded agent step log keeps model thinking in the tool timeline', () => {
