@@ -48,6 +48,8 @@ test('creates sub-folders from per-row actions without changing the selected des
   assert.match(picker, /folder-picker__add/)
   assert.match(picker, /folder-picker__item--create/)
   assert.match(picker, /@keydown\.enter\.stop="commitNewFolder"/)
+  assert.doesNotMatch(picker, /newFolderInputRef/)
+  assert.match(picker, /querySelector\('input\.folder-picker__input'\)/)
   assert.doesNotMatch(picker, /newFolderHintText/)
   assert.doesNotMatch(picker, /folder-picker__create-actions/)
   assert.doesNotMatch(picker, /newFolderParent/)

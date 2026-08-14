@@ -391,6 +391,7 @@ const handleAction = (action: 'edit' | 'reparse' | 'cancel-parse' | 'move' | 'mo
                   show-back
                   @back="folderPickerItemId = null"
                   @confirm="(path: string) => onFolderPicked(item, path)"
+                  @create="(path: string) => onFolderPicked(item, path)"
                 />
               </div>
 

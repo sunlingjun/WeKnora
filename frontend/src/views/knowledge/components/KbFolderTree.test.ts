@@ -45,3 +45,9 @@ test('the folder picker wins over the normal action menu', () => {
     assert.ok(pickerIdx < normalIdx)
   }
 })
+
+test('creating a folder from the picker also files the documents into it', () => {
+  assert.match(batchBar, /@create="\(path: string\) => \{ folderPickerVisible = false; emit\('moveToFolder', path\) \}"/)
+  assert.match(listView, /@create="\(path: string\) => onFolderPicked\(item, path\)"/)
+  assert.match(cardView, /@create="\(path: string\) => onFolderPicked\(item, path\)"/)
+})

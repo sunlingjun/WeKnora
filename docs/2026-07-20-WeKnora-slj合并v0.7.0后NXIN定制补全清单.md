@@ -20,6 +20,9 @@
 | 1e | **品牌文案 ZSK** | `index.html`→`NXIN-ZSK`；i18n 欢迎/首页；`config/prompt_templates/*`：`You are ZSK` + `developed by Nxin`（勿改 WeKnoraCloud/API 技术标识） | ✅ 已补 |
 | 1f | **共享知识库成员侧栏** | `KnowledgeBaseEditorModal` 的 `navGroups`「发布集成」必须 `pickItems(['members','share'])`（见 `kbEditorNavGroups.ts`） | ✅ 已补 |
 | 1f2 | **共享知识库成员 i18n** | `knowledgeList.members.*` + messages 四语齐全（见 `kbMembersI18n.test.ts`） | ✅ 已补 |
+| 1f3 | **共享知识库广场 i18n** | 四语必须有顶层 `sharedKbSquare.*`（title/subtitle/searchPlaceholder/join/noDescription/fetchFailed 等）以及 `knowledgeList.sharedTag` / `leave` / `role.*` / `sections.joinedShared` / `messages.joinedSuccess`。官方 prune 会整棵删掉 `sharedKbSquare`，且 `localeKeyAudit` 扫描正则只匹配**现有**顶层 namespace，删掉后 `$t('sharedKbSquare.*')` 扫不到、审计仍绿。合完必须跑 `sharedKbI18n.test.ts`；`CRITICAL_LOCALE_KEYS` 已列入保底 | ✅ 已补 |
+| 1f4 | **创建共享知识库** | `KnowledgeBaseEditorModal` 基本信息须有可见性单选；`visibility==='shared'` 时走 `createSharedKnowledgeBase`（`POST /knowledge-bases/shared`）。官方编辑器只 `createKnowledgeBase`，合完会变成只能建个人库。锁：`kbEditorNavGroups.test.ts` + `knowledgeEditor.basic.visibilityLabel` | ✅ 已补 |
+| 1m | **农信用户导入路由** | `routes_auth_tenant.go`：`POST /tenants/:id/members/cas-import[/preview]` 必须挂在 `AddMember` 之后、`/:user_id` 之前。handler 在仓内不等于路由在；官方拆 router 后这两条会丢。锁：`router_cas_import_test.go` | ✅ 已补 |
 | 1g | **CreateSharedKnowledgeBase UUID** | `shared_kb.go`：空 `id` 必须 `uuid.New()` | ✅ 已补 |
 | 1h | **本空间 KB 列表可见性** | 同空间成员可读全量；广场已加入勿标成「本空间·其他成员」 | ✅ 已补 |
 | 1i | **CAS X-Tenant-ID 切空间** | `middleware/auth.go`：`tryNXINCASAuth` 经 `resolveNXINCASTargetTenant`，与 JWT 分支同权 | ✅ 已补（`2057b6dc`，自 NXIN 回补） |
@@ -89,6 +92,17 @@
 官方改了 prompt_templates 或 i18n 欢迎语？
   → ZSK/Nxin 品牌；勿动 WeKnoraCloud
 
+官方 prune i18n？
+  → zh-CN 必须保留 sharedKbSquare 整树 + knowledgeList.sharedTag/leave/role/sections.joinedShared/messages.joinedSuccess
+  → 合完跑 kbMembersI18n.test.ts 与 sharedKbI18n.test.ts
+  → 勿只信 localeKeyAudit：命名空间被删后扫描正则扫不到 $t('sharedKbSquare.*')
+
+官方改了知识库编辑器创建流程？
+  → 保留可见性单选；shared 走 createSharedKnowledgeBase，不要只 POST /knowledge-bases
+
+官方拆了 routes_auth_tenant.go？
+  → 立刻把 POST /members/cas-import 与 /preview 挂回 Owner+ 组
+
 官方改了 StreamManager / Redis 初始化？
   → 保持 NewStreamManager(UniversalClient)，Cluster 勿直连 REDIS_ADDR
 
@@ -110,6 +124,7 @@ go test ./internal/stream/ ./internal/utils/ -count=1
 # 前端（复制 env 模板）
 cp frontend/env.development.example frontend/.env.development
 cd frontend && npm run build_dev
+npx tsx --test src/views/knowledge/kbMembersI18n.test.ts src/views/knowledge/sharedKbI18n.test.ts src/i18n/localeKeyAudit.test.ts
 
 # 浏览器：CAS 首页、切空间、聊天引用图、共享 KB、图谱（Neo4j）
 ```

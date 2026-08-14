@@ -3850,7 +3850,11 @@ export default {
       nameLabel: 'Название базы знаний',
       namePlaceholder: 'Введите название базы знаний',
       descriptionLabel: 'Описание базы знаний',
-      descriptionPlaceholder: 'Введите описание базы знаний (необязательно)'
+      descriptionPlaceholder: 'Введите описание базы знаний (необязательно)',
+      visibilityLabel: 'Видимость',
+      visibilityPrivate: 'Личная база знаний',
+      visibilityShared: 'Общая база знаний',
+      visibilityDescription: 'Личная база видна только вам; общую могут находить и к ней присоединяться другие пользователи'
     },
     errors: {
       vectorStoreBindingInvalid: 'The selected vector store cannot be used. Choose a different store or use the system default.',
@@ -3868,6 +3872,7 @@ export default {
       multimodal: 'Обработка изображений',
       asr: 'Аудио',
       datasource: 'Источники данных',
+      members: 'Участники',
       share: 'Sharing',
       activity: 'История активности'
     },
@@ -4137,6 +4142,13 @@ export default {
     create: 'Создать базу знаний',
     subtitle: 'Управляйте и организуйте свои базы знаний, поддерживаются документные и FAQ-базы знаний',
     sharedToOrgs: 'Shared to {count} space(s)',
+    sharedTag: 'Общая',
+    leave: 'Выйти',
+    role: {
+      owner: 'Создатель',
+      editor: 'Редактор',
+      viewer: 'Наблюдатель'
+    },
     uninitializedBanner: 'Некоторые базы знаний не инициализированы. Сначала настройте модели в разделе настроек, чтобы добавлять документы.',
     uploadProgress: {
       uploadingTitle: 'Загрузка документов папки в «{name}»',
@@ -4174,6 +4186,10 @@ export default {
       deleteFailed: 'Не удалось удалить базу знаний',
       duplicateSuccess: 'Дубликат базы знаний создан (без содержимого)',
       duplicateFailed: 'Не удалось создать дубликат базы знаний',
+      leftSuccess: 'Вы вышли из общей базы знаний',
+      leftFailed: 'Не удалось выйти',
+      joinedSuccess: 'Вы присоединились к общей базе знаний',
+      joinedFailed: 'Не удалось присоединиться',
       fetchMembersFailed: 'Failed to load members',
       roleUpdated: 'Member role updated',
       roleUpdateFailed: 'Failed to update member role',
@@ -4198,6 +4214,7 @@ export default {
     sections: {
       pinned: 'Закреплённые',
       mine: 'Созданные мной',
+      joinedShared: 'Присоединённые общие',
       tenantOthers: 'Рабочая область · Другие участники',
       tenantReadonly: 'Рабочая область · Только просмотр',
       sharedByMe: 'Расшарено мной',
@@ -4230,6 +4247,19 @@ export default {
       recentsTitle: 'Nothing here yet',
       recentsDescription: 'Knowledge bases you recently opened will show up here'
     }
+  },
+  sharedKbSquare: {
+    title: 'Площадь общих баз знаний',
+    subtitle: 'Просматривайте и присоединяйтесь к базам знаний, которыми делятся другие',
+    searchPlaceholder: 'Поиск по названию или описанию...',
+    search: 'Поиск',
+    join: 'Присоединиться',
+    empty: 'Общих баз знаний пока нет',
+    noSearchResult: 'Подходящих общих баз знаний не найдено',
+    noDescription: 'Нет описания',
+    memberCount: '{count} участников',
+    knowledgeCount: '{count} элементов',
+    fetchFailed: 'Не удалось загрузить общие базы знаний'
   },
   createChat: {
     title: 'Привет, я WeKnora — ваши знания всегда под рукой',

@@ -108,3 +108,22 @@ func TestKnowledgeDownloadRejectsReadOnlySharedKB(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, rec.Code, "body=%s", rec.Body.String())
 }
+
+func TestKnowledgeFolderMoveRouteIsRegistered(t *testing.T) {
+	engine := newKnowledgeDownloadRouteTestEngine(
+		t,
+		types.TenantRoleContributor,
+		&types.Knowledge{ID: "knowledge-own", KnowledgeBaseID: "kb-own", TenantID: 1},
+		&types.KnowledgeBase{ID: "kb-own", TenantID: 1},
+		nil,
+	)
+
+	found := false
+	for _, route := range engine.Routes() {
+		if route.Method == http.MethodPost && route.Path == "/api/v1/knowledge/folder" {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "POST /api/v1/knowledge/folder must stay registered after router splits")
+}

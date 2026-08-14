@@ -3850,7 +3850,11 @@ export default {
       nameLabel: '지식베이스 이름',
       namePlaceholder: '지식베이스 이름을 입력해주세요',
       descriptionLabel: '지식베이스 설명',
-      descriptionPlaceholder: '지식베이스 설명을 입력해주세요 (선택)'
+      descriptionPlaceholder: '지식베이스 설명을 입력해주세요 (선택)',
+      visibilityLabel: '공개 범위',
+      visibilityPrivate: '개인 지식베이스',
+      visibilityShared: '공유 지식베이스',
+      visibilityDescription: '개인 지식베이스는 본인만 볼 수 있고, 공유 지식베이스는 다른 사용자가 검색하고 참여할 수 있습니다'
     },
     errors: {
       vectorStoreBindingInvalid: '선택한 벡터 스토어를 사용할 수 없습니다. 다른 스토어를 선택하거나 시스템 기본값을 사용하세요.',
@@ -3868,6 +3872,7 @@ export default {
       multimodal: '이미지 처리',
       asr: '오디오',
       datasource: '데이터 소스',
+      members: '멤버 관리',
       share: '공유관리',
       activity: '활동 기록'
     },
@@ -4137,6 +4142,13 @@ export default {
     create: '지식베이스 생성',
     subtitle: '지식베이스를 관리하고 구성합니다. 문서형과 Q&A형 지식베이스를 지원합니다',
     sharedToOrgs: '{count} 스페이스에 공유됨',
+    sharedTag: '공유',
+    leave: '나가기',
+    role: {
+      owner: '생성자',
+      editor: '편집자',
+      viewer: '뷰어'
+    },
     uninitializedBanner: '일부 지식베이스가 아직 초기화되지 않았습니다. 지식 문서를 추가하려면 먼저 설정에서 모델 정보를 구성해야 합니다',
     uploadProgress: {
       uploadingTitle: '「{name}」에 폴더의 문서 업로드 중',
@@ -4174,6 +4186,10 @@ export default {
       deleteFailed: '삭제 실패',
       duplicateSuccess: '지식베이스 복제본이 생성되었습니다(콘텐츠 제외)',
       duplicateFailed: '지식베이스 복제본 생성 실패',
+      leftSuccess: '공유 지식베이스에서 나갔습니다',
+      leftFailed: '나가기 실패',
+      joinedSuccess: '공유 지식베이스에 참여했습니다',
+      joinedFailed: '참여 실패',
       fetchMembersFailed: 'Failed to load members',
       roleUpdated: 'Member role updated',
       roleUpdateFailed: 'Failed to update member role',
@@ -4198,6 +4214,7 @@ export default {
     sections: {
       pinned: '고정됨',
       mine: '내가 만듦',
+      joinedShared: '내가 참여한 공유',
       tenantOthers: '워크스페이스 · 다른 멤버',
       tenantReadonly: '워크스페이스 · 읽기 전용',
       sharedByMe: '내가 공유한',
@@ -4230,6 +4247,19 @@ export default {
       recentsTitle: '최근 항목 없음',
       recentsDescription: '최근에 연 지식베이스가 여기에 표시됩니다'
     }
+  },
+  sharedKbSquare: {
+    title: '공유 지식베이스 광장',
+    subtitle: '다른 사용자가 공유한 지식베이스를 탐색하고 참여하세요',
+    searchPlaceholder: '지식베이스 이름 또는 설명 검색...',
+    search: '검색',
+    join: '참여',
+    empty: '공유 지식베이스가 없습니다',
+    noSearchResult: '일치하는 공유 지식베이스가 없습니다',
+    noDescription: '설명 없음',
+    memberCount: '멤버 {count}명',
+    knowledgeCount: '지식 {count}개',
+    fetchFailed: '공유 지식베이스 로드 실패'
   },
   createChat: {
     title: '안녕하세요, WeKnora입니다 — 당신의 지식을 손끝에',

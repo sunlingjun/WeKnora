@@ -396,6 +396,8 @@ func TestTenantMemberRoutesDeclareManageMembersCapability(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/tenants/:id/members"},
 		{http.MethodPost, "/api/v1/tenants/:id/members"},
+		{http.MethodPost, "/api/v1/tenants/:id/members/cas-import/preview"},
+		{http.MethodPost, "/api/v1/tenants/:id/members/cas-import"},
 		{http.MethodPut, "/api/v1/tenants/:id/members/:user_id"},
 		{http.MethodDelete, "/api/v1/tenants/:id/members/:user_id"},
 		{http.MethodGet, "/api/v1/tenants/:id/invitations"},

@@ -67,10 +67,8 @@
               <span v-else class="avatar-placeholder">{{ getMemberInitial(member) }}</span>
             </div>
             <div class="member-details">
-              <div class="member-name">
-                {{ member.user?.name || member.user?.real_name || member.user?.email || $t('knowledgeList.members.unknownUser') }}
-              </div>
-              <div v-if="member.user?.email" class="member-email">{{ member.user.email }}</div>
+              <div class="member-name">{{ getMemberDisplayName(member) }}</div>
+              <div v-if="getMemberEmailLine(member)" class="member-email">{{ getMemberEmailLine(member) }}</div>
               <div class="member-meta">
                 {{ $t('knowledgeList.members.joinedAt') }}: {{ formatDate(member.joined_at) }}
               </div>
@@ -117,7 +115,7 @@
       width="400px"
       @confirm="confirmRemoveMember"
     >
-      <p>{{ $t('knowledgeList.members.confirmRemoveMessage', { name: removingMember?.user?.name || removingMember?.user?.email || $t('knowledgeList.members.unknownUser') }) }}</p>
+      <p>{{ $t('knowledgeList.members.confirmRemoveMessage', { name: getMemberDisplayName(removingMember) }) }}</p>
     </t-dialog>
   </div>
 </template>
@@ -130,6 +128,7 @@ import { getKnowledgeBaseById, listKnowledgeBaseMembers, updateMemberRole, remov
 import { formatStringDate } from '@/utils'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { resolveMemberDisplayName, resolveMemberEmailLine } from './memberDisplayName'
 
 const props = defineProps<{
   kbId?: string
@@ -149,7 +148,9 @@ interface Member {
   user?: {
     id: string
     name?: string
+    username?: string
     real_name?: string
+    cas_real_name?: string
     email?: string
     avatar?: string
   }
@@ -178,13 +179,14 @@ const isOwner = computed(() => {
   return kbInfo.value.owner_id === authStore.currentUserId
 })
 
-const getMemberDisplayName = (member: Member) => {
-  return (
-    member.user?.name ||
-    member.user?.real_name ||
-    member.user?.email ||
-    t('knowledgeList.members.unknownUser')
-  )
+const unknownUserLabel = () => t('knowledgeList.members.unknownUser')
+
+const getMemberDisplayName = (member: Member | null | undefined) => {
+  return resolveMemberDisplayName(member?.user, unknownUserLabel())
+}
+
+const getMemberEmailLine = (member: Member) => {
+  return resolveMemberEmailLine(member.user, getMemberDisplayName(member))
 }
 
 const getMemberInitial = (member: Member) => {

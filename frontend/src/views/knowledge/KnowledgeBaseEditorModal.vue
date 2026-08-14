@@ -175,6 +175,22 @@
                         />
                       </div>
 
+                      <div v-if="editorMode === 'create'" class="form-item">
+                        <label class="form-label">{{ $t('knowledgeEditor.basic.visibilityLabel') }}</label>
+                        <t-radio-group v-model="formData.visibility">
+                          <t-radio-button value="private">{{ $t('knowledgeEditor.basic.visibilityPrivate') }}</t-radio-button>
+                          <t-radio-button value="shared">{{ $t('knowledgeEditor.basic.visibilityShared') }}</t-radio-button>
+                        </t-radio-group>
+                        <p class="form-tip">{{ $t('knowledgeEditor.basic.visibilityDescription') }}</p>
+                      </div>
+                      <div v-else class="form-item">
+                        <label class="form-label">{{ $t('knowledgeEditor.basic.visibilityLabel') }}</label>
+                        <t-tag :theme="formData.visibility === 'shared' ? 'success' : 'default'" variant="light" size="medium">
+                          {{ formData.visibility === 'shared' ? $t('knowledgeEditor.basic.visibilityShared') : $t('knowledgeEditor.basic.visibilityPrivate') }}
+                        </t-tag>
+                        <p class="form-tip">{{ $t('knowledgeEditor.basic.visibilityDescription') }}</p>
+                      </div>
+
                       <!-- Wiki 合成模型移至模型配置页 -->
                     </div>
                   </div>
@@ -419,6 +435,14 @@
                   <DataSourceSettings :kb-id="activeKbId" @count="dsCount = $event" />
                 </div>
 
+                <!-- 共享知识库成员（仅共享库且当前用户为创建者） -->
+                <div
+                  v-if="showKbMembers && activeKbId && currentSection === 'members'"
+                  class="section"
+                >
+                  <KnowledgeBaseMembers :kb-id="activeKbId" :embedded="true" />
+                </div>
+
                 <!-- 共享设置（仅编辑模式） -->
                 <div v-if="editorMode === 'edit' && activeKbId && currentSection === 'share'" class="section">
                   <KBShareSettings :kb-id="activeKbId" :can-share="canShareKB" />
@@ -464,7 +488,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import KbCreateContextualGuide from '@/components/KbCreateContextualGuide.vue'
 import { KB_EDITOR_FOCUS_SECTION_EVENT, markContextualGuideDone } from '@/config/contextualGuides'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import { createKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase, rebuildKBIndex } from '@/api/knowledge-base'
+import { createKnowledgeBase, createSharedKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase, rebuildKBIndex } from '@/api/knowledge-base'
 import { updateKBConfig, type KBModelConfigRequest } from '@/api/initialization'
 import { type ModelConfig } from '@/api/model'
 import { useChatResourcesStore } from '@/stores/chatResources'
@@ -480,6 +504,8 @@ import KBAdvancedSettings from './settings/KBAdvancedSettings.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import GraphSettings from './settings/GraphSettings.vue'
 import KBShareSettings from './settings/KBShareSettings.vue'
+import KnowledgeBaseMembers from './settings/KnowledgeBaseMembers.vue'
+import { KB_EDITOR_INTEGRATION_NAV_KEYS } from './kbEditorNavGroups'
 import DataSourceSettings from './settings/DataSourceSettings.vue'
 import KnowledgeBaseActivitySettings from './settings/KnowledgeBaseActivitySettings.vue'
 import { useI18n } from 'vue-i18n'
@@ -569,6 +595,8 @@ const dsCount = ref(0)
 // only tenant Admin+ can mutate their share settings.
 const kbCreatorId = ref<string>('')
 const kbTenantId = ref<number>(0)
+const kbVisibility = ref<'private' | 'shared' | ''>('')
+const kbIsOwner = ref(false)
 
 // Backend gate for /knowledge-bases/:id/shares (POST/PUT/DELETE) is
 // g.OwnedKBOrAdmin(): only the KB creator or tenant Admin+ may mutate
@@ -592,6 +620,13 @@ const canViewActivity = computed(() => {
   if (Number(kbTenantId.value || 0) !== Number(authStore.currentTenantId || 0)) return false
   return isKbOwner.value || authStore.hasRole('admin')
 })
+
+const showKbMembers = computed(() =>
+  editorMode.value === 'edit' &&
+  !!activeKbId.value &&
+  kbVisibility.value === 'shared' &&
+  (kbIsOwner.value || isKbOwner.value)
+)
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
 const chunkingDirty = ref(false)
 
@@ -639,6 +674,9 @@ const navItems = computed(() => {
     }
   }
   if (editorMode.value === 'edit' && activeKbId.value && !authStore.isLiteMode) {
+    if (showKbMembers.value) {
+      items.push({ key: 'members', icon: 'usergroup', label: t('knowledgeEditor.sidebar.members') })
+    }
     items.push({ key: 'share', icon: 'share', label: t('knowledgeEditor.sidebar.share') })
   }
   if (canViewActivity.value) {
@@ -671,7 +709,7 @@ const navGroups = computed(() => {
     {
       key: 'integration',
       label: t('knowledgeEditor.navGroups.integration'),
-      items: pickItems(['share']),
+      items: pickItems([...KB_EDITOR_INTEGRATION_NAV_KEYS]),
     },
     {
       key: 'management',
@@ -734,6 +772,7 @@ const initFormData = (type: 'document' | 'faq' = 'document') => {
     type,
     name: '',
     description: '',
+    visibility: 'private' as 'private' | 'shared',
     faqConfig: {
       indexMode: 'question_only',
       questionIndexMode: 'separate'
@@ -850,6 +889,8 @@ const loadKBData = async (kbIdOverride?: string) => {
     hasFiles.value = (filesResult as any)?.total > 0
     kbCreatorId.value = (kb as any).creator_id || ''
     kbTenantId.value = Number((kb as any).tenant_id || 0)
+    kbVisibility.value = ((kb as any).visibility === 'shared' ? 'shared' : 'private')
+    kbIsOwner.value = (kb as any).is_owner === true
 
     // 设置表单数据
     const kbType = (kb.type as 'document' | 'faq') || 'document'
@@ -857,6 +898,7 @@ const loadKBData = async (kbIdOverride?: string) => {
       type: kbType,
       name: kb.name || '',
       description: kb.description || '',
+      visibility: (kb as any).visibility === 'shared' ? 'shared' : 'private',
       faqConfig: {
         indexMode: kb.faq_config?.index_mode || 'question_only',
         questionIndexMode: kb.faq_config?.question_index_mode || 'separate'
@@ -1185,6 +1227,7 @@ const buildSubmitData = () => {
     name: formData.value.name,
     description: formData.value.description,
     type: formData.value.type,
+    visibility: formData.value.visibility || 'private',
     chunking_config: {
       chunk_size: formData.value.chunkingConfig.chunkSize,
       chunk_overlap: formData.value.chunkingConfig.chunkOverlap,
@@ -1353,8 +1396,12 @@ const doSubmit = async () => {
     }
 
     if (editorMode.value === 'create') {
-      // 创建模式：一次性创建知识库及所有配置
-      const result: any = await createKnowledgeBase(data)
+      // 创建模式：一次性创建知识库及所有配置。共享库必须走 /shared，
+      // 普通 POST 不会写 knowledge_base_members / visibility=shared。
+      const createFn = formData.value.visibility === 'shared'
+        ? createSharedKnowledgeBase
+        : createKnowledgeBase
+      const result: any = await createFn(data)
       if (!result.success || !result.data?.id) {
         throw new Error(result.message || t('knowledgeEditor.messages.createFailed'))
       }
@@ -1515,6 +1562,8 @@ const resetState = () => {
   currentSection.value = 'basic'
   formData.value = null
   hasFiles.value = false
+  kbVisibility.value = ''
+  kbIsOwner.value = false
   initialStorageProvider.value = ''
   tenantDefaultStorageProvider.value = 'local'
   initialIndexingStrategy.value = null

@@ -68,7 +68,8 @@ const folderPickerVisible = ref(false);
             <template #content>
               <div class="card-menu">
                 <FolderPickerMenu :options="folderOptions || []"
-                  @confirm="(path: string) => { folderPickerVisible = false; emit('moveToFolder', path) }" />
+                  @confirm="(path: string) => { folderPickerVisible = false; emit('moveToFolder', path) }"
+                  @create="(path: string) => { folderPickerVisible = false; emit('moveToFolder', path) }" />
               </div>
             </template>
           </t-popup>

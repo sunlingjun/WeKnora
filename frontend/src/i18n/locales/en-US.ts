@@ -1759,6 +1759,13 @@ export default {
     create: 'Create Knowledge Base',
     subtitle: 'Manage and organize your knowledge bases, supporting document-based and FAQ-based knowledge bases',
     sharedToOrgs: 'Shared to {count} space(s)',
+    sharedTag: 'Shared',
+    leave: 'Leave',
+    role: {
+      owner: 'Owner',
+      editor: 'Editor',
+      viewer: 'Viewer'
+    },
     uninitializedBanner: 'Some knowledge bases are not initialized. Configure model information in settings before adding documents.',
     empty: {
       title: 'No knowledge bases yet',
@@ -1789,6 +1796,7 @@ export default {
     sections: {
       pinned: 'Pinned',
       mine: 'Created by me',
+      joinedShared: 'Joined shared',
       tenantOthers: 'Workspace · Other members',
       tenantReadonly: 'Workspace · View only',
       sharedByMe: 'Shared by me',
@@ -1800,6 +1808,10 @@ export default {
       deleteFailed: 'Failed to delete knowledge base',
       duplicateSuccess: 'Knowledge base duplicate created (content not included)',
       duplicateFailed: 'Failed to create knowledge base duplicate',
+      leftSuccess: 'Left shared knowledge base',
+      leftFailed: 'Failed to leave',
+      joinedSuccess: 'Joined shared knowledge base',
+      joinedFailed: 'Failed to join',
       fetchMembersFailed: 'Failed to load members',
       roleUpdated: 'Member role updated',
       roleUpdateFailed: 'Failed to update member role',
@@ -1852,6 +1864,19 @@ export default {
       errorTip: 'Some files failed to upload. Please check the notifications.',
       unknownKb: 'Knowledge Base {id}'
     }
+  },
+  sharedKbSquare: {
+    title: 'Shared Knowledge Base Square',
+    subtitle: 'Browse and join knowledge bases shared by others',
+    searchPlaceholder: 'Search by name or description...',
+    search: 'Search',
+    join: 'Join',
+    empty: 'No shared knowledge bases yet',
+    noSearchResult: 'No matching shared knowledge bases',
+    noDescription: 'No description',
+    memberCount: '{count} members',
+    knowledgeCount: '{count} items',
+    fetchFailed: 'Failed to load shared knowledge bases'
   },
   embedPublish: {
     create: 'New embed channel',
@@ -2129,6 +2154,7 @@ export default {
       multimodal: 'Image Processing',
       asr: 'Audio',
       datasource: 'Data Sources',
+      members: 'Members',
       share: 'Sharing',
       activity: 'Activity'
     },
@@ -2148,7 +2174,11 @@ export default {
       nameLabel: 'Knowledge Base Name',
       namePlaceholder: 'Enter knowledge base name',
       descriptionLabel: 'Knowledge Base Description',
-      descriptionPlaceholder: 'Enter knowledge base description (optional)'
+      descriptionPlaceholder: 'Enter knowledge base description (optional)',
+      visibilityLabel: 'Visibility',
+      visibilityPrivate: 'Private',
+      visibilityShared: 'Shared',
+      visibilityDescription: 'Private knowledge bases are visible only to you; shared ones can be discovered and joined by others'
     },
     wiki: {
       title: 'Wiki Settings',

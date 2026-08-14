@@ -42,7 +42,6 @@
         >
           <t-icon name="folder" class="folder-picker__icon" />
           <input
-            ref="newFolderInputRef"
             v-model.trim="newFolderName"
             class="folder-picker__input"
             :placeholder="t('knowledgeBase.moveToFolder.newFolderPlaceholder')"
@@ -102,7 +101,6 @@ const { t } = useI18n()
 
 const creatingUnder = ref<string | null>(null)
 const newFolderName = ref('')
-const newFolderInputRef = ref<HTMLInputElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
 const localCreatedPaths = ref<string[]>([])
 const selectedPath = ref<string | null>(null)
@@ -165,7 +163,10 @@ watch(
   async (value) => {
     if (value === null) return
     await nextTick()
-    newFolderInputRef.value?.focus()
+    // The create row lives inside v-for; a template ref would be an array in
+    // Vue 3, so `.focus()` is not a function. Query the input instead.
+    const input = listRef.value?.querySelector('input.folder-picker__input')
+    if (input instanceof HTMLInputElement) input.focus()
   },
 )
 

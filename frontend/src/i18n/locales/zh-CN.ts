@@ -3850,7 +3850,11 @@ export default {
       nameLabel: '知识库名称',
       namePlaceholder: '请输入知识库名称',
       descriptionLabel: '知识库描述',
-      descriptionPlaceholder: '请输入知识库描述（可选）'
+      descriptionPlaceholder: '请输入知识库描述（可选）',
+      visibilityLabel: '可见性',
+      visibilityPrivate: '个人知识库',
+      visibilityShared: '共享知识库',
+      visibilityDescription: '个人知识库仅自己可见；共享知识库可被其他用户搜索和加入'
     },
     errors: {
       vectorStoreBindingInvalid: '无法使用所选向量存储。请选择其他存储或使用系统默认值。',
@@ -3868,6 +3872,7 @@ export default {
       multimodal: '图像处理',
       asr: '音频处理',
       datasource: '数据源',
+      members: '成员管理',
       share: '共享管理',
       activity: '活动记录'
     },
@@ -4137,6 +4142,13 @@ export default {
     create: '新建知识库',
     subtitle: '管理和组织您的知识库，支持文档型和问答型知识库',
     sharedToOrgs: '已共享给 {count} 个空间',
+    sharedTag: '共享',
+    leave: '离开',
+    role: {
+      owner: '创建者',
+      editor: '编辑者',
+      viewer: '查看者'
+    },
     uninitializedBanner: '部分知识库尚未初始化，需要先在设置中配置模型信息才能添加知识文档',
     uploadProgress: {
       uploadingTitle: '正在向「{name}」上传文件夹中的文档',
@@ -4174,6 +4186,10 @@ export default {
       deleteFailed: '删除失败',
       duplicateSuccess: '知识库副本已创建（不包含知识内容）',
       duplicateFailed: '创建知识库副本失败',
+      leftSuccess: '已离开共享知识库',
+      leftFailed: '离开失败',
+      joinedSuccess: '已加入共享知识库',
+      joinedFailed: '加入失败',
       fetchMembersFailed: '获取成员列表失败',
       roleUpdated: '成员角色已更新',
       roleUpdateFailed: '更新成员角色失败',
@@ -4198,6 +4214,7 @@ export default {
     sections: {
       pinned: '置顶',
       mine: '我创建的',
+      joinedShared: '我加入的共享',
       tenantOthers: '本空间 · 其他成员',
       tenantReadonly: '本空间 · 仅查看',
       sharedByMe: '我共享的',
@@ -4230,6 +4247,19 @@ export default {
       recentsTitle: '暂无最近访问',
       recentsDescription: '最近打开过的知识库会出现在这里'
     }
+  },
+  sharedKbSquare: {
+    title: '共享知识库广场',
+    subtitle: '浏览和加入其他用户分享的知识库',
+    searchPlaceholder: '搜索知识库名称或描述...',
+    search: '搜索',
+    join: '加入',
+    empty: '暂无共享知识库',
+    noSearchResult: '未找到匹配的共享知识库',
+    noDescription: '暂无描述',
+    memberCount: '{count} 位成员',
+    knowledgeCount: '{count} 个知识',
+    fetchFailed: '加载共享知识库失败'
   },
   createChat: {
     title: 'Hi，我是 WeKnora，让你的知识触手可及',

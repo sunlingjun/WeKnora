@@ -361,6 +361,7 @@ const handleAction = (action: 'edit' | 'view-trace' | 'reparse' | 'cancel-parse'
                   show-back
                   @back="folderPickerItemId = null"
                   @confirm="(path: string) => onFolderPicked(item, path)"
+                  @create="(path: string) => onFolderPicked(item, path)"
                 />
               </div>
 

@@ -99,6 +99,7 @@ const EXTRA_PREFIXES = [
   'organization.role.',
   'inviteRegister.',
   'modelSettings.builtinModels.',
+  'sharedKbSquare.',
 ] as const
 
 /** Keys that must survive pruning even when static analysis misses them. */
@@ -114,6 +115,17 @@ export const CRITICAL_LOCALE_KEYS = [
   'inviteRegister.emailPlaceholder',
   'knowledgeList.sections.tenantOthers',
   'agent.sections.tenantOthers',
+  'sharedKbSquare.title',
+  'sharedKbSquare.join',
+  'sharedKbSquare.fetchFailed',
+  'knowledgeList.sharedTag',
+  'knowledgeList.leave',
+  'knowledgeList.role.owner',
+  'knowledgeList.sections.joinedShared',
+  'knowledgeList.messages.joinedSuccess',
+  'knowledgeEditor.sidebar.members',
+  'knowledgeEditor.basic.visibilityLabel',
+  'tenantMember.casImport.button',
 ] as const
 
 function addPrefix(usage: I18nUsage, prefix: string): void {
