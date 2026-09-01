@@ -305,6 +305,16 @@ type KnowledgeRepository interface {
 	SetFinalizing(ctx context.Context, id string, expectedSubtasks int) (bool, error)
 	// CountKnowledgeByKnowledgeBaseID counts the number of knowledge items in a knowledge base.
 	CountKnowledgeByKnowledgeBaseID(ctx context.Context, tenantID uint64, kbID string) (int64, error)
+	// ListKnowledgeCatalogCursor lists knowledge for the catalog API:
+	// ORDER BY updated_at ASC, id ASC, exclusive (updated_at, id) cursor,
+	// exclusive updated_after. Empty parse_status excludes deleting rows.
+	// tenantID is the knowledge-row owner (KB owner), never the caller's tenant.
+	ListKnowledgeCatalogCursor(
+		ctx context.Context,
+		tenantID uint64,
+		kbID string,
+		q types.KnowledgeCatalogCursorQuery,
+	) ([]*types.Knowledge, error)
 	// CountKnowledgeByStatus counts the number of knowledge items with the specified parse status.
 	CountKnowledgeByStatus(ctx context.Context, tenantID uint64, kbID string, parseStatuses []string) (int64, error)
 	// SearchKnowledge searches knowledge items by keyword across the tenant.

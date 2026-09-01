@@ -292,6 +292,7 @@ func TestKnowledgeReadRoutesDeclareRetrieveCapability(t *testing.T) {
 	v1 := gin.New().Group("/api/v1")
 
 	RegisterKnowledgeBaseRoutes(v1, &handler.KnowledgeBaseHandler{}, g)
+	RegisterKnowledgeCatalogRoutes(v1, &handler.KnowledgeCatalogHandler{}, g)
 	RegisterKnowledgeRoutes(v1, &handler.KnowledgeHandler{}, g)
 	RegisterFAQRoutes(v1, &handler.FAQHandler{}, g)
 	RegisterKnowledgeTagRoutes(v1, &handler.TagHandler{}, g)
@@ -308,6 +309,8 @@ func TestKnowledgeReadRoutesDeclareRetrieveCapability(t *testing.T) {
 		{http.MethodGet, "/api/v1/knowledge-bases/:id"},
 		{http.MethodPost, "/api/v1/knowledge-bases/:id/hybrid-search"},
 		{http.MethodGet, "/api/v1/knowledge-bases/:id/knowledge"},
+		{http.MethodGet, "/api/v1/knowledge-catalog/knowledge-bases"},
+		{http.MethodGet, "/api/v1/knowledge-catalog/knowledge"},
 		{http.MethodGet, "/api/v1/knowledge/:id"},
 		{http.MethodGet, "/api/v1/knowledge/:id/download"},
 		{http.MethodPost, "/api/v1/knowledge-bases/:id/faq/search"},

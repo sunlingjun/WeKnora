@@ -44,6 +44,7 @@ type RouterParams struct {
 	SharedKBService              interfaces.SharedKnowledgeBaseService
 	AgentShareService            interfaces.AgentShareService
 	KBHandler                    *handler.KnowledgeBaseHandler
+	KnowledgeCatalogHandler      *handler.KnowledgeCatalogHandler
 	KnowledgeHandler             *handler.KnowledgeHandler
 	TenantHandler                *handler.TenantHandler
 	TenantService                interfaces.TenantService
@@ -267,6 +268,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterTenantRoutes(v1, params.TenantHandler, params.TenantMemberHandler, params.TenantInvitationHandler, params.AuditLogHandler, rbacGuards)
 		RegisterMyInvitationRoutes(v1, params.TenantInvitationHandler)
 		RegisterKnowledgeBaseRoutes(v1, params.KBHandler, rbacGuards)
+		RegisterKnowledgeCatalogRoutes(v1, params.KnowledgeCatalogHandler, rbacGuards)
 		RegisterKnowledgeBaseActivityRoutes(v1, params.AuditLogHandler, rbacGuards)
 		serveKBScopedFiles(
 			v1,

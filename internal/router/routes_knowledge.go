@@ -256,6 +256,20 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 	}
 }
 
+// RegisterKnowledgeCatalogRoutes 注册工作空间授权知识目录（独立只读面，方案 B）。
+// 空间 Key 需 retrieve 或 full-access；JWT Viewer+。未登记 Key 默认拒绝。
+func RegisterKnowledgeCatalogRoutes(r *gin.RouterGroup, handler *handler.KnowledgeCatalogHandler, g *rbacGuards) {
+	if handler == nil {
+		return
+	}
+	grp := r.Group("/knowledge-catalog")
+	catalog := g.apiKeyGroup(grp, apiKeyRetrieve(apiKeyFullAccess()))
+	{
+		catalog.GET("/knowledge-bases", g.Viewer(), handler.ListKnowledgeBases)
+		catalog.GET("/knowledge", g.Viewer(), handler.ListKnowledge)
+	}
+}
+
 // RegisterKnowledgeBaseActivityRoutes exposes the read-only per-KB activity
 // feed. It intentionally stays JWT-only: audit history is a sensitive owner
 // surface and no existing workspace API-key capability grants audit access.

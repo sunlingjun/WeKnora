@@ -670,6 +670,39 @@ func (r *knowledgeRepository) CountKnowledgeByKnowledgeBaseID(
 	return count, err
 }
 
+// ListKnowledgeCatalogCursor lists knowledge for the catalog API using an
+// exclusive (updated_at, id) cursor. tenantID is the row owner (KB owner).
+func (r *knowledgeRepository) ListKnowledgeCatalogCursor(
+	ctx context.Context,
+	tenantID uint64,
+	kbID string,
+	q types.KnowledgeCatalogCursorQuery,
+) ([]*types.Knowledge, error) {
+	query := r.db.WithContext(ctx).Model(&types.Knowledge{}).
+		Where("tenant_id = ? AND knowledge_base_id = ?", tenantID, kbID)
+	if q.ParseStatus != "" {
+		query = query.Where("parse_status = ?", q.ParseStatus)
+	} else {
+		query = query.Where("parse_status <> ?", types.ParseStatusDeleting)
+	}
+	if !q.UpdatedAfter.IsZero() {
+		query = query.Where("updated_at > ?", q.UpdatedAfter)
+	}
+	if q.HasCursor {
+		query = query.Where("(updated_at > ?) OR (updated_at = ? AND id > ?)",
+			q.CursorUpdatedAt, q.CursorUpdatedAt, q.CursorID)
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = types.CatalogKnowledgeDefaultLimit
+	}
+	var items []*types.Knowledge
+	if err := query.Order("updated_at ASC, id ASC").Limit(limit).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 // CountKnowledgeByStatus counts the number of knowledge items with the specified parse status
 func (r *knowledgeRepository) CountKnowledgeByStatus(
 	ctx context.Context,
