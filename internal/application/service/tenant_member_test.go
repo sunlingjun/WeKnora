@@ -257,7 +257,7 @@ func newServiceWithRepo() (interfaces.TenantMemberService, *fakeTenantMemberRepo
 	// and exercise membership invariants only. The service's audit
 	// hooks are nil-safe (see emitAudit), so passing nil keeps existing
 	// coverage intact without forcing a stub.
-	return NewTenantMemberService(r, nil), r
+	return NewTenantMemberService(r, nil, nil), r
 }
 
 func TestTenantMemberService_AddMember_RejectsInvalidRole(t *testing.T) {

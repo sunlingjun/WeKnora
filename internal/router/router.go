@@ -92,6 +92,8 @@ type RouterParams struct {
 	WeKnoraCloudHandler          *handler.WeKnoraCloudHandler
 	WikiPageHandler              *handler.WikiPageHandler
 	WikiPageService              interfaces.WikiPageService
+	WebhookEndpointHandler         *handler.WebhookEndpointHandler         `optional:"true"`
+	KnowledgeDownloadTicketHandler *handler.KnowledgeDownloadTicketHandler `optional:"true"`
 }
 
 // defaultTrustedPrivateProxies 当 behind_proxy 开启但未配置 trusted_proxies 时的保守默认值（私网 + 本机）。
@@ -174,6 +176,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			"X-External-User-ID", "X-External-User-Token",
 			"Cache-Control", "Pragma", "X-Requested-With", "DNT", "If-Modified-Since",
 			"Keep-Alive", "User-Agent", "pd", "systemid",
+			"X-WeKnora-Download-Ticket",
 		},
 		ExposeHeaders:    []string{"Content-Length", "Access-Control-Allow-Origin"},
 		AllowCredentials: true,
@@ -241,6 +244,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 	serveFilesWithResources(r, params.FileService, params.StorageBackendResolver, params.ResourceCatalog)
 	servePresignedFiles(r, params.TenantService, params.StorageBackendResolver)
 	servePresignedPreview(r, params.Config, params.StorageBackendResolver)
+	serveKnowledgeDownloadTickets(r, params.KnowledgeDownloadTicketHandler)
 
 	r.Use(langfuse.GinMiddleware())
 	r.Use(middleware.AuditServiceProvider(params.AuditLogService))
@@ -266,6 +270,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 
 		RegisterAuthRoutes(v1, params.AuthHandler, rbacGuards)
 		RegisterTenantRoutes(v1, params.TenantHandler, params.TenantMemberHandler, params.TenantInvitationHandler, params.AuditLogHandler, rbacGuards)
+		RegisterTenantWebhookRoutes(v1, params.WebhookEndpointHandler, rbacGuards)
 		RegisterMyInvitationRoutes(v1, params.TenantInvitationHandler)
 		RegisterKnowledgeBaseRoutes(v1, params.KBHandler, rbacGuards)
 		RegisterKnowledgeCatalogRoutes(v1, params.KnowledgeCatalogHandler, rbacGuards)

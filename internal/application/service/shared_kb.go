@@ -18,6 +18,7 @@ type sharedKnowledgeBaseService struct {
 	kbRepo     interfaces.KnowledgeBaseRepository
 	memberRepo interfaces.KnowledgeBaseMemberRepository
 	tenantRepo interfaces.TenantRepository
+	events     interfaces.WorkspaceEventSink
 }
 
 // NewSharedKnowledgeBaseService 创建共享知识库服务
@@ -25,11 +26,13 @@ func NewSharedKnowledgeBaseService(
 	kbRepo interfaces.KnowledgeBaseRepository,
 	memberRepo interfaces.KnowledgeBaseMemberRepository,
 	tenantRepo interfaces.TenantRepository,
+	events interfaces.WorkspaceEventSink,
 ) interfaces.SharedKnowledgeBaseService {
 	return &sharedKnowledgeBaseService{
 		kbRepo:     kbRepo,
 		memberRepo: memberRepo,
 		tenantRepo: tenantRepo,
+		events:     events,
 	}
 }
 
@@ -60,6 +63,7 @@ func (s *sharedKnowledgeBaseService) CreateSharedKnowledgeBase(ctx context.Conte
 	if err := s.kbRepo.CreateKnowledgeBase(ctx, kb); err != nil {
 		return nil, fmt.Errorf("failed to create shared knowledge base: %w", err)
 	}
+	emitKBCreated(s.events, ctx, kb)
 
 	// 创建 owner 成员记录
 	member := &types.KnowledgeBaseMember{

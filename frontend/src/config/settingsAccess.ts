@@ -22,6 +22,7 @@ export const SETTINGS_SECTION_MIN_ROLE: Record<string, SettingsRoleKey> = {
   userprofile: 'viewer',
   tenant: 'viewer',
   members: 'viewer',
+  'event-webhooks': 'owner',
 }
 
 /**

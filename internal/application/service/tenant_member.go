@@ -75,8 +75,9 @@ const (
 
 // tenantMemberService implements interfaces.TenantMemberService.
 type tenantMemberService struct {
-	repo  interfaces.TenantMemberRepository
-	audit interfaces.AuditLogService // optional; nil ⇒ no audit, business ops still succeed
+	repo   interfaces.TenantMemberRepository
+	audit  interfaces.AuditLogService // optional; nil ⇒ no audit, business ops still succeed
+	events interfaces.WorkspaceEventSink
 }
 
 // NewTenantMemberService constructs the service. Wired up via the DI
@@ -89,8 +90,9 @@ type tenantMemberService struct {
 func NewTenantMemberService(
 	repo interfaces.TenantMemberRepository,
 	audit interfaces.AuditLogService,
+	events interfaces.WorkspaceEventSink,
 ) interfaces.TenantMemberService {
-	return &tenantMemberService{repo: repo, audit: audit}
+	return &tenantMemberService{repo: repo, audit: audit, events: events}
 }
 
 // emitAudit is the per-mutation audit hook. Best-effort: a nil audit
@@ -185,6 +187,7 @@ func (s *tenantMemberService) AddMember(
 		TargetUserID: userID,
 		Outcome:      types.AuditOutcomeSuccess,
 	})
+	emitMember(s.events, ctx, types.EventRBACMemberAdded, tenantID, userID, string(role), "added", "")
 	return member, nil
 }
 
@@ -388,13 +391,13 @@ func (s *tenantMemberService) RemoveMember(ctx context.Context, userID string, t
 		case err != nil:
 			return err
 		}
-		s.emitRemovalAudit(ctx, tenantID, userID)
+		s.emitRemovalAudit(ctx, tenantID, userID, string(current.Role))
 		return nil
 	}
 	if err := s.repo.SoftDelete(ctx, userID, tenantID); err != nil {
 		return err
 	}
-	s.emitRemovalAudit(ctx, tenantID, userID)
+	s.emitRemovalAudit(ctx, tenantID, userID, string(current.Role))
 	return nil
 }
 
@@ -406,6 +409,7 @@ func (s *tenantMemberService) emitRemovalAudit(
 	ctx context.Context,
 	tenantID uint64,
 	targetUserID string,
+	role string,
 ) {
 	action := types.AuditActionMemberRemoved
 	if actor := auditActor(ctx); actor != "" && actor == targetUserID {
@@ -420,4 +424,9 @@ func (s *tenantMemberService) emitRemovalAudit(
 		TargetUserID: targetUserID,
 		Outcome:      types.AuditOutcomeSuccess,
 	})
+	reason := "removed"
+	if action == types.AuditActionMemberLeft {
+		reason = "left"
+	}
+	emitMember(s.events, ctx, types.EventRBACMemberRemoved, tenantID, targetUserID, role, reason, "")
 }

@@ -82,6 +82,7 @@ type knowledgeService struct {
 	// which has a no-op fallback. See knowledge_span_tracker.go.
 	spanTracker SpanTracker
 	audit       interfaces.AuditLogService
+	events      interfaces.WorkspaceEventSink
 }
 
 const (
@@ -120,7 +121,9 @@ func NewKnowledgeService(
 	taskPendingRepo interfaces.TaskPendingOpsRepository,
 	spanTracker SpanTracker,
 	audit interfaces.AuditLogService,
+	events interfaces.WorkspaceEventSink,
 ) (interfaces.KnowledgeService, error) {
+	setWebhookSink(events)
 	return &knowledgeService{
 		config:          config,
 		repo:            repo,
@@ -150,6 +153,7 @@ func NewKnowledgeService(
 		taskPendingRepo: taskPendingRepo,
 		spanTracker:     spanTracker,
 		audit:           audit,
+		events:          events,
 	}, nil
 }
 
@@ -234,6 +238,7 @@ func finalizeSubtaskDetached(
 	knowledgeID, source string,
 	retErr error,
 	superseded, final bool,
+	onPromoted ...func(context.Context, string),
 ) {
 	willDrain := repo != nil && knowledgeID != "" && !superseded && (retErr == nil || final)
 	if !willDrain {
@@ -241,9 +246,14 @@ func finalizeSubtaskDetached(
 	}
 	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finalizeSubtaskDetachedTimeout)
 	defer cancel()
-	if _, _, err := repo.FinalizeSubtask(dctx, knowledgeID); err != nil {
+	_, promoted, err := repo.FinalizeSubtask(dctx, knowledgeID)
+	if err != nil {
 		logger.Warnf(ctx, "finalize subtask decrement failed source=%s knowledge=%s err=%v",
 			source, knowledgeID, err)
+		return
+	}
+	if promoted {
+		emitParseCompletedFromRepo(dctx, repo, knowledgeID)
 	}
 }
 

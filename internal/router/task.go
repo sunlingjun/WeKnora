@@ -34,6 +34,7 @@ type AsynqTaskParams struct {
 	MaintenanceServer    *asynq.Server `name:"maintenanceAsynqServer"`
 	SharedServer         *asynq.Server `name:"sharedAsynqServer"`
 	WikiServer           *asynq.Server `name:"wikiAsynqServer"`
+	WebhookServer        *asynq.Server `name:"webhookAsynqServer" optional:"true"`
 	KnowledgeService     interfaces.KnowledgeService
 	KnowledgeBaseService interfaces.KnowledgeBaseService
 	TagService           interfaces.KnowledgeTagService
@@ -46,6 +47,8 @@ type AsynqTaskParams struct {
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	DeadLetterRepo       interfaces.TaskDeadLetterRepository
 	SpanTracker          service.SpanTracker
+	WebhookDeliverer     interfaces.WebhookDeliverer  `optional:"true"`
+	WebhookDispatcher    interfaces.WebhookDispatcher `optional:"true"`
 }
 
 // defaultRedisOpTimeout is the previous hard-coded read timeout. The 100ms
@@ -242,6 +245,27 @@ func NewWikiAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
 	return newAsynqServer(concurrency, types.QueueWeightsForPool(types.WorkerPoolWiki))
 }
 
+const webhookInFlightRetryDelay = 3 * time.Second
+
+func NewWebhookAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
+	concurrency := resolveWorkerPoolConcurrency(svc).Webhook
+	log.Printf("asynq webhook-pool server starting with concurrency=%d", concurrency)
+	opt := getAsynqRedisConnOpt()
+	return asynq.NewServer(opt, asynq.Config{
+		Concurrency: concurrency,
+		Queues:      types.QueueWeightsForPool(types.WorkerPoolWebhook),
+		IsFailure: func(err error) bool {
+			return !errors.Is(err, service.ErrWebhookInFlightBusy)
+		},
+		RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
+			if errors.Is(e, service.ErrWebhookInFlightBusy) {
+				return webhookInFlightRetryDelay
+			}
+			return asynqRetryDelayFunc(n, e, t)
+		},
+	})
+}
+
 func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	// Create a new mux and register all handlers
 	mux := asynq.NewServeMux()
@@ -329,6 +353,29 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	mux.HandleFunc(types.TypeWikiIngest, params.WikiIngest.Handle)
 	mux.HandleFunc(types.TypeWikiFinalize, params.WikiIngest.Handle)
 
+	mux.HandleFunc(types.TypeWebhookDeliver, func(ctx context.Context, t *asynq.Task) error {
+		if params.WebhookDeliverer == nil {
+			return nil
+		}
+		var payload types.WebhookDeliverPayload
+		if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+			return err
+		}
+		return params.WebhookDeliverer.Deliver(ctx, payload)
+	})
+	mux.HandleFunc(types.TypeWebhookOutboxSweep, func(ctx context.Context, _ *asynq.Task) error {
+		if params.WebhookDispatcher == nil {
+			return nil
+		}
+		return params.WebhookDispatcher.SweepPending(ctx)
+	})
+	mux.HandleFunc(types.TypeWebhookDeliveryPrune, func(ctx context.Context, _ *asynq.Task) error {
+		if params.WebhookDispatcher == nil {
+			return nil
+		}
+		return params.WebhookDispatcher.Prune(ctx)
+	})
+
 	// Run the same mux on every pool. Shared and dedicated servers intentionally
 	// overlap, but Redis dequeue is atomic, so each task still executes once.
 	runPool := func(name string, srv *asynq.Server) {
@@ -344,6 +391,9 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	runPool("maintenance-pool", params.MaintenanceServer)
 	runPool("shared-pool", params.SharedServer)
 	runPool("wiki-pool", params.WikiServer)
+	if params.WebhookServer != nil {
+		runPool("webhook-pool", params.WebhookServer)
+	}
 	return mux
 }
 
@@ -433,6 +483,7 @@ func newDeadLetterKnowledgeFailer(ks interfaces.KnowledgeService, tracker servic
 			logger.Warnf(ctx, "dead-letter callback: failed to mark knowledge %s as failed: %v", probe.KnowledgeID, err)
 			return
 		}
+		service.NotifyWebhookParseFailed(ctx, repo, probe.KnowledgeID)
 		// Close the matching root span so the timeline stops showing
 		// "进行中" after dead-letter exhaustion. Best-effort: nil
 		// tracker / missing attempt / missing root all no-op cleanly.
