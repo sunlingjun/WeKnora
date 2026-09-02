@@ -3462,7 +3462,7 @@ async function createNewSession(value: string): Promise<void> {
     transition: all 0.12s ease;
 
     &:hover:not(:disabled) {
-      color: var(--td-success-color);
+      color: var(--td-brand-color);
       background: var(--td-bg-color-container);
     }
 
