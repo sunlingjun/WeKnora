@@ -104,7 +104,11 @@ func (w *webhookDeliverer) Deliver(ctx context.Context, payload types.WebhookDel
 	resp, err := w.clientForURL(ep.URL).Do(req)
 	dur := int(time.Since(start).Milliseconds())
 	if err != nil {
-		_ = w.deliveries.UpdateAttempt(ctx, payload.DeliveryID, 0, incrementAttempts(ctx), dur, err.Error(), types.WebhookDeliveryPending, false)
+		status, finished := retryDeliveryOutcome(ctx)
+		_ = w.deliveries.UpdateAttempt(ctx, payload.DeliveryID, 0, incrementAttempts(ctx), dur, err.Error(), status, finished)
+		if finished {
+			return fmt.Errorf("%v: %w", err, asynq.SkipRetry)
+		}
 		return err
 	}
 	defer resp.Body.Close()
@@ -123,7 +127,11 @@ func (w *webhookDeliverer) Deliver(ctx context.Context, payload types.WebhookDel
 		_ = w.deliveries.UpdateAttempt(ctx, payload.DeliveryID, resp.StatusCode, attempts, dur, msg, types.WebhookDeliveryFailed, true)
 		return fmt.Errorf("%s: %w", msg, asynq.SkipRetry)
 	}
-	_ = w.deliveries.UpdateAttempt(ctx, payload.DeliveryID, resp.StatusCode, attempts, dur, msg, types.WebhookDeliveryPending, false)
+	status, finished := retryDeliveryOutcome(ctx)
+	_ = w.deliveries.UpdateAttempt(ctx, payload.DeliveryID, resp.StatusCode, attempts, dur, msg, status, finished)
+	if finished {
+		return fmt.Errorf("%s: %w", msg, asynq.SkipRetry)
+	}
 	return fmt.Errorf("%s", msg)
 }
 
@@ -150,6 +158,25 @@ func incrementAttempts(ctx context.Context) int {
 		return n + 1
 	}
 	return 1
+}
+
+func retryDeliveryOutcome(ctx context.Context) (status string, finished bool) {
+	if isWebhookFinalAttempt(ctx) {
+		return types.WebhookDeliveryFailed, true
+	}
+	return types.WebhookDeliveryPending, false
+}
+
+func isWebhookFinalAttempt(ctx context.Context) bool {
+	if retried, maxRetry, ok := types.TaskRetryMetadataFromContext(ctx); ok {
+		return retried >= maxRetry
+	}
+	retried, retriedOK := asynq.GetRetryCount(ctx)
+	maxRetry, maxOK := asynq.GetMaxRetry(ctx)
+	if retriedOK && maxOK {
+		return retried >= maxRetry
+	}
+	return false
 }
 
 func (w *webhookDeliverer) bodyWithTicket(ctx context.Context, raw json.RawMessage) ([]byte, error) {
