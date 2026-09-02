@@ -15,6 +15,15 @@ npm run build    # 产物输出到 .vitepress/dist
 npm run preview  # 预览构建产物
 ```
 
+与产品站同源验收（frontend nginx 反代 `/docs/`，须在仓库根构建）：
+
+```bash
+docker compose --profile frontend --profile docs up -d --build docs
+# 若本机已有 frontend 容器，重建以加载反代：
+docker compose --profile frontend --profile docs up -d --no-deps --build frontend
+# 打开 http://localhost/docs/
+```
+
 主题位于 `.vitepress/theme/`：`style.css` 是排版与配色的单一来源，`Landing.vue` 是首页。
 
 ## 写作约定
@@ -107,7 +116,7 @@ npm run preview  # 预览构建产物
 
 | 文档 | 内容 |
 | --- | --- |
-| [租户、用户与认证授权](03-features/01-tenant-auth.md) | 多租户模型、JWT / API Key / OIDC、RBAC 角色矩阵、组织与共享空间 |
+| [租户、用户与认证授权](03-features/01-tenant-auth.md) | 多租户模型、JWT / API Key / OIDC / NXIN CAS、RBAC 角色矩阵、组织与共享空间 |
 | [知识库与知识管理](03-features/02-knowledge-base.md) | 知识库类型与全部可配置项、树形文件夹、多标签与批量打标、分块编辑与版本历史、自定义元数据、预览安全、复制与移动、活动流、配额 |
 | [文档解析服务 docreader](03-features/03-document-parsing.md) | gRPC 接口、三引擎注册表、解析器矩阵（含 HTML / MHTML / Excel 表头模式）、并发模型、部署与扩容 |
 | [分块机制](03-features/04-chunking.md) | 自适应分块架构（heading/heuristic/recursive）、父子分块、语义边界重叠、ContextHeader、调试端点 |
@@ -136,8 +145,8 @@ npm run preview  # 预览构建产物
 
 | 文档 | 内容 |
 | --- | --- |
-| [API 总览](04-api/01-api-overview.md) | Base URL、三种认证方式、通用响应包与错误码、分页规范、SSE 协议、限流 |
-| [认证与用户](04-api/02-api-auth.md) | /auth 注册登录、token 刷新、邀请 |
+| [API 总览](04-api/01-api-overview.md) | Base URL、JWT / API Key / Embed / NXIN CAS、通用响应包与错误码、分页规范、SSE 协议、限流 |
+| [认证与用户](04-api/02-api-auth.md) | /auth 注册登录、OIDC、NXIN `/cas/validate`、token 刷新、邀请 |
 | [租户与成员](04-api/02-api-tenant.md) | 租户、成员、邀请、API Key、审计 |
 | [组织与共享](04-api/02-api-org.md) | 组织、知识库共享、Agent 共享 |
 | [知识库与知识](04-api/02-api-knowledge.md) | 知识库、知识、文件夹 |

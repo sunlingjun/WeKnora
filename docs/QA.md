@@ -384,12 +384,16 @@ SystemAdmin 可在 **系统管理 → 平台 API Key** 创建 `scope_type=platfo
 该目录同时是一个 VitePress 站点，两种使用方式：
 
 ```bash
-# 本地预览
+# 本地预览（写作）
 cd website-docs && npm install && npm run dev
 
-# 独立容器部署（容器内 Nginx 监听 8081）
-docker build -t weknora-docs website-docs
-docker run -d -p 8081:8081 weknora-docs
+# 同源部署（frontend 反代 /docs/，须在仓库根构建）
+docker compose --profile frontend --profile docs up -d --build docs frontend
+# 打开 http://localhost/docs/
+
+# 独立容器排障（容器内 Nginx 监听 80）
+docker build -f website-docs/Dockerfile -t weknora-docs .
+docker run -d -p 8081:80 weknora-docs
 ```
 
 站点的版本号在构建时自动读取仓库根目录的 `VERSION` 文件，因此升级版本后无需手动改文档。若某处截图显示为虚线占位框，说明 `website-docs/public/screenshots/` 下缺少同名图片，补图即可生效，不需要改 Markdown。

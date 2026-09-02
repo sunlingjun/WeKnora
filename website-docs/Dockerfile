@@ -21,12 +21,13 @@ RUN cd website-docs && npm ci
 COPY website-docs/ website-docs/
 RUN cd website-docs && npm run build
 
-# Align with internal frontend image: stable-alpine + custom entrypoint + bash.
-FROM nginx:stable-alpine AS production-stage
+# Pin the same nginx digest as frontend/Dockerfile. Do NOT use floating
+# nginx:stable-alpine — newer Alpine breaks on old kernels (e.g. CentOS 7).
+FROM nginx:1.30.3-alpine@sha256:0d3b80406a13a767339fbe2f41406d6c7da727ab89cf8fae399e81f780f814d1 AS production-stage
 
 COPY --from=builder /build/website-docs/.vitepress/dist /usr/share/nginx/html
 
-RUN apk add --no-cache bash
+RUN apk add --no-cache bash wget
 
 COPY website-docs/nginx.conf /etc/nginx/conf.d/default.conf
 COPY website-docs/docker-entrypoint.sh /docker-entrypoint.sh

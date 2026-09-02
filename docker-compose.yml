@@ -15,16 +15,43 @@ services:
       # For remote deployment, set this to the remote App's service port.
       - APP_PORT=${APP_BACKEND_PORT:-8080}
       - APP_SCHEME=${APP_SCHEME:-http}
+      - DOCS_HOST=${DOCS_HOST:-docs}
     # NOTE: If using a remote App backend, comment out or remove the depends_on
     # block below and set APP_HOST/APP_BACKEND_PORT/APP_SCHEME in your .env file.
+    # required: false so `--profile frontend --profile docs` can start without
+    # enabling the app profile (docs 同源验收不依赖后端).
     depends_on:
       app:
         condition: service_healthy
+        required: false
     networks:
       - WeKnora-network
     restart: unless-stopped
     profiles:
       - frontend
+
+  # VitePress 文档站。本地：docker compose --profile frontend --profile docs up -d --build
+  # 同源 /docs/ 由 frontend nginx 反代至此；不 depends_on，docs 挂了只影响 /docs/。
+  docs:
+    image: wechatopenai/weknora-docs:${WEKNORA_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: website-docs/Dockerfile
+    container_name: WeKnora-docs
+    # 默认不映射宿主机端口，走 frontend 反代。本地排障可取消注释：
+    # ports:
+    #   - "${DOCS_PORT:-8081}:80"
+    networks:
+      - WeKnora-network
+    restart: unless-stopped
+    profiles:
+      - docs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/docs/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   app:
     image: wechatopenai/weknora-app:${WEKNORA_VERSION:-latest}
