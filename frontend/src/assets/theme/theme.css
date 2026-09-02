@@ -5,7 +5,8 @@
     --td-brand-color-focus: var(--td-brand-color-2);
     --td-brand-color-disabled: var(--td-brand-color-3);
     /* 农信浅色品牌：主色 6 阶 #366ef4，hover 5 阶 #618dff，active 7 阶 #0052d9（2026-09-02 已采用）。
-       不要改成 TDesign 默认的主色 7 阶。见 docs/feature/2026-09-02-品牌色配色决策.md */
+       不要改成 TDesign 默认的主色 7 阶。文件末尾 html:root 会再写一次，避免打包后 TDesign CSS 后加载盖掉。
+       见 docs/feature/2026-09-02-品牌色配色决策.md */
     --td-brand-color-hover: var(--td-brand-color-5);
     --td-brand-color: var(--td-brand-color-6);
     --td-brand-color-active: var(--td-brand-color-7);
@@ -447,4 +448,19 @@ select:-webkit-autofill {
     -webkit-text-fill-color: var(--td-text-color-primary) !important;
     caret-color: var(--td-text-color-primary) !important;
     transition: background-color 5000s ease-in-out 0s;
+}
+
+/*
+ * Vite 生产分包会把 TDesign 默认变量放到晚于 theme.css 的 chunk（实测 zsk.t.nxin.com：
+ * tdesign-icon-offline-*.css 含本文件，main-*.css 含 TDesign :root[theme-mode=light]，后者后加载）。
+ * TDesign 浅色默认 --td-brand-color → 7 阶 #0052d9。选择器必须比 :root[theme-mode=light] 更高，
+ * 且只覆盖品牌语义 token，不要抬高整块 :root（success 曾被抄成蓝阶，抬高后成功色会变蓝）。
+ */
+html:root,
+html:root[theme-mode="light"] {
+    --td-brand-color-hover: var(--td-brand-color-5);
+    --td-brand-color: var(--td-brand-color-6);
+    --td-brand-color-active: var(--td-brand-color-7);
+    --td-text-color-brand: var(--td-brand-color);
+    --td-text-color-link: var(--td-brand-color);
 }
