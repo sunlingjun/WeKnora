@@ -1,5 +1,6 @@
 import { get, post, put } from '../../utils/request';
 import i18n from '@/i18n'
+import { applyStoredAuthHeaders } from '@/utils/casSession'
 
 const t = (key: string) => i18n.global.t(key)
 
@@ -462,24 +463,13 @@ export function testMultimodalFunction(testData: {
         formData.append('chunk_overlap', testData.chunk_overlap.toString());
         formData.append('separators', JSON.stringify(testData.separators));
 
-        // 获取鉴权Token
-        const token = localStorage.getItem('weknora_token');
         const headers: Record<string, string> = {};
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        // 跨空间访问请求头：直接附，避免 short-circuit "selectedTenantId
-        // === defaultTenantId 时不附" 在某些边角下让 header 静默丢失。
-        // 与 utils/request.ts、api/chat/streame.ts 行为一致。
-        const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id');
-        if (selectedTenantId) {
-            headers['X-Tenant-ID'] = selectedTenantId;
-        }
+        applyStoredAuthHeaders(headers);
 
         // 使用原生fetch因为需要发送FormData
         fetch('/api/v1/initialization/multimodal/test', {
             method: 'POST',
+            credentials: 'include',
             headers,
             body: formData
         })

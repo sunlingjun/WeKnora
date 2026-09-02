@@ -53,6 +53,7 @@ import { useRoleLabel } from '@/composables/useRoleLabel'
 import { useAuthStore } from '@/stores/auth'
 import { useCASStore } from '@/stores/cas'
 import { navigateAfterTenantSwitch } from '@/utils/tenantSwitch'
+import { needsCasIdentityReconcile } from '@/utils/casSession'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -142,10 +143,10 @@ async function runFlow() {
     }
     invite.value = lookup.data
 
-    // Already logged in via JWT: skip CAS and go straight to join.
-    // Otherwise validate CAS; validateSession redirects to CAS login with
-    // service=window.location.href (invite token stays in the query).
-    if (!authStore.isLoggedIn) {
+    // NXIN: CAS cookies are HttpOnly, so this page cannot compare them to a
+    // stored JWT. Re-validate once per full page load; after that, use the
+    // current session. Otherwise a leftover JWT could join as the previous user.
+    if (needsCasIdentityReconcile() || !authStore.isLoggedIn) {
       const casOk = await casStore.validateSession()
       if (!casOk) {
         // Redirect already in flight; keep loading UI until unload.
@@ -159,9 +160,9 @@ async function runFlow() {
     }
     const response = await joinByInviteCas(joinPayload)
     if (!response.success || !response.token) {
-      // Stale JWT: request interceptor may clear localStorage but leave Pinia
-      // logged-in, so retry would skip CAS forever. Drop session so retry
-      // (or a follow-up validate) can go through CAS again.
+      // Join failed after CAS validate: interceptor may have cleared
+      // localStorage while Pinia still looks logged-in, so retry would skip
+      // CAS. Drop the session so a retry can validate again.
       if (authStore.isLoggedIn) {
         authStore.logout()
       }

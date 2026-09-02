@@ -37,7 +37,7 @@ func NewCASAuthHandler(
 
 // ValidateCASSession 验证 CAS 会话
 // @Summary      验证 CAS 会话
-// @Description  通过 Cookie 中的 _cas_sid 和 _cas_uid 验证 CAS 登录状态
+// @Description  通过 HttpOnly Cookie（_cas_sid/_cas_uid，测试环境 _cas_t_*）验证 CAS 登录状态并换发 JWT。前端不能读取这些 cookie。
 // @Tags         CAS认证
 // @Accept       json
 // @Produce      json

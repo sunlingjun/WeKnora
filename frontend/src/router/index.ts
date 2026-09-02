@@ -3,6 +3,7 @@ import type { RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCASStore } from '@/stores/cas'
 import { autoSetup, getCurrentUser, userInfoFromApi } from '@/api/auth'
+import { needsCasIdentityReconcile } from '@/utils/casSession'
 
 /** Lite /桌面 WebView 硬刷新时可能只打开 `/`，用 session 记住上次页面以便恢复 */
 const LITE_LAST_PATH_KEY = 'weknora_lite_last_path'
@@ -313,6 +314,21 @@ async function hydrateSessionFromToken(authStore: ReturnType<typeof useAuthStore
 let autoSetupAttempted = false
 let liteDeepLinkRestoreDone = false
 
+async function reconcileCasIdentity(
+  authStore: ReturnType<typeof useAuthStore>,
+  casStore: ReturnType<typeof useCASStore>,
+): Promise<boolean> {
+  // NXIN: CAS cookies are HttpOnly. Each full page load validates once, then
+  // hydrate memberships. SPA navigations reuse that result until reload.
+  if (window.location.href.includes('cas.nxin.com') || window.location.href.includes('cas.t.nxin.com')) {
+    return false
+  }
+  const casValid = await casStore.validateSession()
+  if (!casValid) return false
+  await hydrateSessionFromToken(authStore)
+  return true
+}
+
 // 路由守卫：检查认证状态和系统初始化状态
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
@@ -342,7 +358,13 @@ router.beforeEach(async (to, from, next) => {
   // Tenantless onboarding still requires a valid user token even though it
   // deliberately skips the normal tenant/system-initialization gates.
   if (to.path === '/onboarding/workspace') {
-    if (!authStore.isLoggedIn) {
+    if (needsCasIdentityReconcile()) {
+      const casValid = await reconcileCasIdentity(authStore, casStore)
+      if (!casValid) {
+        next(false)
+        return
+      }
+    } else if (!authStore.isLoggedIn) {
       const restored = await hydrateSessionFromToken(authStore)
       if (!restored) {
         // 未登录：走 CAS，不要落回密码登录页
@@ -378,6 +400,19 @@ router.beforeEach(async (to, from, next) => {
 
   // 检查用户认证状态
   if (to.meta.requiresAuth !== false) {
+    if (needsCasIdentityReconcile()) {
+      const casValid = await reconcileCasIdentity(authStore, casStore)
+      if (!casValid) {
+        next(false)
+        return
+      }
+      if (!authStore.hasValidTenant && to.meta.requiresTenant !== false) {
+        next('/onboarding/workspace')
+        return
+      }
+      next()
+      return
+    }
     if (!authStore.isLoggedIn) {
       const restored = await hydrateSessionFromToken(authStore)
       if (restored) {

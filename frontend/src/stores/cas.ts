@@ -2,13 +2,20 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { validateCASSession } from '@/api/cas'
 import { useAuthStore } from './auth'
+import { markCasIdentityReconciled } from '@/utils/casSession'
 
 export const useCASStore = defineStore('cas', () => {
   const isCASLoggedIn = ref<boolean>(false)
 
   // 判断是否为测试环境（统一的环境判断函数）
   const isTestEnvironment = (): boolean => {
-    return import.meta.env.VITE_CAS_ENV === 'test' || window.location.hostname.includes('.t.')
+    const host = window.location.hostname
+    return (
+      import.meta.env.VITE_CAS_ENV === 'test' ||
+      host.includes('.t.') ||
+      host === 'localhost' ||
+      host === '127.0.0.1'
+    )
   }
 
   // 跳转到 CAS 登录页面（提取为独立函数，便于复用）
@@ -21,9 +28,8 @@ export const useCASStore = defineStore('cas', () => {
     window.location.href = casLoginUrl
   }
 
-  // 验证 CAS 会话
-  // 简化逻辑：直接调用服务端验证 API，由服务端判断是否需要跳转
-  // Cookie 会自动通过 withCredentials: true 携带到服务端
+  // 验证 CAS 会话。Cookie 为 HttpOnly，由浏览器自动带上；本函数不读 cookie。
+  // 路由守卫每个整页刷新调用一次，成功后才允许请求带本地 JWT。
   const validateSession = async () => {
     console.log("开始 CAS 会话验证（直接调用服务端 API）...")
     
@@ -42,6 +48,11 @@ export const useCASStore = defineStore('cas', () => {
       if (response.code === 0 && response.data) {
         // 登录成功，更新 Auth Store（与原有登录逻辑一致）
         const authStore = useAuthStore()
+        const nextUserId = response.data.user?.id || ''
+        if (authStore.user?.id && nextUserId && authStore.user.id !== nextUserId) {
+          // CAS 换账号：丢掉上一用户的 JWT / 空间选择，避免权限串号
+          authStore.logout()
+        }
         
         // 设置用户信息（格式与原有登录 API 一致）
         if (response.data.user) {
@@ -77,17 +88,19 @@ export const useCASStore = defineStore('cas', () => {
         }
         
         isCASLoggedIn.value = true
+        markCasIdentityReconciled()
         console.log("CAS 验证成功，Token 已保存")
         return true
       } else {
         // 验证失败（code !== 0），跳转到 CAS 登录页面
         console.log("CAS validation failed with response code:", response.code, "msg:", response.msg)
+        useAuthStore().logout()
         redirectToCASLogin()
         return false
       }
     } catch (error) {
       console.error('CAS session validation failed:', error)
-      // 验证失败，跳转到 CAS 登录页面
+      useAuthStore().logout()
       redirectToCASLogin()
       return false
     }

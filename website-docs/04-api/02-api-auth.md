@@ -143,6 +143,20 @@ curl "$BASE/api/v1/auth/oidc/url?redirect_uri=https://app.example.com/callback"
 curl -i "$BASE/api/v1/auth/oidc/callback?code=xxx&state=yyy"
 ```
 
+### GET /api/v1/cas/validate
+
+用途：NXIN 农信 CAS。用浏览器自动携带的 `_cas_sid` / `_cas_uid`（测试环境 `_cas_t_sid` / `_cas_t_uid`）校验企业会话并换发本地 JWT。免认证白名单。Cookie 为 HttpOnly，不要用 JS 读取。Handler: `internal/handler/cas_auth.go`
+
+无请求体。浏览器须 `credentials: include`（axios 实例已开 `withCredentials`）。
+
+成功：200 `{"code":0,"data":{"user":{...},"tenant":{...},"token":"...","refresh_token":"..."},"msg":""}`
+
+缺少 cookie 或 CAS 校验失败：401 `{"code":10011,"exception":"please to login","msg":"..."}`
+
+```bash
+curl -b '_cas_t_sid=<sid>; _cas_t_uid=<uid>' $BASE/api/v1/cas/validate
+```
+
 ### POST /api/v1/auth/refresh
 
 用途：用 refresh token 换发新 token。免认证。Handler: `internal/handler/auth.go`

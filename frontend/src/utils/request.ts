@@ -1,8 +1,9 @@
-// src/utils/request.js
+// src/utils/request.ts
 import axios from "axios";
 import { generateRandomString, MAX_FILE_SIZE_MB } from "./index";
 import i18n from '@/i18n'
 import { getApiBaseUrl } from './api-base';
+import { applyStoredAuthHeaders, needsCasIdentityReconcile } from './casSession'
 
 const t = (key: string) => i18n.global.t(key)
 
@@ -34,33 +35,13 @@ instance.interceptors.request.use(
     const isEmbedAuth = typeof existingAuth === 'string' && existingAuth.startsWith('Embed ');
     const isEmbedPath = typeof config.url === 'string' && config.url.includes('/api/v1/embed/');
 
-    // 嵌入渠道使用 Embed token；勿用本地 JWT 覆盖（否则调试页会 401）
+    // 嵌入渠道使用 Embed token；勿用本地 JWT 覆盖（否则调试页会 401）。
+    // NXIN：本页 CAS reconcile 完成前 applyStoredAuthHeaders 不会附带 leftover JWT。
     if (!isEmbedAuth) {
-      const token = localStorage.getItem('weknora_token');
-      if (token) {
-        config.headers["Authorization"] = `Bearer ${token}`;
-      }
+      applyStoredAuthHeaders(config.headers as Record<string, string>, { includeTenant: !isEmbedPath })
     }
-    
-    // 添加用户语言偏好
+
     config.headers["Accept-Language"] = getCurrentLanguage();
-    
-    // 添加跨空间访问请求头：只要 setSelectedTenant 写过激活空间，
-    // 每个请求都要附 X-Tenant-ID。早期版本会 short-circuit
-    // "selectedTenantId === defaultTenantId 时不附"以减少 header 体积，
-    // 但这条优化会被任何把 weknora_tenant 写成激活空间的代码（OIDC
-    // 回调、UserMenu loadUserInfo、router hydrate）触发，导致后续请求
-    // 静默丢失 header，前端"切换了"但实际仍跑在 home 空间里——把"切
-    // 换之后只有第一批请求带 X-Tenant-ID"调成永久状态。
-    // 后端 IsTenantAccessible 已经允许 header 指向 home 空间（自家），
-    // 所以无脑附不会引入新风险。
-    if (!isEmbedAuth && !isEmbedPath) {
-      const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id');
-      if (selectedTenantId) {
-        config.headers["X-Tenant-ID"] = selectedTenantId;
-      }
-    }
-    
     config.headers["X-Request-ID"] = `${generateRandomString(12)}`;
     return config;
   },
@@ -156,6 +137,22 @@ instance.interceptors.response.use(
 
     // 如果是401错误且不是刷新token的请求，尝试刷新token
     if (error.response.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/refresh')) {
+      // NXIN: this page load has not finished CAS reconcile. Refreshing the
+      // leftover JWT would keep the previous user. Clear the session and
+      // send the browser through CAS again.
+      if (needsCasIdentityReconcile()) {
+        try {
+          const { useAuthStore } = await import('../stores/auth')
+          useAuthStore().logout()
+        } catch {
+          localStorage.removeItem('weknora_token')
+          localStorage.removeItem('weknora_refresh_token')
+          localStorage.removeItem('weknora_user')
+          localStorage.removeItem('weknora_tenant')
+        }
+        redirectToLogin();
+        return Promise.reject({ message: t('error.pleaseRelogin') });
+      }
       if (isRefreshing) {
         // 如果正在刷新token，将请求加入队列
         return new Promise((resolve, reject) => {

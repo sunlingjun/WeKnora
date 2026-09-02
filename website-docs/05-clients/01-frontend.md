@@ -180,10 +180,11 @@ flowchart TB
 
 1. **OIDC 回调放行**：URL hash 含 `oidc_result=` / `oidc_error=` 时直接放行，交由 `App.vue` 消费；
 2. **Lite / 桌面端深链恢复**：Lite 模式硬刷新落在默认首页时，从 `sessionStorage` 恢复上次访问的 `/platform` 子路径；
-3. **会话恢复**：未登录时先用 `localStorage` 中的 `weknora_token` 调 `getCurrentUser()` 恢复会话（同时刷新 memberships，避免角色变更滞后）；
-4. **Lite 自动登录**：恢复失败则尝试一次 `autoSetup()`（单机版免登录），失败会在 `localStorage` 打标避免重复尝试；
-5. **租户门槛**：已登录但无有效租户 → 跳 `/onboarding/workspace`；
-6. **SystemAdmin 门槛**：`requiresSystemAdmin` 路由对非系统管理员跳回知识库列表（仅 UI 层拦截，服务端另有强校验）。
+3. **NXIN CAS 身份对齐**（`*.nxin.com`）：CAS 的 `_cas_sid` / `_cas_uid` 为 HttpOnly，前端不能拿 cookie 和 JWT 对比。每个**整页刷新**先调 `GET /api/v1/cas/validate` 换发与当前 cookie 一致的 JWT（`stores/cas.ts` + `utils/casSession.ts`）；校验完成前 axios / SSE / 文件代理都不带本地 Bearer。同页 SPA 跳转不再重复校验，换账号后需刷新；服务端仍会在 JWT 与 cookie uid 冲突时忽略 JWT。校验失败会清掉残留 JWT 再跳 CAS 登录。
+4. **会话恢复**：未登录时先用 `localStorage` 中的 `weknora_token` 调 `getCurrentUser()` 恢复会话（同时刷新 memberships，避免角色变更滞后）；
+5. **Lite 自动登录**：恢复失败则尝试一次 `autoSetup()`（单机版免登录），失败会在 `localStorage` 打标避免重复尝试；
+6. **租户门槛**：已登录但无有效租户 → 跳 `/onboarding/workspace`；
+7. **SystemAdmin 门槛**：`requiresSystemAdmin` 路由对非系统管理员跳回知识库列表（仅 UI 层拦截，服务端另有强校验）。
 
 ## 状态管理（Pinia）
 
@@ -192,6 +193,7 @@ flowchart TB
 | 文件 | Store ID / 类型 | 职责 |
 | --- | --- | --- |
 | `stores/auth.ts` | `useAuthStore` | 认证核心：user / token / refreshToken / tenant / memberships / 角色判断（`hasRole`、`isSystemAdmin`）、Lite 模式标记；登出时级联清理其他 store 的空间级缓存并按用户重载偏好（主题/字体） |
+| `stores/cas.ts` | `useCASStore` | NXIN CAS：`validateSession` 调 `/api/v1/cas/validate`（cookie 自动携带），成功后写入 JWT；换用户时先 `authStore.logout()` |
 | `stores/chatResources.ts` | `useChatResourcesStore` | 空间级资源缓存（TTL 60s）：知识库、Agent、模型、Web 搜索 provider 列表，供聊天/新建对话选择器复用 |
 | `stores/editorResources.ts` | `useEditorResourcesStore` | 编辑器/设置相关资源缓存（TTL 60s）：存储引擎配置与状态、Prompt 模板、解析引擎、系统信息、MCP 服务、Skill、Agent 类型预设、检索配置 |
 | `stores/commandPalette.ts` | `useCommandPaletteStore` | 全局命令面板（⌘K / Ctrl+K）开关与查询；最近搜索按 (user, tenant) 作用域存储避免跨账号泄漏 |
@@ -209,9 +211,9 @@ flowchart TB
 
 ### 请求基座
 
-- **axios 实例**：`frontend/src/utils/request.ts` 创建统一实例（`baseURL` 来自 `frontend/src/utils/api-base.ts` 的 `getApiBaseUrl()`，尊重 Vite `BASE_URL` 以支持子路径反代部署；超时 30s）。
-- **请求拦截器**：自动附加 `Authorization: Bearer <weknora_token>`（Embed 渠道的 `Embed ` token 不被覆盖）、`Accept-Language`（当前 i18n 语言）、`X-Request-ID`（随机串）、`X-Tenant-ID`（跨空间访问，始终携带激活空间 id 以避免切空间后 header 丢失）。
-- **响应拦截器**：2xx 解包返回 `data`；401 触发单飞（single-flight）refresh token 刷新，失败队列重放；公开端点（`/auth/login`、`/auth/auto-setup`、`/auth/invitations/lookup`、`/api/v1/embed/` 等 `PUBLIC_AUTH_PATHS`）的 401 直接抛给页面而不跳登录；Embed 页面永不重定向到 `/login`。
+- **axios 实例**：`frontend/src/utils/request.ts` 创建统一实例（`baseURL` 来自 `frontend/src/utils/api-base.ts` 的 `getApiBaseUrl()`，尊重 Vite `BASE_URL` 以支持子路径反代部署；超时 30s；`withCredentials: true` 以便携带 CAS cookie）。NXIN 身份对齐见 `frontend/src/utils/casSession.ts`。
+- **请求拦截器**：自动附加 `Authorization: Bearer <weknora_token>`（Embed 渠道的 `Embed ` token 不被覆盖；NXIN 在本页 CAS 校验完成前不附带本地 JWT，避免旧身份抢过 cookie）、`Accept-Language`（当前 i18n 语言）、`X-Request-ID`（随机串）、`X-Tenant-ID`（跨空间访问，始终携带激活空间 id 以避免切空间后 header 丢失）。SSE（`api/chat/streame.ts`）与受保护文件代理（`utils/protectedFileAccess.ts`）走同一套 `applyStoredAuthHeaders`。
+- **响应拦截器**：2xx 解包返回 `data`；401 触发单飞（single-flight）refresh token 刷新，失败队列重放；若本页尚未完成 CAS 校验则不清 refresh、直接 logout 回 CAS。公开端点（`/auth/login`、`/auth/auto-setup`、`/auth/invitations/lookup`、`/api/v1/embed/`、`/api/v1/cas/` 等 `PUBLIC_AUTH_PATHS`）的 401 直接抛给页面而不跳登录；Embed 页面永不重定向到 `/login`。
 - **SSE 流式**：`frontend/src/api/chat/streame.ts` 基于 `@microsoft/fetch-event-source` 封装 `useStream()`，支持流式输出、加载态、错误态与请求调试元数据；上层由 `frontend/src/composables/useChatStreamHandler.ts` 组织为聊天消息流。
 
 ### 模块清单
@@ -219,6 +221,7 @@ flowchart TB
 | 模块 | 职责 |
 | --- | --- |
 | `api/auth/` | 登录、注册、OIDC、`autoSetup`（Lite 免登录）、`getCurrentUser` 会话恢复 |
+| `api/cas/` | NXIN：`GET /api/v1/cas/validate`（Cookie 自动携带，换发 JWT） |
 | `api/tenant/`（`index` / `members` / `invitations` / `audit-log`） | 租户（工作空间）信息、成员管理、邀请、审计日志 |
 | `api/organization/` | 组织 CRUD、成员、共享知识库/Agent、加入申请 |
 | `api/knowledge-base/` | 知识库 CRUD 与文件/知识条目管理 |

@@ -33,9 +33,8 @@ export interface CASValidateResponse {
   msg: string
 }
 
-// 验证 CAS 会话
-// 注意：_cas_sid 和 _cas_uid 通过 Cookie 自动传递，无需手动设置
-// withCredentials 已在 axios 实例中配置
+// 验证 CAS 会话。Cookie（_cas_sid / _cas_uid）为 HttpOnly，浏览器自动携带，
+// 前端不要读 document.cookie。withCredentials 已在 axios 实例中开启。
 export function validateCASSession(): Promise<CASValidateResponse> {
   return get('/api/v1/cas/validate') as unknown as Promise<CASValidateResponse>
 }

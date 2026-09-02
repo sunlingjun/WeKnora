@@ -153,6 +153,8 @@ curl -s -X POST $BASE/knowledge-search -H "$AUTH" -H "Content-Type: application/
 | API Key | `X-API-Key: <key>` | 服务端集成；在「空间设置」或 `POST /api/v1/tenants/:id/api-keys` 创建，支持细粒度能力（`retrieve`/`chat`/`ingest`/`manage_kbs` 等） |
 | 指定空间 | `X-Tenant-ID: <id>` | 多空间用户切换当前工作空间 |
 
+NXIN 浏览器会话另走农信 CAS（HttpOnly cookie + `GET /api/v1/cas/validate` 换发 JWT）。JWT 与 cookie uid 冲突时服务端忽略 JWT，见[租户认证 §5.5](../03-features/01-tenant-auth.md)。
+
 服务端集成建议用 API Key 而不是 JWT：
 
 ```bash

@@ -19,7 +19,7 @@
 
 四个角色能做什么，一句话版本：Viewer 只能看和问，Contributor 可以建库和传文档，Admin 管成员和空间设置，Owner 额外能删空间和转让。完整矩阵见下文 RBAC 章节。
 
-技术上，认证支持密码登录、OIDC 单点登录与 API Key 三种主体；授权由空间内 RBAC 角色阶梯 + 资源所有权（ownership）+ API Key 能力（capability）三套正交机制共同实现，下面逐层展开。
+技术上，认证支持密码登录、OIDC 单点登录、NXIN 农信 CAS（浏览器 Cookie + 本地 JWT）与 API Key；授权由空间内 RBAC 角色阶梯 + 资源所有权（ownership）+ API Key 能力（capability）三套正交机制共同实现，下面逐层展开。
 
 ## 概念总览
 
@@ -443,6 +443,18 @@ sequenceDiagram
     W-->>B: LoginResponse {user, memberships, token, refresh_token, is_new_user}
 ```
 
+## 5.5 NXIN CAS（农信部署）
+
+农信域名（`*.nxin.com`）用企业 CAS 登录，不走密码页。Cookie `_cas_sid` / `_cas_uid`（测试环境 `_cas_t_sid` / `_cas_t_uid`）由 CAS 域写入且为 **HttpOnly**，前端不能读取，也不能拿 cookie 和 localStorage 里的 JWT 对比。
+
+对齐规则（与 [API 总览](../04-api/01-api-overview.md) 一致）：
+
+- **换发 JWT**：每个整页刷新先调白名单接口 `GET /api/v1/cas/validate`（cookie 自动携带），成功后写入新的 `token` / `refresh_token`。校验完成前 axios / SSE / 文件代理都不带本地 Bearer。
+- **冲突忽略**：业务请求若同时带有效 JWT 和 CAS uid cookie，且 cookie 与该用户 `cas_user_id` 不一致，Auth 中间件**忽略这份 JWT**，改试 API Key / CAS cookie 通道。没有 CAS cookie 不算冲突（纯 Bearer / API 客户端继续可用）。
+- **SPA 不刷新**：同页路由跳转不再重复 validate；另开标签换了 CAS 账号后须刷新本页。未刷新时安全仍靠后端忽略冲突 JWT。
+
+相关代码：`internal/handler/cas_auth.go`、`internal/middleware/auth.go`（`jwtIdentityConflictsWithCASCookie` / `tryNXINCASAuth`）、`frontend/src/utils/casSession.ts`、`frontend/src/stores/cas.ts`。配置开关：`auth.nxin_cas_auth.enabled`。
+
 ## 6. RBAC：角色、所有权与守卫矩阵
 
 授权由三套正交机制组成，全部汇聚在 `internal/router/rbac.go` 的 `rbacGuards` 中：
@@ -645,6 +657,7 @@ flowchart LR
 | `JWT_SECRET`（环境变量） | 任意字符串 | 随机 32 字节 | JWT HMAC 密钥 |
 | `SYSTEM_AES_KEY`（环境变量） | AES 密钥 | 未设置 | API Key 明文落库加密 |
 | `oidc.*` | 见 §5.1 | 关闭 | OIDC 单点登录 |
+| `auth.nxin_cas_auth.enabled` | `true` / `false` | 视部署 | NXIN：JWT/API Key 未采纳后用 CAS cookie 兜底 |
 | `frontend_base_url` / `FRONTEND_BASE_URL` | URL | 相对路径 | 邀请链接注册页地址 |
 | `Tenant.StorageQuota` | 字节 | 10737418240（10GB） | 租户存储配额 |
 
@@ -665,6 +678,7 @@ flowchart LR
 | 成员 / 邀请 / 邀请链接 Handler | `internal/handler/tenant_member.go`、`tenant_invitation.go`、`tenant_invite_link.go` |
 | 组织 Handler | `internal/handler/organization.go` |
 | JWT / OIDC / 用户服务 | `internal/application/service/user.go` |
+| NXIN CAS Handler / 身份冲突 | `internal/handler/cas_auth.go`、`internal/middleware/auth.go` |
 | 组织 / KB 共享服务 | `internal/application/service/organization.go`、`kbshare.go` |
 | RBAC 中间件 | `internal/middleware/rbac.go` |
 | RBAC 路由守卫矩阵 | `internal/router/rbac.go` |

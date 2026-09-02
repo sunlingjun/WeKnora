@@ -149,15 +149,20 @@ func attachTenantlessUserContext(c *gin.Context, user *types.User) {
 	})
 }
 
-// Auth 认证中间件。按顺序尝试三条通道：
+// Auth 认证中间件。按顺序尝试：
 //
 //  1. 白名单（isNoAuthAPI）/ OPTIONS 预检 —— 直接放行；
 //  2. Bearer JWT —— 成功则走 authenticateJWTUser 完成空间/角色解析；
 //     校验失败不立即拒绝，继续尝试 X-API-Key（保持既有兼容行为：
 //     携带过期 JWT 但同时带有效 API key 的客户端仍可通过）；
+//     若请求同时带了 CAS uid cookie 且与 JWT 用户的 cas_user_id 不一致，
+//     忽略该 JWT（换账号后本地 token 未刷新），改走后续通道。
+//     没有 CAS cookie 不算冲突：纯 Bearer / API 客户端继续可用。
 //  3. X-API-Key —— authenticateAPIKeyRequest。
+//  4. 可选 nxin_cas_auth（tryNXINCASAuth）—— 用 CAS sid/uid cookie
+//     校验并绑定本地用户。仅浏览器会话兜底；GET /cas/validate 本身在白名单。
 //
-// 三条通道都未命中时返回 401；若调用方提交过 Bearer token，错误消息
+// 各通道都未命中时返回 401；若调用方提交过 Bearer token，错误消息
 // 明确指出 token 无效而不是笼统的 "missing authentication"，方便客户端
 // 区分「没登录」和「登录态过期」。
 func Auth(
@@ -188,12 +193,19 @@ func Auth(
 			bearerPresented = true
 			user, jwtTenantID, err := userService.ValidateToken(c.Request.Context(), token)
 			if err == nil && user != nil {
-				if authenticateJWTUser(c, tenantService, memberService, cfg, user, jwtTenantID) {
-					c.Next()
+				if jwtIdentityConflictsWithCASCookie(c, cfg, user) {
+					logger.Warnf(c.Request.Context(),
+						"[auth] bearer token user %s cas_user_id=%s conflicts with CAS cookie, ignoring JWT",
+						user.ID, user.CASUserID)
+				} else {
+					if authenticateJWTUser(c, tenantService, memberService, cfg, user, jwtTenantID) {
+						c.Next()
+					}
+					return
 				}
-				return
+			} else {
+				logger.Warnf(c.Request.Context(), "[auth] bearer token rejected: %v", err)
 			}
-			logger.Warnf(c.Request.Context(), "[auth] bearer token rejected: %v", err)
 		}
 
 		// 尝试X-API-Key认证（兼容模式）
@@ -230,6 +242,25 @@ func bearerToken(c *gin.Context) (string, bool) {
 		return "", false
 	}
 	return strings.TrimPrefix(authHeader, "Bearer "), true
+}
+
+// jwtIdentityConflictsWithCASCookie reports that a still-valid JWT belongs
+// to a different CAS user than the cookies on this request. Local password
+// users have an empty cas_user_id and never conflict; a missing cookie is
+// also not a conflict so API clients that only send Bearer keep working.
+func jwtIdentityConflictsWithCASCookie(c *gin.Context, cfg *config.Config, user *types.User) bool {
+	if c == nil || user == nil || user.CASUserID == "" || cfg == nil || cfg.CAS == nil {
+		return false
+	}
+	casEnv := cfg.CAS.GetCurrentConfig()
+	if casEnv == nil || casEnv.CookieUID == "" {
+		return false
+	}
+	casUID, err := c.Cookie(casEnv.CookieUID)
+	if err != nil || casUID == "" {
+		return false
+	}
+	return casUID != user.CASUserID
 }
 
 // authenticateJWTUser finishes authentication for a validated JWT user:

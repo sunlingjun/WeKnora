@@ -23,9 +23,10 @@ BASE=http://localhost:8080
 Authorization: Bearer <access_token>
 ```
 
-- 通过 `POST /api/v1/auth/login`（或 register / auto-setup / OIDC）获得 `token` 与 `refresh_token`；`POST /api/v1/auth/refresh` 换发新 token。
+- 通过 `POST /api/v1/auth/login`（或 register / auto-setup / OIDC / NXIN `GET /api/v1/cas/validate`）获得 `token` 与 `refresh_token`；`POST /api/v1/auth/refresh` 换发新 token。
 - 可选请求头 `X-Tenant-ID: <tenant_id>`：在 JWT 指向的空间之外切换目标空间（须为该空间活跃成员，或具备 `CanAccessAllTenants` 跨空间超管属性）。畸形或 `0` 值直接返回 400。
 - 若 JWT 未解析出任何空间且接口非“无空间可用”白名单（如 `/auth/me`、`/me/invitations` 等），返回 409 `{"code":"TENANT_REQUIRED"}`。
+- NXIN：请求同时带 CAS uid cookie 时，若 cookie 值与该 JWT 用户的 `cas_user_id` 不一致，中间件**忽略这份 JWT**（不按旧用户鉴权），改试 API Key / CAS cookie 通道。没有 CAS cookie 时不拒绝 JWT，以免纯 Bearer 调用失败。
 
 ### 2. API Key（机器主体）
 
@@ -53,14 +54,20 @@ Authorization: Embed <publish_token 或 session_token>
 - `POST /embed/:channel_id/exchange` 用 publish token 换取短时效 session token；会话级操作还需 `X-Embed-Session: <sig>`（创建会话时返回的签名句柄）。
 - IM 回调路由（`/api/v1/im/callback/:channel_id`）注册在全局认证中间件之前，使用各 IM 平台自身的签名验证。
 
+### 4. NXIN CAS Cookie（浏览器会话兜底）
+
+配置 `auth.nxin_cas_auth.enabled` 时，在 JWT / API Key 都未采纳后，可用 `_cas_sid` / `_cas_uid`（测试环境为 `_cas_t_sid` / `_cas_t_uid`）校验农信 CAS 会话并绑定本地用户。Cookie 由 CAS 域写入且为 HttpOnly，前端不能读取；Web 端每个整页刷新会先调白名单接口 `GET /api/v1/cas/validate` 换发与当前 cookie 一致的 JWT。
+
 ### 认证流程图
 
 ```mermaid
 flowchart TD
-    A["客户端请求"] --> B{"路径在免认证白名单?<br/>(login/register/oidc/presigned...)"}
+    A["客户端请求"] --> B{"路径在免认证白名单?<br/>(login/register/oidc/cas/validate/presigned...)"}
     B -- "是" --> H["直接进入 Handler"]
     B -- "否" --> C{"Authorization: Bearer <JWT>?"}
-    C -- "有效" --> D{"X-Tenant-ID 请求头?"}
+    C -- "有效" --> C2{"CAS uid cookie 与 JWT cas_user_id 冲突?"}
+    C2 -- "是：忽略 JWT" --> K
+    C2 -- "否 / 无 cookie" --> D{"X-Tenant-ID 请求头?"}
     D -- "无" --> E["使用 JWT 内 tenant_id"]
     D -- "有" --> F{"IsTenantAccessible?<br/>(成员/跨空间超管)"}
     F -- "否" --> G["403 Forbidden"]
@@ -69,7 +76,6 @@ flowchart TD
     R -- "无角色且 RBAC 强制" --> G
     R -- "得到角色" --> P["注入 tenant/user/role 上下文"]
     C -- "无/无效" --> K{"X-API-Key?"}
-    K -- "无" --> U["401 Unauthorized"]
     K -- "有" --> L{"key 类型"}
     L -- "platform key" --> M{"X-Tenant-ID?"}
     M -- "缺失且非平台白名单路由" --> V["409 TENANT_REQUIRED"]
@@ -77,6 +83,9 @@ flowchart TD
     L -- "workspace key" --> N{"X-Tenant-ID 与 key 空间一致?"}
     N -- "不一致" --> G
     N -- "一致/未携带" --> P3["注入空间机器主体<br/>(可选外部用户主体 Header)"]
+    K -- "无" --> CAS{"nxin_cas_auth 且 cookie 有效?"}
+    CAS -- "是" --> P
+    CAS -- "否" --> U["401 Unauthorized"]
     P --> Q["RBAC 角色守卫 (rbac.go)"]
     P2 --> S["APIKeyGate: 路由策略<br/>(full_access / capability / KB 白名单, 默认拒绝)"]
     P3 --> S
@@ -214,7 +223,7 @@ X-Accel-Buffering: no
 
 | 分组 | 文档 | 主要前缀 |
 | --- | --- | --- |
-| 认证与用户 | [02-api-auth.md](./02-api-auth.md) | `/auth`、`/me/invitations` |
+| 认证与用户 | [02-api-auth.md](./02-api-auth.md) | `/auth`、`/cas/validate`、`/me/invitations` |
 | 租户（空间）与成员 | [02-api-tenant.md](./02-api-tenant.md) | `/tenants` |
 | 组织与共享 | [02-api-org.md](./02-api-org.md) | `/organizations`、`/shared-*`、`/knowledge-bases/:id/shares`、`/agents/:id/shares` |
 | 知识库与知识 | [02-api-knowledge.md](./02-api-knowledge.md) | `/knowledge-bases`、`/knowledge`、知识库文件夹 |

@@ -11,6 +11,7 @@ import { BUILTIN_QUICK_ANSWER_ID } from '@/api/agent'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useOrganizationStore } from '@/stores/organization'
+import { clearStaleCasCookieBinding } from '@/utils/casSession'
 
 /** 登出时丢弃 Pinia 内的空间级资源缓存，避免 SPA 重登复用上一账号数据。 */
 function clearSessionResourceCaches() {
@@ -414,6 +415,8 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('weknora_selected_tenant_name')
     localStorage.removeItem('weknora_memberships')
     localStorage.removeItem('weknora_lite_mode')
+    // 清理早期「把 CAS cookie 绑到 JWT」方案留下的 key（现已不再写入）
+    clearStaleCasCookieBinding()
     isLiteMode.value = false
     try {
       sessionStorage.removeItem('weknora_lite_last_path')
