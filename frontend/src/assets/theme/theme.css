@@ -1,12 +1,14 @@
 :root,
 :root[theme-mode="light"] {
-    --brand-main: var(--td-brand-color-4);
+    --brand-main: var(--td-brand-color-5);
     --td-brand-color-light: var(--td-brand-color-1);
     --td-brand-color-focus: var(--td-brand-color-2);
     --td-brand-color-disabled: var(--td-brand-color-3);
-    --td-brand-color-hover: var(--td-brand-color-3);
-    --td-brand-color: var(--td-brand-color-5);
-    --td-brand-color-active: var(--td-brand-color-6);
+    /* 农信浅色品牌：主色 6 阶 #366ef4，hover 5 阶 #618dff，active 7 阶 #0052d9（2026-09-02 已采用）。
+       不要改成 TDesign 默认的主色 7 阶。见 docs/feature/2026-09-02-品牌色配色决策.md */
+    --td-brand-color-hover: var(--td-brand-color-5);
+    --td-brand-color: var(--td-brand-color-6);
+    --td-brand-color-active: var(--td-brand-color-7);
     --td-brand-color-1: #f2f3ff;
     --td-brand-color-2: #d9e1ff;
     --td-brand-color-3: #b5c7ff;

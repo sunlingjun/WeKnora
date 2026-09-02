@@ -1,6 +1,6 @@
 import type { Router } from 'vue-router'
 import type { Composer } from 'vue-i18n'
-import { openNewUserGuide } from '@/config/contextualGuides'
+import { openNewUserGuide, USER_GUIDES_ENABLED } from '@/config/contextualGuides'
 
 /**
  * A single command that can be searched and invoked from the palette.
@@ -32,7 +32,7 @@ export interface CommandContext {
  */
 export function buildCommands(ctx: CommandContext): CmdkCommand[] {
   const { router, t, close } = ctx
-  return [
+  const commands: CmdkCommand[] = [
     {
       id: 'new-chat',
       label: t('commandPalette.quick.newChat'),
@@ -83,7 +83,9 @@ export function buildCommands(ctx: CommandContext): CmdkCommand[] {
         router.push('/platform/settings')
       },
     },
-    {
+  ]
+  if (USER_GUIDES_ENABLED) {
+    commands.push({
       id: 'open-product-tour',
       label: t('commandPalette.quick.productTour'),
       icon: 'help-circle',
@@ -92,8 +94,9 @@ export function buildCommands(ctx: CommandContext): CmdkCommand[] {
         close()
         openNewUserGuide()
       },
-    },
-  ]
+    })
+  }
+  return commands
 }
 
 /**
