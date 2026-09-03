@@ -16,6 +16,9 @@ var databaseQueryTool = BaseTool{
 	name: ToolDatabaseQuery,
 	description: `Execute SQL queries to retrieve information from the database.
 
+## Prefer for catalog / inventory
+When the user asks what documents/knowledge exist in a KB (list/count titles, types, status), use this tool on knowledges (title, file_type, parse_status, enable_status) instead of list_knowledge_chunks. Do not SELECT large chunk content for listing.
+
 ## Security Features
 - Automatic tenant_id injection: All queries are automatically filtered by the logged-in user's tenant_id
 - Automatic soft-delete filtering: All queries are automatically filtered to include only records with deleted_at IS NULL
@@ -290,6 +293,7 @@ func searchScopesFromTargets(searchTargets types.SearchTargets) []utils.SearchSc
 		}
 		scopes = append(scopes, utils.SearchScope{
 			KnowledgeBaseID: target.KnowledgeBaseID,
+			TenantID:        target.TenantID,
 			KnowledgeIDs:    knowledgeIDs,
 			TagIDs:          tagIDs,
 		})

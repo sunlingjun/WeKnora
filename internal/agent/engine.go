@@ -197,6 +197,7 @@ func (e *AgentEngine) Execute(
 ) (*types.AgentState, error) {
 	logger.Infof(ctx, "[Agent] Starting execution: session=%s, message=%s, query_len=%d, context_msgs=%d",
 		sessionID, messageID, len(query), len(llmContext))
+	ctx = agenttools.WithUserQuery(ctx, query)
 	// Ensure tools are cleaned up after execution
 	defer e.toolRegistry.Cleanup(ctx)
 
@@ -276,12 +277,22 @@ func (e *AgentEngine) Execute(
 	_, err := e.executeLoop(ctx, state, query, messages, tools, sessionID, messageID)
 	if err != nil {
 		logger.Errorf(ctx, "[Agent] Execution failed: %v", err)
+		// Content-policy refusals are answered in the reply body — never as EventError
+		// (which the UI surfaces as a toast with the raw provider payload).
+		if isContentPolicyError(err) {
+			if strings.TrimSpace(state.FinalAnswer) == "" {
+				e.recoverFromContentPolicy(ctx, query, state, sessionID)
+			}
+			state.IsComplete = true
+			finishAgentSpan(agentSpan, state, nil)
+			return state, nil
+		}
 		e.eventBus.Emit(ctx, event.Event{
 			ID:        generateEventID("error"),
 			Type:      event.EventError,
 			SessionID: sessionID,
 			Data: event.ErrorData{
-				Error:     err.Error(),
+				Error:     userFacingAgentError(err),
 				Stage:     "agent_execution",
 				SessionID: sessionID,
 			},

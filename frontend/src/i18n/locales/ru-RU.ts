@@ -2522,6 +2522,8 @@ export default {
     missingKbId: 'Отсутствует ID базы знаний',
     tokenNotFound: 'Токен входа не найден, войдите снова',
     streamFailed: 'Ошибка потокового соединения',
+    contentPolicyBlocked:
+      'Глубокое чтение больших таблиц или длинных документов может быть ограничено политикой безопасности модели. Запросите список документов или сузьте вопрос до одного документа.',
     initialization: {
       checkFailed: 'Проверка не пройдена',
       testFailed: 'Тест не пройден'
@@ -4510,6 +4512,7 @@ export default {
     login: 'Вход',
     logout: 'Выход',
     oidcLogin: 'Войти через OIDC',
+    casLogin: 'Войти через аккаунт NXIN',
     oidcLoginWithProvider: 'Войти через {provider}',
     redirectingToOIDC: 'Перенаправление к поставщику удостоверений...',
     orContinueWith: 'Или продолжить с помощью',

@@ -2522,6 +2522,8 @@ export default {
     missingKbId: '지식베이스 ID가 누락되었습니다',
     tokenNotFound: '로그인 토큰을 찾을 수 없습니다. 다시 로그인해주세요',
     streamFailed: '스트림 연결 실패',
+    contentPolicyBlocked:
+      '대용량 표/긴 문서 본문을 계속 읽으면 모델 콘텐츠 보안 정책으로 완전한 답변이 제한될 수 있습니다. 문서 목록을 묻거나 단일 문서로 범위를 좁혀 주세요.',
     initialization: {
       checkFailed: '검사 실패',
       testFailed: '테스트 실패'
@@ -4510,6 +4512,7 @@ export default {
     login: '로그인',
     logout: '로그아웃',
     oidcLogin: 'OIDC로 로그인',
+    casLogin: '농신 계정으로 로그인',
     oidcLoginWithProvider: '{provider}(으)로 로그인',
     redirectingToOIDC: 'ID 공급자로 이동하는 중...',
     orContinueWith: '또는 다음 방법으로 계속',

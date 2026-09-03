@@ -1588,6 +1588,7 @@ export default {
     login: 'Login',
     logout: 'Logout',
     oidcLogin: 'Sign in with OIDC',
+    casLogin: 'Sign in with NXIN account',
     oidcLoginWithProvider: 'Sign in with {provider}',
     redirectingToOIDC: 'Redirecting to identity provider...',
     orContinueWith: 'Or continue with',
@@ -3600,6 +3601,8 @@ export default {
     missingKbId: 'Missing knowledge base ID',
     tokenNotFound: 'Login token not found, please log in again',
     streamFailed: 'Stream connection failed',
+    contentPolicyBlocked:
+      'Based on retrieved knowledge-base materials, the reply was summarized without expanding body rows that may trigger content-safety checks.',
     auth: {
       loginFailed: 'Login failed',
       registerFailed: 'Registration failed',

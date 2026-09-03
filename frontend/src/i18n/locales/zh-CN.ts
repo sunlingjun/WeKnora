@@ -2522,6 +2522,8 @@ export default {
     missingKbId: '缺少知识库ID',
     tokenNotFound: '未找到登录令牌，请重新登录',
     streamFailed: '流式连接失败',
+    contentPolicyBlocked:
+      '根据已检索到的知识库材料，已改为摘要作答（不展开可能触发风控的正文词条）。',
     initialization: {
       checkFailed: '检查失败',
       testFailed: '测试失败'
@@ -4510,6 +4512,7 @@ export default {
     login: '登录',
     logout: '退出',
     oidcLogin: '使用 OIDC 登录',
+    casLogin: '使用农信账号登录',
     oidcLoginWithProvider: '使用 {provider} 登录',
     redirectingToOIDC: '正在跳转到身份提供商...',
     orContinueWith: '或使用以下方式继续',

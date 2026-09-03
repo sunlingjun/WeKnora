@@ -187,6 +187,10 @@ type AgentFinalAnswerData struct {
 	Content    string `json:"content"`
 	Done       bool   `json:"done"`
 	IsFallback bool   `json:"is_fallback,omitempty"` // True when response is a fallback (no knowledge base match)
+	// ReplacePrevious asks the stream handler / UI to drop any answer segments
+	// already streamed in this turn (e.g. a partial finalize that hit content
+	// policy) before accumulating this replacement answer.
+	ReplacePrevious bool `json:"replace_previous,omitempty"`
 }
 
 // AgentReflectionData represents agent reflection data

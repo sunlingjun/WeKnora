@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/searchutil"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -13,20 +14,24 @@ import (
 
 var listKnowledgeChunksTool = BaseTool{
 	name: ToolListKnowledgeChunks,
-	description: `Retrieve full chunk content for a document or a single FAQ entry.
+	description: `Retrieve chunk content for a document or a single FAQ entry.
+
+## When to use
+- After grep_chunks / knowledge_search when you need **document body text** for a content question.
+- Do **NOT** use for catalog/inventory questions (what documents exist) — prefer database_query / get_document_info.
 
 ## Use After grep_chunks or knowledge_search:
 - **FAQ hit** (type faq): list_knowledge_chunks(faq_id="cN") — reads that one FAQ chunk with answers from metadata.
-- **Document hit**: list_knowledge_chunks(knowledge_id="dN") — pages through all chunks.
+- **Document hit**: list_knowledge_chunks(knowledge_id="dN") — pages through chunks. Prefer small limit (3–8). Spreadsheets (xlsx/xls/csv) return truncated previews only.
 
 ## Parameters (provide exactly one id target):
 - faq_id (optional): Short cN ID for an FAQ chunk from grep_chunks / knowledge_search.
 - chunk_id (optional): Short cN ID for a single non-FAQ chunk.
-- knowledge_id (optional): Short dN document ID to page through all chunks.
-- limit / offset: Only for knowledge_id paging (default limit 20, max 100).
+- knowledge_id (optional): Short dN document ID to page through chunks.
+- limit / offset: Only for knowledge_id paging (default 8, max 20; tabular files capped lower).
 
 ## Output:
-Full chunk content. FAQ entries include <faq> with <answer> from metadata.`,
+Chunk content (tabular files are preview-truncated). FAQ entries include <faq> with <answer> from metadata.`,
 	schema: json.RawMessage(`{
   "type": "object",
   "properties": {
@@ -40,14 +45,14 @@ Full chunk content. FAQ entries include <faq> with <answer> from metadata.`,
     },
     "knowledge_id": {
       "type": "string",
-      "description": "Short dN document ID to list all chunks"
+      "description": "Short dN document ID to list chunks"
     },
     "limit": {
       "type": "integer",
-      "description": "Chunks per page when using knowledge_id (default 20, max 100)",
-      "default": 20,
+      "description": "Chunks per page when using knowledge_id (default 8, max 20; lower for spreadsheets)",
+      "default": 8,
       "minimum": 1,
-      "maximum": 100
+      "maximum": 20
     },
     "offset": {
       "type": "integer",
@@ -92,6 +97,14 @@ func NewListKnowledgeChunksTool(
 
 // Execute performs the chunk fetch against the chunk service.
 func (t *ListKnowledgeChunksTool) Execute(ctx context.Context, args json.RawMessage) (*types.ToolResult, error) {
+	if common.IsCatalogIntent(UserQueryFromContext(ctx)) {
+		return &types.ToolResult{
+			Success: false,
+			Error: "catalog/inventory question detected: do not deep-read document bodies. " +
+				"Use database_query (knowledges title/file_type/parse_status) or get_document_info instead, then answer from metadata.",
+		}, nil
+	}
+
 	// Parse args from json.RawMessage
 	var input ListKnowledgeChunksInput
 	if err := json.Unmarshal(args, &input); err != nil {
@@ -127,11 +140,9 @@ func (t *ListKnowledgeChunksTool) Execute(ctx context.Context, args json.RawMess
 
 	// Use the knowledge's actual tenant_id for chunk query (supports cross-tenant shared KB)
 	effectiveTenantID := knowledge.TenantID
+	fileType := resolveKnowledgeFileType(knowledge)
 
-	chunkLimit := 20
-	if input.Limit > 0 {
-		chunkLimit = input.Limit
-	}
+	chunkLimit := resolveListChunksLimit(input.Limit, fileType)
 	offset := 0
 	if input.Offset > 0 {
 		offset = input.Offset
@@ -206,9 +217,12 @@ func (t *ListKnowledgeChunksTool) Execute(ctx context.Context, args json.RawMess
 		}
 	}
 
-	knowledgeTitle := t.lookupKnowledgeTitle(ctx, knowledgeID)
-
-	output := t.buildOutput(knowledgeID, knowledgeTitle, totalChunks, fetched, chunks)
+	knowledgeTitle := knowledgeTitleOrFallback(knowledge)
+	contentCap := listChunkContentCap(fileType)
+	output := t.buildOutput(knowledgeID, knowledgeTitle, totalChunks, fetched, chunks, contentCap)
+	if isTabularFileType(fileType) {
+		output = TruncateToolOutput(output, listChunksTabularOutputCap)
+	}
 
 	formattedChunks := make([]map[string]interface{}, 0, len(chunks))
 	for idx, c := range chunks {
@@ -216,7 +230,7 @@ func (t *ListKnowledgeChunksTool) Execute(ctx context.Context, args json.RawMess
 			"seq":             idx + 1,
 			"chunk_id":        c.ID,
 			"chunk_index":     c.ChunkIndex,
-			"content":         c.Content,
+			"content":         truncateRunes(c.Content, contentCap),
 			"chunk_type":      c.ChunkType,
 			"knowledge_id":    c.KnowledgeID,
 			"knowledge_base":  c.KnowledgeBaseID,
@@ -296,15 +310,29 @@ func (t *ListKnowledgeChunksTool) executeByChunkID(ctx context.Context, chunkID 
 		}
 	}
 
-	knowledgeTitle := t.lookupKnowledgeTitle(ctx, chunk.KnowledgeID)
-	output := t.buildOutput(chunk.KnowledgeID, knowledgeTitle, 1, 1, chunks)
+	fileType := ""
+	knowledgeTitle := ""
+	if t.knowledgeService != nil {
+		if kn, kErr := t.knowledgeService.GetKnowledgeByIDOnly(ctx, chunk.KnowledgeID); kErr == nil && kn != nil {
+			fileType = resolveKnowledgeFileType(kn)
+			knowledgeTitle = knowledgeTitleOrFallback(kn)
+		}
+	}
+	if knowledgeTitle == "" {
+		knowledgeTitle = t.lookupKnowledgeTitle(ctx, chunk.KnowledgeID)
+	}
+	contentCap := listChunkContentCap(fileType)
+	output := t.buildOutput(chunk.KnowledgeID, knowledgeTitle, 1, 1, chunks, contentCap)
+	if isTabularFileType(fileType) {
+		output = TruncateToolOutput(output, listChunksTabularOutputCap)
+	}
 
 	formattedChunks := []map[string]interface{}{
 		{
 			"seq":            1,
 			"chunk_id":       chunk.ID,
 			"chunk_index":    chunk.ChunkIndex,
-			"content":        chunk.Content,
+			"content":        truncateRunes(chunk.Content, contentCap),
 			"chunk_type":     chunk.ChunkType,
 			"knowledge_id":   chunk.KnowledgeID,
 			"knowledge_base": chunk.KnowledgeBaseID,
@@ -356,6 +384,7 @@ func (t *ListKnowledgeChunksTool) buildOutput(
 	total int64,
 	fetched int,
 	chunks []*types.Chunk,
+	contentCap int,
 ) string {
 	var b strings.Builder
 
@@ -385,7 +414,7 @@ func (t *ListKnowledgeChunksTool) buildOutput(
 			fmt.Fprintf(&b, "<chunk chunk_id=\"%s\" chunk_index=\"%d\" type=\"%s\">\n",
 				c.ID, c.ChunkIndex, c.ChunkType)
 		}
-		fmt.Fprintf(&b, "<content>%s</content>\n", summarizeContent(c.Content))
+		fmt.Fprintf(&b, "<content>%s</content>\n", summarizeContent(c.Content, contentCap))
 		writeChunkImagesMarkdown(&b, c)
 		b.WriteString("</chunk>\n")
 	}
@@ -430,12 +459,91 @@ func faqStandardQuestion(c *types.Chunk) string {
 	return strings.TrimSpace(meta.StandardQuestion)
 }
 
-// summarizeContent summarizes the content of a chunk
-func summarizeContent(content string) string {
+const (
+	listChunksDefaultLimit       = 8
+	listChunksMaxLimit           = 20
+	listChunksTabularDefaultLimit = 3
+	listChunksTabularMaxLimit     = 5
+	listChunksDefaultContentCap   = 4000
+	listChunksTabularContentCap   = 800
+	listChunksTabularOutputCap    = 8000
+)
+
+func resolveKnowledgeFileType(k *types.Knowledge) string {
+	if k == nil {
+		return ""
+	}
+	ft := strings.ToLower(strings.TrimSpace(k.FileType))
+	if ft == "" && k.FileName != "" {
+		name := strings.ToLower(k.FileName)
+		if i := strings.LastIndex(name, "."); i >= 0 {
+			ft = strings.TrimPrefix(name[i:], ".")
+		}
+	}
+	return strings.TrimPrefix(ft, ".")
+}
+
+func isTabularFileType(fileType string) bool {
+	switch strings.ToLower(strings.TrimPrefix(strings.TrimSpace(fileType), ".")) {
+	case "xlsx", "xls", "csv", "tsv":
+		return true
+	default:
+		return false
+	}
+}
+
+func resolveListChunksLimit(requested int, fileType string) int {
+	if isTabularFileType(fileType) {
+		limit := listChunksTabularDefaultLimit
+		if requested > 0 {
+			limit = requested
+		}
+		if limit > listChunksTabularMaxLimit {
+			limit = listChunksTabularMaxLimit
+		}
+		if limit < 1 {
+			limit = 1
+		}
+		return limit
+	}
+	limit := listChunksDefaultLimit
+	if requested > 0 {
+		limit = requested
+	}
+	if limit > listChunksMaxLimit {
+		limit = listChunksMaxLimit
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	return limit
+}
+
+func listChunkContentCap(fileType string) int {
+	if isTabularFileType(fileType) {
+		return listChunksTabularContentCap
+	}
+	return listChunksDefaultContentCap
+}
+
+func knowledgeTitleOrFallback(k *types.Knowledge) string {
+	if k == nil {
+		return ""
+	}
+	if title := strings.TrimSpace(k.Title); title != "" {
+		return title
+	}
+	return strings.TrimSpace(k.FileName)
+}
+
+// summarizeContent summarizes the content of a chunk, optionally capping length.
+func summarizeContent(content string, maxRunes int) string {
 	cleaned := strings.TrimSpace(content)
 	if cleaned == "" {
 		return "(empty)"
 	}
-
-	return strings.TrimSpace(string(cleaned))
+	if maxRunes <= 0 {
+		return cleaned
+	}
+	return truncateRunes(cleaned, maxRunes)
 }

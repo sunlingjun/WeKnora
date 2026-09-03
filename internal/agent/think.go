@@ -446,6 +446,18 @@ func (e *AgentEngine) callLLMWithRetry(
 		// Graceful degradation: if we have tool results from previous rounds,
 		// try to synthesize a final answer from them instead of losing everything.
 		if totalTC := countTotalToolCalls(state.RoundSteps); totalTC > 0 {
+			if isContentPolicyError(err) {
+				logger.Warnf(ctx, "[Agent] LLM content-policy failure with %d tool calls — recovering safe in-bubble answer",
+					totalTC)
+				common.PipelineWarn(ctx, "Agent", "llm_content_policy_fallback", map[string]interface{}{
+					"steps":      len(state.RoundSteps),
+					"tool_calls": totalTC,
+					"error":      err.Error(),
+				})
+				e.recoverFromContentPolicy(ctx, query, state, sessionID)
+				state.IsComplete = true
+				return nil, nil
+			}
 			logger.Warnf(ctx, "[Agent] LLM failed but have %d steps with %d tool calls — "+
 				"attempting final answer synthesis from existing results",
 				len(state.RoundSteps), totalTC)
@@ -454,11 +466,20 @@ func (e *AgentEngine) callLLMWithRetry(
 				"tool_calls": totalTC,
 			})
 			if synthErr := e.streamFinalAnswerToEventBus(ctx, query, state, sessionID); synthErr != nil {
+				// Content-policy is recovered inside streamFinalAnswerToEventBus
+				// (returns nil). Any remaining synthErr is a hard failure.
 				logger.Errorf(ctx, "[Agent] Final answer synthesis also failed: %v", synthErr)
 				return nil, fmt.Errorf("LLM call failed: %w (synthesis also failed: %v)", err, synthErr)
 			}
 			state.IsComplete = true
 			return nil, nil // graceful degradation succeeded
+		}
+
+		if isContentPolicyError(err) {
+			logger.Warnf(ctx, "[Agent] LLM content-policy failure without tool results — recovering safe in-bubble answer")
+			e.recoverFromContentPolicy(ctx, query, state, sessionID)
+			state.IsComplete = true
+			return nil, nil
 		}
 
 		return nil, fmt.Errorf("LLM call failed: %w", err)
