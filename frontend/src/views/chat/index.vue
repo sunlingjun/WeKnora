@@ -899,6 +899,20 @@ watch(error, (newError) => {
         recoverIncompleteMessage();
         return;
     }
+    const lower = String(newError).toLowerCase();
+    if (
+        lower.includes('content exists risk') ||
+        lower.includes('content_filter') ||
+        lower.includes('content filter') ||
+        lower.includes('content management policy') ||
+        lower.includes('data_inspection_failed')
+    ) {
+        // Content-policy refusals belong in the reply bubble, not the toast.
+        isReplying.value = false;
+        loading.value = false;
+        currentAssistantMessageId.value = '';
+        return;
+    }
     MessagePlugin.error(newError);
     isReplying.value = false;
     loading.value = false;

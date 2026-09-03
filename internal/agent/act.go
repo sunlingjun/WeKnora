@@ -461,6 +461,7 @@ func (e *AgentEngine) runToolCall(
 		EventBus:           e.eventBus,
 		ToolCallID:         tc.ID,
 		UserID:             principal.StorageID(),
+		UserQuery:          agenttools.UserQueryFromContext(ctx),
 		// ApprovalCtx keeps the round-level ctx without the per-tool 60s timeout,
 		// so MCP tool human-approval (issue #1173) can legitimately block longer.
 		ApprovalCtx: toolCtx,

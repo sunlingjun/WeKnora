@@ -16,6 +16,7 @@ type ToolExecContext struct {
 	RequestID          string
 	ToolCallID         string
 	UserID             string // principal storage ID of the originating session; used by HITL gates for authorization (issue #1173)
+	UserQuery          string // current user turn query; used for catalog-intent tool guards
 	EventBus           *event.EventBus
 	// ApprovalCtx is the parent ctx WITHOUT defaultToolExecTimeout; used when the tool
 	// must wait for human approval that may exceed normal tool exec timeout (issue #1173).

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	agenttools "github.com/Tencent/WeKnora/internal/agent/tools"
+	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -70,6 +71,23 @@ func (h *AgentStreamHandler) composeFinalAnswer() string {
 		}
 	}
 	return b.String()
+}
+
+// supersedeOpenAnswerSegmentsLocked marks prior answer segments superseded so
+// they are excluded from Message.Content. Used when a tool round invalidates a
+// preamble, or when content-policy recovery replaces a partial finalize.
+// Callers must hold h.mu.
+func (h *AgentStreamHandler) supersedeOpenAnswerSegmentsLocked() {
+	supersededAny := false
+	for _, seg := range h.answerSegments {
+		if !seg.superseded && seg.content != "" {
+			seg.superseded = true
+			supersededAny = true
+		}
+	}
+	if supersededAny {
+		h.finalAnswer = h.composeFinalAnswer()
+	}
 }
 
 // NewAgentStreamHandler creates a new handler for agent SSE streaming
@@ -176,16 +194,7 @@ func (h *AgentStreamHandler) handleToolCall(ctx context.Context, evt event.Event
 	// preamble, not the final answer (the agent only ends by stopping naturally
 	// with plain text and no tool calls). Drop those segments from the persisted
 	// answer so the preamble never leaks into Message.Content.
-	supersededAny := false
-	for _, seg := range h.answerSegments {
-		if !seg.superseded && seg.content != "" {
-			seg.superseded = true
-			supersededAny = true
-		}
-	}
-	if supersededAny {
-		h.finalAnswer = h.composeFinalAnswer()
-	}
+	h.supersedeOpenAnswerSegmentsLocked()
 	h.mu.Unlock()
 
 	metadata := map[string]interface{}{
@@ -461,6 +470,12 @@ func (h *AgentStreamHandler) handleFinalAnswer(ctx context.Context, evt event.Ev
 			h.requestID, h.sessionID, ttfb.Milliseconds())
 	}
 
+	// Content-policy recovery (or other replace paths) must drop partial
+	// answers already streamed under earlier event IDs in this turn.
+	if data.ReplacePrevious {
+		h.supersedeOpenAnswerSegmentsLocked()
+	}
+
 	// Accumulate final answer locally for assistant message (database). Track
 	// per event ID so a later supersede can subtract this segment's content.
 	if data.Content != "" {
@@ -494,6 +509,9 @@ func (h *AgentStreamHandler) handleFinalAnswer(ctx context.Context, evt event.Ev
 	}
 	if data.IsFallback {
 		metadata["is_fallback"] = true
+	}
+	if data.ReplacePrevious {
+		metadata["replace_previous"] = true
 	}
 	h.mu.Unlock()
 
@@ -540,17 +558,27 @@ func (h *AgentStreamHandler) handleError(ctx context.Context, evt event.Event) e
 		return nil
 	}
 
-	// Build error metadata
+	content := data.Error
+	responseType := types.ResponseTypeError
+
+	// Belt-and-suspenders: content-policy refusals become in-bubble answers.
+	if common.IsContentPolicyMessage(content) {
+		content = contentPolicyInBubbleReply(content)
+		responseType = types.ResponseTypeAnswer
+		h.mu.Lock()
+		h.finalAnswer = content
+		h.mu.Unlock()
+	}
+
 	metadata := map[string]interface{}{
 		"stage": data.Stage,
 		"error": data.Error,
 	}
 
-	// Append error event to stream
 	if err := h.streamManager.AppendEvent(h.ctx, h.sessionID, h.assistantMessageID, interfaces.StreamEvent{
 		ID:        evt.ID,
-		Type:      types.ResponseTypeError,
-		Content:   data.Error,
+		Type:      responseType,
+		Content:   content,
 		Done:      true,
 		Timestamp: time.Now(),
 		Data:      metadata,
@@ -559,6 +587,15 @@ func (h *AgentStreamHandler) handleError(ctx context.Context, evt event.Event) e
 	}
 
 	return nil
+}
+
+func contentPolicyInBubbleReply(msg string) string {
+	// If upstream already produced a knowledge-style body, keep it.
+	if strings.Contains(msg, "相关文档") || strings.Contains(msg, "related documents") ||
+		strings.Contains(msg, "根据已检索") || strings.Contains(msg, "Based on retrieved") {
+		return msg
+	}
+	return "根据已检索到的知识库材料，已改为摘要作答（不展开可能触发风控的正文词条）。"
 }
 
 // handleSessionTitle handles session title update events

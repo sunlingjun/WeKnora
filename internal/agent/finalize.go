@@ -14,6 +14,13 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
+const (
+	// finalAnswerToolResultCap limits each tool payload fed into final-answer
+	// synthesis so a prior deep-read of large tables cannot trip provider
+	// content-policy refusals a second time.
+	finalAnswerToolResultCap = 4000
+)
+
 func finalAnswerImageRequirement(hasRetrievedImage bool) string {
 	if !hasRetrievedImage {
 		return ""
@@ -40,7 +47,54 @@ func (e *AgentEngine) streamFinalAnswerToEventBus(
 		"tool_results": totalToolCalls,
 	})
 
-	// Build messages with all context
+	messages := e.buildFinalAnswerMessages(ctx, sessionID, query, state)
+	answerID := generateEventID("answer")
+	logger.Debugf(ctx, "[Agent][FinalAnswer] AnswerID: %s", answerID)
+
+	fullAnswer, err := e.streamFinalAnswerMessages(ctx, sessionID, answerID, messages)
+	if err != nil {
+		if isContentPolicyError(err) {
+			logger.Warnf(ctx, "[Agent][FinalAnswer] Content policy blocked synthesis; recovering with safe answer: %v", err)
+			common.PipelineWarn(ctx, "Agent", "final_answer_content_policy", map[string]interface{}{
+				"session_id": sessionID,
+				"error":      err.Error(),
+			})
+			// Close the failed stream so UI does not leave a hanging answer ID,
+			// then replace any partial chunks with the safe recovery answer.
+			e.eventBus.Emit(ctx, event.Event{
+				ID:        answerID,
+				Type:      event.EventAgentFinalAnswer,
+				SessionID: sessionID,
+				Data: event.AgentFinalAnswerData{
+					Content: "",
+					Done:    true,
+				},
+			})
+			e.recoverFromContentPolicy(ctx, query, state, sessionID)
+			return nil
+		}
+		logger.Errorf(ctx, "[Agent][FinalAnswer] Final answer generation failed: %v", err)
+		common.PipelineError(ctx, "Agent", "final_answer_stream_failed", map[string]interface{}{
+			"session_id": sessionID,
+			"error":      err.Error(),
+		})
+		return err
+	}
+
+	logger.Infof(ctx, "[Agent][FinalAnswer] Final answer generated: %d characters", len(fullAnswer))
+	common.PipelineInfo(ctx, "Agent", "final_answer_done", map[string]interface{}{
+		"session_id": sessionID,
+		"answer_len": len(fullAnswer),
+	})
+	state.FinalAnswer = fullAnswer
+	return nil
+}
+
+func (e *AgentEngine) buildFinalAnswerMessages(
+	ctx context.Context,
+	sessionID, query string,
+	state *types.AgentState,
+) []chat.Message {
 	systemPrompt := e.buildSystemPrompt(ctx)
 	userTurn := e.RenderUserTurnContent(sessionID, query)
 
@@ -49,31 +103,26 @@ func (e *AgentEngine) streamFinalAnswerToEventBus(
 		{Role: "user", Content: userTurn},
 	}
 
-	// Add all tool call results as context
-	toolResultCount := 0
 	hasRetrievedImage := false
-	for stepIdx, step := range state.RoundSteps {
-		for toolIdx, toolCall := range step.ToolCalls {
-			toolResultCount++
+	for _, step := range state.RoundSteps {
+		for _, toolCall := range step.ToolCalls {
+			if toolCall.Result == nil {
+				continue
+			}
 			if searchutil.MarkdownImageRegex.MatchString(toolCall.Result.Output) {
 				hasRetrievedImage = true
 			}
 			modelOutput := e.modelContext.ModelToolResultForTool(toolCall.Name, toolCall.Result)
+			modelOutput = agenttools.TruncateToolOutput(modelOutput, finalAnswerToolResultCap)
 			messages = append(messages, chat.Message{
 				Role:    "user",
 				Content: fmt.Sprintf("Tool %s returned: %s", toolCall.Name, modelOutput),
 			})
-			logger.Debugf(ctx, "[Agent][FinalAnswer] Added tool result [Step-%d][Tool-%d]: %s (output: %d chars)",
-				stepIdx+1, toolIdx+1, toolCall.Name, len(toolCall.Result.Output))
 		}
 	}
 
-	logger.Debugf(ctx, "[Agent][FinalAnswer] Built context: %d messages, %d tool results",
-		len(messages), toolResultCount)
-
 	imageRequirement := finalAnswerImageRequirement(hasRetrievedImage)
 
-	// Add final answer prompt
 	finalPrompt := fmt.Sprintf(`Based on the above tool call results, generate a complete answer for the user's question.
 
 User question: %s
@@ -87,22 +136,20 @@ Requirements:
 
 Now generate the final answer:`, query, imageRequirement)
 
-	messages = append(messages, chat.Message{
-		Role:    "user",
-		Content: finalPrompt,
-	})
+	return append(messages, chat.Message{Role: "user", Content: finalPrompt})
+}
 
-	// Generate a single ID for this entire final answer stream
-	answerID := generateEventID("answer")
-	logger.Debugf(ctx, "[Agent][FinalAnswer] AnswerID: %s", answerID)
+func (e *AgentEngine) streamFinalAnswerMessages(
+	ctx context.Context,
+	sessionID, answerID string,
+	messages []chat.Message,
+) (string, error) {
 	answerDoneEmitted := false
-
 	llmResult, err := e.streamLLMToEventBus(
 		ctx,
 		messages,
 		&chat.ChatOptions{Temperature: e.config.Temperature}, // Thinking disabled for final answer synthesis
 		func(chunk *types.StreamResponse, fullContent string) {
-			// Defensive filter: only emit answer content, skip thinking chunks
 			if chunk.ResponseType == types.ResponseTypeThinking {
 				return
 			}
@@ -124,12 +171,7 @@ Now generate the final answer:`, query, imageRequirement)
 		},
 	)
 	if err != nil {
-		logger.Errorf(ctx, "[Agent][FinalAnswer] Final answer generation failed: %v", err)
-		common.PipelineError(ctx, "Agent", "final_answer_stream_failed", map[string]interface{}{
-			"session_id": sessionID,
-			"error":      err.Error(),
-		})
-		return err
+		return "", err
 	}
 
 	if !answerDoneEmitted {
@@ -144,15 +186,7 @@ Now generate the final answer:`, query, imageRequirement)
 		})
 	}
 
-	// Safety net: strip any residual <think> blocks that may have leaked through
-	fullAnswer := agenttools.StripThinkBlocks(llmResult.Content)
-	logger.Infof(ctx, "[Agent][FinalAnswer] Final answer generated: %d characters", len(fullAnswer))
-	common.PipelineInfo(ctx, "Agent", "final_answer_done", map[string]interface{}{
-		"session_id": sessionID,
-		"answer_len": len(fullAnswer),
-	})
-	state.FinalAnswer = fullAnswer
-	return nil
+	return agenttools.StripThinkBlocks(llmResult.Content), nil
 }
 
 // handleMaxIterations generates a final answer when the agent loop exhausted all iterations
@@ -166,8 +200,9 @@ func (e *AgentEngine) handleMaxIterations(
 		"max":        e.config.MaxIterations,
 	})
 
-	// Stream final answer generation through EventBus
 	if err := e.streamFinalAnswerToEventBus(ctx, query, state, sessionID); err != nil {
+		// Content-policy refusals are already recovered inside
+		// streamFinalAnswerToEventBus (returns nil); any remaining err is fatal.
 		logger.Errorf(ctx, "Failed to synthesize final answer: %v", err)
 		common.PipelineError(ctx, "Agent", "final_answer_failed", map[string]interface{}{
 			"error": err.Error(),
@@ -181,7 +216,6 @@ func (e *AgentEngine) handleMaxIterations(
 func (e *AgentEngine) emitCompletionEvent(
 	ctx context.Context, state *types.AgentState, sessionID, messageID string, startTime time.Time,
 ) {
-	// Convert knowledge refs to interface{} slice for event data
 	knowledgeRefsInterface := make([]interface{}, 0, len(state.KnowledgeRefs))
 	for _, ref := range state.KnowledgeRefs {
 		knowledgeRefsInterface = append(knowledgeRefsInterface, ref)
@@ -194,10 +228,10 @@ func (e *AgentEngine) emitCompletionEvent(
 		Data: event.AgentCompleteData{
 			FinalAnswer:     state.FinalAnswer,
 			KnowledgeRefs:   knowledgeRefsInterface,
-			AgentSteps:      state.RoundSteps, // Include detailed execution steps for message storage
+			AgentSteps:      state.RoundSteps,
 			TotalSteps:      len(state.RoundSteps),
 			TotalDurationMs: time.Since(startTime).Milliseconds(),
-			MessageID:       messageID, // Include message ID for proper message update
+			MessageID:       messageID,
 		},
 	})
 

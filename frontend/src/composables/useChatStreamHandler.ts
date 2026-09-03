@@ -470,6 +470,42 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
     }
   }
 
+  const isContentPolicyMessage = (msg: string) => {
+    const lower = String(msg || '').toLowerCase()
+    return (
+      lower.includes('content exists risk') ||
+      lower.includes('content_filter') ||
+      lower.includes('content filter') ||
+      lower.includes('content management policy') ||
+      lower.includes('data_inspection_failed')
+    )
+  }
+
+  const contentPolicyReplyText = (raw: string) => {
+    if (
+      raw.includes('相关文档') ||
+      raw.includes('related documents') ||
+      raw.includes('根据已检索') ||
+      raw.includes('Based on retrieved') ||
+      raw.includes('label_counts')
+    ) {
+      return raw
+    }
+    return t('error.contentPolicyBlocked')
+  }
+
+  const completeWithInBubbleReply = (message: ChatMessage, content: string) => {
+    message.content = content
+    message.is_completed = true
+    if (!message.agentEventStream) message.agentEventStream = []
+    const stream = message.agentEventStream as ChatMessage[]
+    stream.push({ type: 'answer', content, done: true })
+    isReplying.value = false
+    loading.value = false
+    fullContent.value = ''
+    currentAssistantMessageId.value = ''
+  }
+
   const handleAgentChunk = (data: ChatMessage) => {
     const dataId = data.id as string | undefined
     let message = findLastMessage(
@@ -744,6 +780,11 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
           }
           if (responseType === 'error' && !toolName) {
             const errorMsg = String(data.content || t('chat.processError'))
+            if (isContentPolicyMessage(errorMsg)) {
+              completeWithInBubbleReply(message, contentPolicyReplyText(errorMsg))
+              console.warn('[Chat] content policy → in-bubble reply')
+              break
+            }
             message.content = errorMsg
             message.is_completed = true
             isReplying.value = false
@@ -755,6 +796,11 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
           }
         } else if (responseType === 'error') {
           const errorMsg = String(data.content || t('chat.processError'))
+          if (isContentPolicyMessage(errorMsg)) {
+            completeWithInBubbleReply(message, contentPolicyReplyText(errorMsg))
+            console.warn('[Chat] content policy → in-bubble reply')
+            break
+          }
           message.content = errorMsg
           message.is_completed = true
           isReplying.value = false
@@ -773,6 +819,22 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
         if (!message._eventMap) message._eventMap = new Map()
         const eventMap = message._eventMap as Map<string, ChatMessage>
         const stream = message.agentEventStream as ChatMessage[]
+
+        if (dataPayload?.replace_previous) {
+          let retracted = false
+          for (const ev of stream) {
+            if (ev.type === 'answer' && !ev.superseded && ev.content && String(ev.content).trim()) {
+              if (eventId && ev.event_id === eventId) continue
+              ev.superseded = true
+              ev.done = true
+              retracted = true
+            }
+          }
+          if (retracted) {
+            message.content = recomposeAgentAnswer(message)
+            fullContent.value = String(message.content || '')
+          }
+        }
 
         let answerEvent = eventId
           ? eventMap.get(eventId)

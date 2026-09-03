@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/google/uuid"
 )
 
@@ -62,6 +63,27 @@ func isTransientError(err error) bool {
 		}
 	}
 	return false
+}
+
+// isContentPolicyError reports provider-side content safety refusals.
+func isContentPolicyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return common.IsContentPolicyMessage(err.Error())
+}
+
+// userFacingAgentError maps internal/provider errors for rare EventError paths.
+// Content-policy refusals should not reach here (recovered as in-bubble answers).
+func userFacingAgentError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if isContentPolicyError(err) {
+		// Should be unreachable; keep a neutral line without asking the user to rephrase.
+		return "根据已检索材料整理答复时受限，已改为摘要作答。"
+	}
+	return err.Error()
 }
 
 // getLLMCallTimeout returns the configured LLM call timeout, falling back to default.
