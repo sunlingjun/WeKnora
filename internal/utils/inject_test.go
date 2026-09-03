@@ -450,6 +450,28 @@ func TestInjectAndConditions(t *testing.T) {
 	}
 }
 
+func TestValidateAndSecureSQL_PlazaKBUsesOwnerTenant(t *testing.T) {
+	securedSQL, validation, err := ValidateAndSecureSQL(
+		"SELECT id, title FROM knowledges",
+		WithSecurityDefaults(10035),
+		WithSearchScopes([]SearchScope{
+			{KnowledgeBaseID: "kb-plaza", TenantID: 10038},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("ValidateAndSecureSQL() error = %v", err)
+	}
+	if !validation.Valid {
+		t.Fatalf("expected validation to pass, got %#v", validation.Errors)
+	}
+	if !strings.Contains(securedSQL, "knowledges.tenant_id = 10038") {
+		t.Fatalf("expected owner tenant isolation, got:\n%s", securedSQL)
+	}
+	if strings.Contains(securedSQL, "knowledges.tenant_id = 10035") {
+		t.Fatalf("must not isolate plaza KB to caller tenant:\n%s", securedSQL)
+	}
+}
+
 func TestValidateAndSecureSQL_WithStructuredSearchScopes(t *testing.T) {
 	securedSQL, validation, err := ValidateAndSecureSQL(
 		"SELECT id FROM chunks",

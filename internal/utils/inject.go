@@ -154,8 +154,11 @@ type sqlValidator struct {
 // Empty KnowledgeIDs and TagIDs means the whole KB is in scope.
 type SearchScope struct {
 	KnowledgeBaseID string
-	KnowledgeIDs    []string
-	TagIDs          []string
+	// TenantID is the KB owner tenant. Plaza-joined / org-shared KBs store
+	// documents under this tenant, not the caller's workspace tenant.
+	TenantID     uint64
+	KnowledgeIDs []string
+	TagIDs       []string
 }
 
 // ParseSQL parses a SQL statement using pg_query_go and extracts table names, select fields, and where fields
@@ -996,12 +999,27 @@ func (v *sqlValidator) injectTenantConditions(sql string, tablesInQuery map[stri
 
 	// Build tenant conditions
 	var conditions []string
+	tenantIDs := v.tenantIDsForInjection()
+	if len(tenantIDs) == 0 {
+		return sql
+	}
+	tenantPred := func(col string) string {
+		if len(tenantIDs) == 1 {
+			return fmt.Sprintf("%s = %d", col, tenantIDs[0])
+		}
+		parts := make([]string, len(tenantIDs))
+		for i, id := range tenantIDs {
+			parts[i] = fmt.Sprintf("%d", id)
+		}
+		return fmt.Sprintf("%s IN (%s)", col, strings.Join(parts, ", "))
+	}
+
 	for tableName, alias := range tablesInQuery {
 		if v.tablesWithTenantID[tableName] {
 			if tableName == "tenants" {
-				conditions = append(conditions, fmt.Sprintf("%s.id = %d", alias, v.tenantID))
+				conditions = append(conditions, tenantPred(alias+".id"))
 			} else {
-				conditions = append(conditions, fmt.Sprintf("%s.tenant_id = %d", alias, v.tenantID))
+				conditions = append(conditions, tenantPred(alias+".tenant_id"))
 			}
 		}
 	}
@@ -1012,6 +1030,35 @@ func (v *sqlValidator) injectTenantConditions(sql string, tablesInQuery map[stri
 
 	tenantFilter := strings.Join(conditions, " AND ")
 	return InjectAndConditions(sql, tenantFilter)
+}
+
+// tenantIDsForInjection returns owner tenants that SQL isolation may admit.
+// When Agent search scopes include plaza-joined KBs, documents live under
+// kb.TenantID; injecting only the caller's tenant_id would return empty rows.
+func (v *sqlValidator) tenantIDsForInjection() []uint64 {
+	seen := make(map[uint64]struct{})
+	ids := make([]uint64, 0, 2)
+	add := func(id uint64) {
+		if id == 0 {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	for _, scope := range v.searchScopes {
+		if scope.TenantID != 0 {
+			add(scope.TenantID)
+		} else {
+			add(v.tenantID)
+		}
+	}
+	if len(ids) == 0 {
+		add(v.tenantID)
+	}
+	return ids
 }
 
 // injectSoftDeleteConditions adds deleted_at IS NULL filtering to the query.

@@ -32,32 +32,17 @@ func (s *knowledgeService) ListFAQEntries(ctx context.Context,
 		return nil, err
 	}
 
-	// Check if this is a shared knowledge base access
+	// Check if this is a shared knowledge base access (org share or plaza member).
 	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
 	effectiveTenantID := tenantID
 
-	// If the kb belongs to a different tenant, check for shared access
 	if kb.TenantID != tenantID {
-		// Get user ID from context
-		userIDVal := ctx.Value(types.UserIDContextKey)
-		if userIDVal == nil {
+		userID, _ := ctx.Value(types.UserIDContextKey).(string)
+		if !s.userHasAccessToSharedKnowledgeBase(ctx, kbID, userID) {
 			return nil, werrors.NewForbiddenError("无权访问该知识库")
 		}
-		_ = userIDVal.(string) // userID retained only for legacy log fields
-		callerTenantRole := types.TenantRoleFromContext(ctx)
-
-		// Check if the caller's tenant has at least viewer permission via org sharing.
-		hasPermission, err := s.kbShareService.HasTenantKBPermission(ctx, kbID, tenantID, callerTenantRole, types.OrgRoleViewer)
-		if err != nil || !hasPermission {
-			return nil, werrors.NewForbiddenError("无权访问该知识库")
-		}
-
-		// Use the source tenant ID for data access
-		sourceTenantID, err := s.kbShareService.GetKBSourceTenant(ctx, kbID)
-		if err != nil {
-			return nil, werrors.NewForbiddenError("无权访问该知识库")
-		}
-		effectiveTenantID = sourceTenantID
+		// Documents / FAQ chunks live under the KB owner tenant.
+		effectiveTenantID = kb.TenantID
 	}
 
 	faqKnowledge, err := s.findFAQKnowledge(ctx, effectiveTenantID, kb.ID)

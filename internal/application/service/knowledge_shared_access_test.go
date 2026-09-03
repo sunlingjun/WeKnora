@@ -152,4 +152,92 @@ func TestGetKnowledgeBatchWithSharedAccess_ExcludesSharedKnowledgeWithoutPermiss
 	require.Empty(t, got)
 }
 
+// fakePlazaSharedKBService only implements GetMemberRoleByKBAndUser for list-tenant resolution tests.
+type fakePlazaSharedKBService struct {
+	interfaces.SharedKnowledgeBaseService
+	roles map[string]string // "kbID:userID" -> role
+}
+
+func (f *fakePlazaSharedKBService) GetMemberRoleByKBAndUser(_ context.Context, kbID, userID string) (string, error) {
+	if f.roles == nil {
+		return "", nil
+	}
+	return f.roles[kbID+":"+userID], nil
+}
+
+type fakeKBServiceForListTenant struct {
+	interfaces.KnowledgeBaseService
+	kbs map[string]*types.KnowledgeBase
+}
+
+func (f *fakeKBServiceForListTenant) GetKnowledgeBaseByID(_ context.Context, id string) (*types.KnowledgeBase, error) {
+	kb, ok := f.kbs[id]
+	if !ok || kb == nil {
+		return nil, repository.ErrKnowledgeBaseNotFound
+	}
+	return kb, nil
+}
+
+func TestListPagedKnowledgeByKnowledgeBaseID_UsesOwnerTenantForPlazaMember(t *testing.T) {
+	db := setupKnowledgeSharedAccessDB(t)
+	repo := repository.NewKnowledgeRepository(db)
+	svc := &knowledgeService{
+		repo:      repo,
+		kbService: &fakeKBServiceForListTenant{kbs: map[string]*types.KnowledgeBase{
+			"kb-plaza": {ID: "kb-plaza", TenantID: 10038, Visibility: types.KnowledgeBaseVisibilityShared},
+		}},
+		sharedKBService: &fakePlazaSharedKBService{roles: map[string]string{"kb-plaza:user-1": types.KBMemberRoleViewer}},
+	}
+
+	now := time.Now()
+	seedKnowledge(t, db, &types.Knowledge{
+		ID: "k-plaza-1", TenantID: 10038, KnowledgeBaseID: "kb-plaza",
+		Type: "file", Title: "课程内容", FileName: "课程内容.docx", FileType: "docx",
+		ParseStatus: types.ParseStatusCompleted, EnableStatus: "enabled",
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	// Caller is workspace 10035 (same as the reported 学联网 bug).
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10035))
+	ctx = context.WithValue(ctx, types.UserIDContextKey, "user-1")
+
+	result, err := svc.ListPagedKnowledgeByKnowledgeBaseID(ctx, "kb-plaza", &types.Pagination{Page: 1, PageSize: 10}, types.KnowledgeListFilter{
+		ParseStatus: types.ParseStatusCompleted,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, int64(1), result.Total)
+	docs, ok := result.Data.([]*types.Knowledge)
+	require.True(t, ok)
+	require.Len(t, docs, 1)
+	require.Equal(t, "k-plaza-1", docs[0].ID)
+}
+
+func TestListPagedKnowledgeByKnowledgeBaseID_KeepsCallerTenantWithoutPlazaAccess(t *testing.T) {
+	db := setupKnowledgeSharedAccessDB(t)
+	repo := repository.NewKnowledgeRepository(db)
+	svc := &knowledgeService{
+		repo:      repo,
+		kbService: &fakeKBServiceForListTenant{kbs: map[string]*types.KnowledgeBase{
+			"kb-plaza": {ID: "kb-plaza", TenantID: 10038, Visibility: types.KnowledgeBaseVisibilityShared},
+		}},
+		sharedKBService: &fakePlazaSharedKBService{roles: map[string]string{}},
+	}
+
+	now := time.Now()
+	seedKnowledge(t, db, &types.Knowledge{
+		ID: "k-plaza-1", TenantID: 10038, KnowledgeBaseID: "kb-plaza",
+		Type: "file", Title: "课程内容", FileName: "课程内容.docx", FileType: "docx",
+		ParseStatus: types.ParseStatusCompleted, EnableStatus: "enabled",
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10035))
+	ctx = context.WithValue(ctx, types.UserIDContextKey, "user-1")
+
+	result, err := svc.ListPagedKnowledgeByKnowledgeBaseID(ctx, "kb-plaza", &types.Pagination{Page: 1, PageSize: 10}, types.KnowledgeListFilter{})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), result.Total)
+}
+
 var _ interfaces.KBShareService = (*fakeKBShareService)(nil)

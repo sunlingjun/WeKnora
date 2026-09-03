@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"context"
@@ -543,15 +543,23 @@ func (s *knowledgeService) GetOwningKBCreatorID(ctx context.Context, knowledgeID
 func (s *knowledgeService) ListKnowledgeByKnowledgeBaseID(ctx context.Context,
 	kbID string,
 ) ([]*types.Knowledge, error) {
-	return s.repo.ListKnowledgeByKnowledgeBaseID(ctx, ctx.Value(types.TenantIDContextKey).(uint64), kbID)
+	tenantID, err := s.resolveKnowledgeListTenantID(ctx, kbID)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListKnowledgeByKnowledgeBaseID(ctx, tenantID, kbID)
 }
 
 // ListPagedKnowledgeByKnowledgeBaseID returns paginated knowledge entries in a knowledge base
 func (s *knowledgeService) ListPagedKnowledgeByKnowledgeBaseID(ctx context.Context,
 	kbID string, page *types.Pagination, filter types.KnowledgeListFilter,
 ) (*types.PageResult, error) {
+	tenantID, err := s.resolveKnowledgeListTenantID(ctx, kbID)
+	if err != nil {
+		return nil, err
+	}
 	knowledges, total, err := s.repo.ListPagedKnowledgeByKnowledgeBaseID(ctx,
-		ctx.Value(types.TenantIDContextKey).(uint64), kbID, page, filter)
+		tenantID, kbID, page, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -584,8 +592,11 @@ func (s *knowledgeService) ListPagedKnowledgeByKnowledgeBaseID(ctx context.Conte
 func (s *knowledgeService) ListKnowledgeFolderTree(ctx context.Context,
 	kbID string,
 ) (*types.KnowledgeFolderTree, error) {
-	counts, err := s.repo.ListKnowledgeFolderCounts(ctx,
-		ctx.Value(types.TenantIDContextKey).(uint64), kbID)
+	tenantID, err := s.resolveKnowledgeListTenantID(ctx, kbID)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := s.repo.ListKnowledgeFolderCounts(ctx, tenantID, kbID)
 	if err != nil {
 		return nil, err
 	}
@@ -785,6 +796,34 @@ func (s *knowledgeService) userHasAccessToSharedKnowledgeBase(ctx context.Contex
 		}
 	}
 	return false
+}
+
+// resolveKnowledgeListTenantID picks the tenant_id used to list knowledge rows
+// for a KB. Documents are always stored under the KB owner tenant; HTTP handlers
+// normally rewrite context via KBAccess, but Agent / session listing often keep
+// the caller's workspace tenant. For plaza-joined or org-shared KBs, switch to
+// kb.TenantID after ACL so DocCount / recent docs are not falsely reported as 0.
+func (s *knowledgeService) resolveKnowledgeListTenantID(ctx context.Context, kbID string) (uint64, error) {
+	callerTenantID, _ := ctx.Value(types.TenantIDContextKey).(uint64)
+	if kbID == "" || s.kbService == nil {
+		return callerTenantID, nil
+	}
+	kb, err := s.kbService.GetKnowledgeBaseByID(ctx, kbID)
+	if err != nil {
+		return 0, err
+	}
+	if kb == nil || kb.TenantID == 0 || kb.TenantID == callerTenantID {
+		return callerTenantID, nil
+	}
+	userID, _ := ctx.Value(types.UserIDContextKey).(string)
+	if s.userHasAccessToSharedKnowledgeBase(ctx, kbID, userID) {
+		logger.Infof(ctx, "list knowledge for cross-tenant KB %s using owner tenant %d (caller %d)",
+			secutils.SanitizeForLog(kbID), kb.TenantID, callerTenantID)
+		return kb.TenantID, nil
+	}
+	// Unauthorized foreign KB: keep caller tenant (empty result), matching the
+	// historical probe-safe behavior of tenant-scoped listing.
+	return callerTenantID, nil
 }
 
 // GetKnowledgeBatchWithSharedAccess retrieves knowledge by IDs, including items from shared KBs the user has access to.

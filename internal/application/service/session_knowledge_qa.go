@@ -369,6 +369,7 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 		// unrelated KBs from other organisations into the agent's retrieval scope.
 		isSharedAgent := sessionTenantID != 0 && sessionTenantID != customAgent.TenantID
 		sharedSkipped := 0
+		plazaSkipped := 0
 		if !isSharedAgent {
 			tenantID := types.MustTenantIDFromContext(ctx)
 			userIDVal := ctx.Value(types.UserIDContextKey)
@@ -393,17 +394,38 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 					}
 				}
 			}
+			// Plaza-joined (NXIN): cross-tenant KBs from knowledge_base_members.
+			// Org share above does not cover this path; without it, builtin
+			// KBSelectionMode=all only binds the workspace's own 7 KBs.
+			if s.sharedKBService != nil {
+				joined, jerr := s.sharedKBService.ListJoinedSharedKnowledgeBases(ctx)
+				if jerr != nil {
+					logger.Warnf(ctx, "Failed to list plaza-joined knowledge bases: %v", jerr)
+				} else {
+					for _, kb := range joined {
+						if kb == nil || kb.ID == "" || kbIDSet[kb.ID] || kb.IsTemporary {
+							continue
+						}
+						if !accept(kb) {
+							plazaSkipped++
+							continue
+						}
+						kbIDs = append(kbIDs, kb.ID)
+						kbIDSet[kb.ID] = true
+					}
+				}
+			}
 		} else {
 			logger.Infof(ctx, "Shared agent detected (session tenant %d != agent tenant %d): skipping user's shared KBs",
 				sessionTenantID, customAgent.TenantID)
 		}
 
-		if ownSkipped+sharedSkipped > 0 {
+		if ownSkipped+sharedSkipped+plazaSkipped > 0 {
 			logger.Infof(ctx,
-				"KBSelectionMode=all: tool-capability filter removed %d own + %d shared KBs (agent=%s, tools=%v)",
-				ownSkipped, sharedSkipped, customAgent.ID, customAgent.Config.AllowedTools)
+				"KBSelectionMode=all: tool-capability filter removed %d own + %d org-shared + %d plaza KBs (agent=%s, tools=%v)",
+				ownSkipped, sharedSkipped, plazaSkipped, customAgent.ID, customAgent.Config.AllowedTools)
 		}
-		logger.Infof(ctx, "KBSelectionMode=all: loaded %d knowledge bases (own + shared)", len(kbIDs))
+		logger.Infof(ctx, "KBSelectionMode=all: loaded %d knowledge bases (own + org-shared + plaza)", len(kbIDs))
 		return kbIDs
 	case "selected":
 		logger.Infof(ctx, "KBSelectionMode=selected: using %d configured knowledge bases", len(customAgent.Config.KnowledgeBases))
