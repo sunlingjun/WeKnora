@@ -32,11 +32,12 @@ server:
     - "https://home.dbn.cn"
   # 前置 Nginx/Ingress 终结 TLS、直连本服务为 HTTP 时设为 true（信任 X-Forwarded-Proto 等）
   behind_proxy: false
-  # 本地自有开发：进程内 HTTPS（证书见仓库 ssl/）。测试/生产由 Nginx 终结 TLS 时应关闭本块并设 behind_proxy: true。
-  https:
-    enabled: true
-    cert_file: "ssl/cert.pem"
-    key_file: "ssl/key.pem"
+  # 可选：需要进程内 HTTPS 时取消注释并填写路径（无默认路径，必须与 enabled 同时配置）
+  # 测试/生产由 Nginx 终结 TLS，关闭进程内 HTTPS（仅本地直连调试时再打开）
+  # https:
+  #   enabled: true
+  #   cert_file: "ssl/cert.pem"
+  #   key_file: "ssl/key.pem"
   # 可选：behind_proxy 为 true 且需指定代理网段时填写；省略则使用内置私网默认值
   # trusted_proxies:
   #   - "10.0.0.0/8"
