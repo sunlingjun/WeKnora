@@ -1,0 +1,34 @@
+# 开源贡献专用 PostgreSQL，与 WeKnora-postgres-dev 隔离，后续 contrib 复用。
+#
+#   docker compose -f docker/2026-09-02-oss-contrib-postgres.yml up -d
+#   docker compose -f docker/2026-09-02-oss-contrib-postgres.yml ps
+#
+# contrib 分支跑 app：
+#   DB_HOST=127.0.0.1 DB_PORT=15432 DB_USER=weknora DB_PASSWORD=weknora_oss_local DB_NAME=weknora
+
+name: weknora-oss-contrib
+
+services:
+  postgres:
+    image: paradedb/paradedb:v0.22.2-pg17
+    container_name: weknora-oss-postgres
+    ports:
+      - "127.0.0.1:15432:5432"
+    environment:
+      POSTGRES_USER: weknora
+      POSTGRES_PASSWORD: weknora_oss_local
+      POSTGRES_DB: weknora
+    volumes:
+      - weknora-oss-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weknora -d weknora"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  weknora-oss-postgres-data:
+    name: weknora-oss-postgres-data
