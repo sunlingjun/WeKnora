@@ -160,10 +160,16 @@ func (s *sessionService) KnowledgeQA(
 	hasKB := types.HasKnowledgeRetrievalScope(searchTargets, knowledgeBaseIDs, knowledgeIDs)
 	needsRAG := hasKB || req.WebSearchEnabled
 	hasHistory := chatManage.MaxRounds > 0
+	// Bound KBs must not force rewrite+retrieval for plain greetings — that is
+	// what surfaces the verbose "正在理解问题 → 思考 → 完成" timeline for "你好".
+	trivialChat := common.IsTrivialConversationalQuery(req.Query) &&
+		len(req.ImageURLs) == 0 &&
+		len(req.Attachments) == 0 &&
+		!req.WebSearchEnabled
 
 	var pipeline []types.EventType
-	if !needsRAG {
-		// Pure chat — no retrieval needed.
+	if !needsRAG || trivialChat {
+		// Pure chat — no retrieval / query_understand progress.
 		userContent := req.Query
 		if req.ImageDescription != "" && !chatModelSupportsVision {
 			userContent += "\n\n[用户上传图片内容]\n" + req.ImageDescription
@@ -176,6 +182,9 @@ func (s *sessionService) KnowledgeQA(
 			userContent += req.Attachments.BuildPrompt()
 		}
 		chatManage.UserContent = userContent
+		if trivialChat {
+			chatManage.Intent = types.IntentGreeting
+		}
 
 		pipeline = types.NewPipelineBuilder().
 			AddIf(hasHistory, types.LOAD_HISTORY).
@@ -197,8 +206,8 @@ func (s *sessionService) KnowledgeQA(
 			Build()
 	}
 
-	logger.Infof(ctx, "Assembled pipeline (%d stages), hasKB=%v, webSearch=%v, history=%v",
-		len(pipeline), hasKB, req.WebSearchEnabled, hasHistory)
+	logger.Infof(ctx, "Assembled pipeline (%d stages), hasKB=%v, webSearch=%v, history=%v, trivialChat=%v",
+		len(pipeline), hasKB, req.WebSearchEnabled, hasHistory, trivialChat)
 
 	// Start knowledge QA event processing (set session tenant so pipeline session/message lookups use session owner)
 	ctx = context.WithValue(ctx, types.SessionTenantIDContextKey, req.Session.TenantID)
