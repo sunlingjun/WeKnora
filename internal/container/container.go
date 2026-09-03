@@ -183,6 +183,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(mcp.NewMCPManager))
 	must(container.Provide(mcp.NewOAuthManager))
 
+	must(container.Provide(workspaceevent.NewSubscriptionIndex))
 	must(container.Provide(workspaceevent.NewSink))
 	must(container.Provide(func(s *workspaceevent.Sink) interfaces.WorkspaceEventSink { return s }))
 

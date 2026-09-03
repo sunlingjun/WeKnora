@@ -39,6 +39,12 @@ const (
 	WebhookOutboxSweepMaxAttempts = 50
 	WebhookDeliveryKeepPerEndpoint = 50
 
+	// Webhook subscription index (Emit gate): Redis SET of subscribed types.
+	WebhookSubRedisKeyPrefix = "weknora:webhook:sub:"
+	WebhookSubEmptyMarker    = "__none__"
+	WebhookSubPositiveTTL    = 30 * time.Minute
+	WebhookSubNegativeTTL    = 5 * time.Minute
+
 	KnowledgeTypeFile    = "file"
 	KnowledgeTypeURL     = "url"
 	KnowledgeTypeFileURL = "file_url"

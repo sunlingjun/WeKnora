@@ -28,23 +28,26 @@ var (
 )
 
 type webhookEndpointService struct {
-	endpoints  interfaces.WebhookEndpointRepository
-	deliveries interfaces.WebhookDeliveryRepository
-	dispatcher interfaces.WebhookDispatcher
-	audit      interfaces.AuditLogService
+	endpoints     interfaces.WebhookEndpointRepository
+	deliveries    interfaces.WebhookDeliveryRepository
+	dispatcher    interfaces.WebhookDispatcher
+	subscriptions interfaces.WebhookSubscriptionIndex
+	audit         interfaces.AuditLogService
 }
 
 func NewWebhookEndpointService(
 	endpoints interfaces.WebhookEndpointRepository,
 	deliveries interfaces.WebhookDeliveryRepository,
 	dispatcher interfaces.WebhookDispatcher,
+	subscriptions interfaces.WebhookSubscriptionIndex,
 	audit interfaces.AuditLogService,
 ) interfaces.WebhookEndpointService {
 	return &webhookEndpointService{
-		endpoints:  endpoints,
-		deliveries: deliveries,
-		dispatcher: dispatcher,
-		audit:      audit,
+		endpoints:     endpoints,
+		deliveries:    deliveries,
+		dispatcher:    dispatcher,
+		subscriptions: subscriptions,
+		audit:         audit,
 	}
 }
 
@@ -116,6 +119,7 @@ func (s *webhookEndpointService) Create(ctx context.Context, tenantID uint64, in
 	if err := s.endpoints.Create(ctx, ep); err != nil {
 		return nil, err
 	}
+	s.invalidateSubscriptions(ctx, tenantID)
 	s.emitAudit(ctx, types.AuditActionWebhookEndpointCreated, ep)
 	pub := ep.Public()
 	return &pub, nil
@@ -167,6 +171,7 @@ func (s *webhookEndpointService) Update(ctx context.Context, tenantID uint64, ho
 	if err := s.endpoints.Update(ctx, ep); err != nil {
 		return nil, err
 	}
+	s.invalidateSubscriptions(ctx, tenantID)
 	s.emitAudit(ctx, types.AuditActionWebhookEndpointUpdated, ep)
 	pub := ep.Public()
 	return &pub, nil
@@ -180,6 +185,7 @@ func (s *webhookEndpointService) Delete(ctx context.Context, tenantID uint64, ho
 	if err := s.endpoints.SoftDelete(ctx, tenantID, hookID); err != nil {
 		return err
 	}
+	s.invalidateSubscriptions(ctx, tenantID)
 	s.emitAudit(ctx, types.AuditActionWebhookEndpointDeleted, ep)
 	return nil
 }
@@ -223,6 +229,14 @@ func (s *webhookEndpointService) emitAudit(ctx context.Context, action types.Aud
 		Outcome:     types.AuditOutcomeSuccess,
 		Details:     details,
 	})
+}
+
+func (s *webhookEndpointService) invalidateSubscriptions(ctx context.Context, tenantID uint64) {
+	if s == nil || s.subscriptions == nil || tenantID == 0 {
+		return
+	}
+	_ = s.subscriptions.Invalidate(ctx, tenantID)
+	s.subscriptions.Warm(ctx, tenantID)
 }
 
 func normalizeWebhookEvents(events []string) (types.WebhookEvents, error) {

@@ -104,7 +104,7 @@ func TestWebhookEndpointCreateWritesAudit(t *testing.T) {
 	t.Setenv("SYSTEM_AES_KEY", "01234567890123456789012345678901")
 	repo := &stubWebhookEndpoints{}
 	audit := &fakeWebhookAudit{}
-	svc := NewWebhookEndpointService(repo, stubWebhookDeliveries{}, nil, audit)
+	svc := NewWebhookEndpointService(repo, stubWebhookDeliveries{}, nil, nil, audit)
 	enabled := true
 	got, err := svc.Create(context.Background(), 42, interfaces.WebhookEndpointCreate{
 		Name:    "prod",
@@ -129,7 +129,7 @@ func TestWebhookEndpointCreateWritesAudit(t *testing.T) {
 
 func TestWebhookEndpointCreateRejectsEmptyEvents(t *testing.T) {
 	t.Setenv("SYSTEM_AES_KEY", "01234567890123456789012345678901")
-	svc := NewWebhookEndpointService(&stubWebhookEndpoints{}, stubWebhookDeliveries{}, nil, nil)
+	svc := NewWebhookEndpointService(&stubWebhookEndpoints{}, stubWebhookDeliveries{}, nil, nil, nil)
 	_, err := svc.Create(context.Background(), 42, interfaces.WebhookEndpointCreate{
 		Name:   "prod",
 		URL:    "https://hooks.example.com/weknora",

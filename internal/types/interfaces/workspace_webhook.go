@@ -9,8 +9,20 @@ import (
 
 // WorkspaceEventSink persists a domain event to the webhook outbox.
 // Emit never rolls back the caller; insert failures are retried then logged.
+// Emit skips outbox when the tenant has no enabled endpoint subscribed to
+// the event type (see WebhookSubscriptionIndex).
 type WorkspaceEventSink interface {
 	Emit(ctx context.Context, ev types.WorkspaceEvent)
+}
+
+// WebhookSubscriptionIndex answers whether Emit should write an outbox row.
+// Redis caches the union of enabled endpoint event types per tenant; DB is
+// the source of truth. Invalidate after endpoint create/update/delete; Warm
+// rebuilds the cache so the next Emit does not hit a negative-cache window.
+type WebhookSubscriptionIndex interface {
+	Subscribes(ctx context.Context, tenantID uint64, eventType string) bool
+	Invalidate(ctx context.Context, tenantID uint64) error
+	Warm(ctx context.Context, tenantID uint64)
 }
 
 type WebhookEndpointRepository interface {

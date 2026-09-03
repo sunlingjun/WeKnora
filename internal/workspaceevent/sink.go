@@ -11,17 +11,22 @@ import (
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
-// Sink writes domain events to tenant_webhook_outbox. Dispatch is optional and
+// Sink writes domain events to tenant_webhook_outbox when the tenant has an
+// enabled endpoint subscribed to the event type. Dispatch is optional and
 // attached after the asynq client exists so knowledge/member services can be
 // constructed earlier in the DI graph.
 type Sink struct {
-	outbox     interfaces.WebhookOutboxRepository
-	mu         sync.RWMutex
-	dispatcher interfaces.WebhookDispatcher
+	outbox        interfaces.WebhookOutboxRepository
+	subscriptions interfaces.WebhookSubscriptionIndex
+	mu            sync.RWMutex
+	dispatcher    interfaces.WebhookDispatcher
 }
 
-func NewSink(outbox interfaces.WebhookOutboxRepository) *Sink {
-	return &Sink{outbox: outbox}
+func NewSink(
+	outbox interfaces.WebhookOutboxRepository,
+	subscriptions interfaces.WebhookSubscriptionIndex,
+) *Sink {
+	return &Sink{outbox: outbox, subscriptions: subscriptions}
 }
 
 func (s *Sink) SetDispatcher(d interfaces.WebhookDispatcher) {
@@ -47,6 +52,9 @@ func (s *Sink) Emit(ctx context.Context, ev types.WorkspaceEvent) {
 		return
 	}
 	if ev.Type == "" || ev.TenantID == 0 {
+		return
+	}
+	if s.subscriptions != nil && !s.subscriptions.Subscribes(ctx, ev.TenantID, ev.Type) {
 		return
 	}
 	env, err := BuildEnvelope(ev, time.Now().UTC())
