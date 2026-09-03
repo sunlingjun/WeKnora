@@ -361,22 +361,25 @@ router.beforeEach(async (to, from, next) => {
     if (needsCasIdentityReconcile()) {
       const casValid = await reconcileCasIdentity(authStore, casStore)
       if (!casValid) {
+        // 业务入口未登录 → CAS（不落 /login）
+        if (!(window.location.href.includes('cas.nxin.com') || window.location.href.includes('cas.t.nxin.com'))) {
+          casStore.redirectToCASLogin()
+        }
         next(false)
         return
       }
     } else if (!authStore.isLoggedIn) {
       const restored = await hydrateSessionFromToken(authStore)
       if (!restored) {
-        // 未登录：走 CAS，不要落回密码登录页
-        if (window.location.href.includes('cas.nxin.com') || window.location.href.includes('cas.t.nxin.com')) {
-          next(false)
+        if (isLiteEdition(authStore)) {
+          next({ path: '/login', query: { redirect: to.fullPath } })
           return
         }
-        const casValid = await casStore.validateSession()
-        if (!casValid) {
-          next(false)
-          return
+        if (!(window.location.href.includes('cas.nxin.com') || window.location.href.includes('cas.t.nxin.com'))) {
+          casStore.redirectToCASLogin()
         }
+        next(false)
+        return
       }
     }
     if (authStore.hasValidTenant) {
@@ -387,13 +390,27 @@ router.beforeEach(async (to, from, next) => {
     return
   }
 
-  // 如果访问的是登录页面或初始化页面，直接放行（不触发 CAS，避免死循环）
-  if (to.meta.requiresAuth === false || to.meta.requiresInit === false) {
-    // 如果已登录用户访问登录页面，重定向到知识库列表页面
-    if (to.path === '/login' && authStore.isLoggedIn) {
+  // 公开页：/login 单独处理——仅此路径可看自有登录页；CAS 已登录则进主页
+  if (to.path === '/login') {
+    if (authStore.isLoggedIn) {
       next(authStore.hasValidTenant ? '/platform/knowledge-bases' : '/onboarding/workspace')
       return
     }
+    // Soft CAS：已登录农信会话 → 主页；未登录 → 展示本页（绝不硬跳 CAS）
+    if (!(window.location.href.includes('cas.nxin.com') || window.location.href.includes('cas.t.nxin.com'))) {
+      const casValid = await casStore.validateSession()
+      if (casValid) {
+        await hydrateSessionFromToken(authStore)
+        next(authStore.hasValidTenant ? '/platform/knowledge-bases' : '/onboarding/workspace')
+        return
+      }
+    }
+    next()
+    return
+  }
+
+  // 其它登录/初始化公开页直接放行
+  if (to.meta.requiresAuth === false || to.meta.requiresInit === false) {
     next()
     return
   }
@@ -403,6 +420,9 @@ router.beforeEach(async (to, from, next) => {
     if (needsCasIdentityReconcile()) {
       const casValid = await reconcileCasIdentity(authStore, casStore)
       if (!casValid) {
+        if (!(window.location.href.includes('cas.nxin.com') || window.location.href.includes('cas.t.nxin.com'))) {
+          casStore.redirectToCASLogin()
+        }
         next(false)
         return
       }
@@ -424,7 +444,7 @@ router.beforeEach(async (to, from, next) => {
         return
       }
 
-      // Lite：仅桌面/内嵌版尝试 auto-setup；NXIN Web 走 CAS
+      // Lite：仅桌面/内嵌版尝试 auto-setup；失败后落 /login
       if (isLiteEdition(authStore)) {
         if (!autoSetupAttempted && shouldTryAutoSetup()) {
           autoSetupAttempted = true
@@ -446,22 +466,13 @@ router.beforeEach(async (to, from, next) => {
         return
       }
 
-      // NXIN：未登录时走 CAS 验证；失败时 validateSession 会跳 CAS 登录页
+      // NXIN：未直接访问 /login 的未登录请求 → 跳 CAS
       if (window.location.href.includes('cas.nxin.com') || window.location.href.includes('cas.t.nxin.com')) {
         next(false)
         return
       }
-
-      const casValid = await casStore.validateSession()
-      if (!casValid) {
-        next(false)
-        return
-      }
-      if (!authStore.hasValidTenant && to.meta.requiresTenant !== false) {
-        next('/onboarding/workspace')
-      } else {
-        next()
-      }
+      casStore.redirectToCASLogin()
+      next(false)
       return
     }
   }

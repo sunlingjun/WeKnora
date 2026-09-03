@@ -29,7 +29,9 @@ export const useCASStore = defineStore('cas', () => {
   }
 
   // 验证 CAS 会话。Cookie 为 HttpOnly，由浏览器自动带上；本函数不读 cookie。
-  // 路由守卫每个整页刷新调用一次，成功后才允许请求带本地 JWT。
+  // 仅返回 true/false，不硬跳 CAS：
+  // - 业务页未登录由路由调用 redirectToCASLogin
+  // - 直接访问 /login 时 soft 校验：成功进主页，失败展示自有登录页
   const validateSession = async () => {
     console.log("开始 CAS 会话验证（直接调用服务端 API）...")
     
@@ -92,16 +94,13 @@ export const useCASStore = defineStore('cas', () => {
         console.log("CAS 验证成功，Token 已保存")
         return true
       } else {
-        // 验证失败（code !== 0），跳转到 CAS 登录页面
         console.log("CAS validation failed with response code:", response.code, "msg:", response.msg)
         useAuthStore().logout()
-        redirectToCASLogin()
         return false
       }
     } catch (error) {
       console.error('CAS session validation failed:', error)
       useAuthStore().logout()
-      redirectToCASLogin()
       return false
     }
   }
@@ -130,6 +129,7 @@ export const useCASStore = defineStore('cas', () => {
   return {
     isCASLoggedIn,
     validateSession,
+    redirectToCASLogin,
     logout,
   }
 })

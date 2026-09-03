@@ -92,7 +92,7 @@ function redirectToLogin() {
   if (window.location.pathname === '/join-cas') return;
   // Embed 渠道用 Embed token 鉴权，匿名访问不应被踢到登录页
   if (isEmbedPage()) return;
-  // NXIN：401 后回首页触发路由守卫里的 CAS，避免直接落到密码登录页
+  // NXIN：401 回首页，由路由守卫跳 CAS；本机/非 nxin 主机落自有 /login
   if (window.location.hostname.includes('.nxin.com')) {
     window.location.href = '/';
     return;

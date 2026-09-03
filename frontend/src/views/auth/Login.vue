@@ -182,6 +182,15 @@
                 {{ loading ? $t('auth.loggingIn') : $t('auth.login') }}
               </t-button>
 
+              <div class="oidc-divider">
+                <span>{{ $t('auth.orContinueWith') }}</span>
+              </div>
+
+              <t-button theme="default" size="large" block :disabled="loading || oidcLoading" class="oidc-button"
+                @click="handleCASLogin">
+                {{ $t('auth.casLogin') }}
+              </t-button>
+
               <div class="register-cta" v-if="registrationEnabled">
                 <div class="register-cta__divider">
                   <span>{{ $t('auth.firstTime') }}</span>
@@ -329,6 +338,8 @@ import {
   type InviteLookup,
 } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
+import { useCASStore } from '@/stores/cas'
+import { markCasIdentityReconciled } from '@/utils/casSession'
 import { useI18n } from 'vue-i18n'
 
 // Import screenshot images
@@ -340,6 +351,7 @@ import screenshot4 from '@/assets/img/screenshot-4.svg'
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const casStore = useCASStore()
 const { t, tm, locale } = useI18n()
 const { formatRole, roleIcon } = useRoleLabel()
 
@@ -522,6 +534,9 @@ const persistLoginResponse = async (response: any) => {
   // JWT, defaulting to the user's home tenant on a fresh login.
   const activeTenant = response.active_tenant || response.tenant
   if (response.user && response.token) {
+    // Password / invite login also counts as identity reconcile on nxin hosts
+    // so subsequent requests can attach the JWT without forcing CAS.
+    markCasIdentityReconciled()
     // user.tenant_id must be the user's HOME tenant (the immutable row
     // on the users table); useHomeTenant() and the home-badge logic both
     // assume so. The ACTIVE tenant (which can differ from home when the
@@ -615,6 +630,10 @@ const handleOIDCLogin = async () => {
 }
 
 // Handle login
+const handleCASLogin = () => {
+  casStore.redirectToCASLogin()
+}
+
 const handleLogin = async () => {
   try {
     const valid = await formRef.value?.validate()

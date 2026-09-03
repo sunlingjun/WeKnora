@@ -165,9 +165,10 @@ export default defineConfig({
     },
   },
   server: {
-    port: 443, // 使用标准 HTTP/HTTPS 端口（需要管理员权限）
-    // 如果 80 端口有问题，可以改为 8081（无需管理员权限）
-    // port: 8081,
+    // 自有本地：HTTPS 监听 443，才能无端口访问 https://zsk.t.nxin.com/
+    // （浏览器 HTTPS 默认 443；:80 仅当显式写 https://host:80/）
+    // 无管理员权限时可临时改为 8081，并同步改 hmr.port
+    port: 443,
     host: '0.0.0.0', // 监听所有网络接口，允许外部访问
     strictPort: false, // 如果端口被占用，自动尝试下一个端口
     https: getHttpsConfig(),
@@ -177,7 +178,7 @@ export default defineConfig({
       overlay: true, // 显示错误覆盖层
       // 不设置 host，让 Vite 自动使用当前访问的域名
       // 这样无论通过 localhost 还是 zsk.t.nxin.com 访问，WebSocket 都会使用相同的域名
-      port: 80, // 使用相同的端口（如果改为 8081，这里也要改）
+      port: 443,
       protocol: 'wss', // 使用 WSS（HTTPS 环境）
     },
     // 允许的主机名（用于 CAS 单点登录开发环境）
