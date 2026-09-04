@@ -20,6 +20,7 @@ type stubUCDir struct {
 }
 
 func (s *stubUCDir) Configured() bool { return true }
+func (s *stubUCDir) HasBaseURL() bool { return true }
 func (s *stubUCDir) FindByAuthorizedPhone(_ context.Context, phone string) (*types.CASUserInfo, error) {
 	if s.find == nil {
 		return nil, nil
@@ -31,6 +32,15 @@ func (s *stubUCDir) SearchByNameOrPhone(_ context.Context, keyword string) ([]*t
 		return nil, nil
 	}
 	return s.search[keyword], nil
+}
+func (s *stubUCDir) GetBoIDByZNTToken(context.Context, string) (string, error) {
+	return "", errors.New("GetBoIDByZNTToken not stubbed")
+}
+func (s *stubUCDir) GetBoIDByUcTicket(context.Context, string) (string, error) {
+	return "", errors.New("GetBoIDByUcTicket not stubbed")
+}
+func (s *stubUCDir) GetUserArchive(context.Context, string) (*types.CASUserInfo, error) {
+	return nil, errors.New("GetUserArchive not stubbed")
 }
 
 type stubImportUserRepo struct {
@@ -89,6 +99,9 @@ type spyCASAuth struct {
 	users       map[string]*types.User
 }
 
+func (s *spyCASAuth) ResolveCASUserFromCookies(context.Context, string, string) (*types.CASUserInfo, error) {
+	return nil, errors.New("not used")
+}
 func (s *spyCASAuth) ValidateCASSession(context.Context, string, string, string) (*types.CASUserInfo, error) {
 	return nil, errors.New("not used")
 }

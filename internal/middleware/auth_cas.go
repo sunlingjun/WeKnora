@@ -5,13 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/cascookie"
 	"github.com/Tencent/WeKnora/internal/config"
+	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -49,14 +51,15 @@ func tryNXINCASAuth(
 	if casEnv == nil {
 		return false
 	}
-	casSid, _ := c.Cookie(casEnv.CookieSID)
-	casUid, _ := c.Cookie(casEnv.CookieUID)
-	if casSid == "" || casUid == "" {
+
+	ticketCookie, casSid, _ := cascookie.Read(c, cfg)
+	if ticketCookie == "" && casSid == "" {
 		return false
 	}
 
 	cacheTTL := time.Duration(cfg.Auth.NXINCASAuth.CacheTTLSeconds) * time.Second
-	cacheKey := buildNXINCASAuthCacheKey(casEnv.APIHost, casSid, casUid)
+	channel, token := casAuthCacheChannelToken(ticketCookie, casSid)
+	cacheKey := buildNXINCASAuthCacheKey(casEnv.APIHost, channel, token)
 
 	if entry, ok := getNXINCASAuthCache(c.Request.Context(), redisClient, cacheKey); ok {
 		user, err := userService.GetUserByID(c.Request.Context(), entry.UserID)
@@ -69,14 +72,23 @@ func tryNXINCASAuth(
 		}
 	}
 
-	referer := buildCASReferer(c, casEnv.LoginHost)
-	casUserInfo, err := casAuthService.ValidateCASSession(c.Request.Context(), casSid, casUid, referer)
-	if err != nil {
-		log.Printf("NXIN CAS auth validate failed: %v", err)
+	casUserInfo, err := casAuthService.ResolveCASUserFromCookies(c.Request.Context(), ticketCookie, casSid)
+	if errors.Is(err, types.ErrCASCredentialsMissing) {
+		return false
+	}
+	if errors.Is(err, types.ErrCASTicketInvalid) {
+		log.Printf("NXIN CAS auth ticket invalid: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: invalid CAS session"})
 		c.Abort()
 		return true
 	}
+	if err != nil {
+		log.Printf("NXIN CAS auth resolve failed: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Auth provider unavailable"})
+		c.Abort()
+		return true
+	}
+
 	user, err := casAuthService.AutoBindUser(c.Request.Context(), casUserInfo)
 	if err != nil {
 		log.Printf("NXIN CAS auth bind user failed: %v", err)
@@ -101,6 +113,13 @@ func tryNXINCASAuth(
 	}, cacheTTL)
 	c.Next()
 	return true
+}
+
+func casAuthCacheChannelToken(ticketCookie, casSid string) (channel, token string) {
+	if strings.TrimSpace(ticketCookie) != "" {
+		return "znt", strings.TrimSpace(ticketCookie)
+	}
+	return "sid", strings.TrimSpace(casSid)
 }
 
 func isNXINCASAuthPathAllowed(path string, patterns []string) bool {
@@ -130,20 +149,9 @@ func isRequestHTTPS(c *gin.Context) bool {
 	return strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 }
 
-func buildCASReferer(c *gin.Context, loginHost string) string {
-	referer := c.GetHeader("Referer")
-	if referer != "" {
-		return referer
-	}
-	origin := c.GetHeader("Origin")
-	if origin != "" {
-		return origin + "/"
-	}
-	return fmt.Sprintf("https://%s/", loginHost)
-}
-
-func buildNXINCASAuthCacheKey(apiHost, casSid, casUid string) string {
-	raw := apiHost + "|" + casSid + "|" + casUid
+// buildNXINCASAuthCacheKey hashes apiHost|channel|token so tickets are not stored in Redis keys.
+func buildNXINCASAuthCacheKey(apiHost, channel, token string) string {
+	raw := apiHost + "|" + channel + "|" + token
 	sum := sha256.Sum256([]byte(raw))
 	return "auth:nxin_cas_auth:" + hex.EncodeToString(sum[:])
 }

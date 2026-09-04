@@ -47,6 +47,10 @@ func (c *userCenterDirectoryClient) Configured() bool {
 	return c != nil && c.cfg.Configured()
 }
 
+func (c *userCenterDirectoryClient) HasBaseURL() bool {
+	return c != nil && strings.TrimSpace(c.cfg.URL) != ""
+}
+
 func (c *userCenterDirectoryClient) FindByAuthorizedPhone(ctx context.Context, phone string) (*types.CASUserInfo, error) {
 	if !c.Configured() {
 		return nil, fmt.Errorf("user center is not configured")
@@ -73,6 +77,52 @@ func (c *userCenterDirectoryClient) SearchByNameOrPhone(ctx context.Context, key
 	return parseUserArchiveList(body)
 }
 
+func (c *userCenterDirectoryClient) GetBoIDByZNTToken(ctx context.Context, token string) (string, error) {
+	if !c.HasBaseURL() {
+		return "", fmt.Errorf("user center url is not configured")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", fmt.Errorf("empty znt token")
+	}
+	path := "login/get-boId-by-znt-token/" + url.PathEscape(token)
+	raw, err := c.getNoAuth(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	return parseBoIDFromDataField(raw)
+}
+
+func (c *userCenterDirectoryClient) GetBoIDByUcTicket(ctx context.Context, ticket string) (string, error) {
+	if !c.HasBaseURL() {
+		return "", fmt.Errorf("user center url is not configured")
+	}
+	ticket = strings.TrimSpace(ticket)
+	if ticket == "" {
+		return "", fmt.Errorf("empty uc ticket")
+	}
+	raw, err := c.postFormNoAuth(ctx, "login/getUserByUcTicket", url.Values{"ticket": {ticket}})
+	if err != nil {
+		return "", err
+	}
+	return parseBoIDFromUcTicket(raw)
+}
+
+func (c *userCenterDirectoryClient) GetUserArchive(ctx context.Context, boID string) (*types.CASUserInfo, error) {
+	if !c.Configured() {
+		return nil, fmt.Errorf("user center is not configured")
+	}
+	boID = strings.TrimSpace(boID)
+	if boID == "" {
+		return nil, fmt.Errorf("empty bo id")
+	}
+	raw, err := c.postForm(ctx, "person/getUserArchive/"+url.PathEscape(boID), url.Values{})
+	if err != nil {
+		return nil, err
+	}
+	return parseUserArchiveObjectStrict(raw, boID)
+}
+
 func (c *userCenterDirectoryClient) postForm(ctx context.Context, path string, form url.Values) ([]byte, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, userCenterRequestTimeout)
 	defer cancel()
@@ -88,6 +138,35 @@ func (c *userCenterDirectoryClient) postForm(ctx context.Context, path string, f
 	req.Header.Set("timestamp", ts)
 	req.Header.Set("accessToken", userCenterAccessToken(c.cfg.Cert, ts))
 
+	return c.doUserCenterRequest(ctx, req, path)
+}
+
+func (c *userCenterDirectoryClient) getNoAuth(ctx context.Context, path string) ([]byte, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, userCenterRequestTimeout)
+	defer cancel()
+
+	endpoint := joinUserCenterURL(c.cfg.URL, path)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("user center request: %w", err)
+	}
+	return c.doUserCenterRequest(ctx, req, path)
+}
+
+func (c *userCenterDirectoryClient) postFormNoAuth(ctx context.Context, path string, form url.Values) ([]byte, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, userCenterRequestTimeout)
+	defer cancel()
+
+	endpoint := joinUserCenterURL(c.cfg.URL, path)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("user center request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return c.doUserCenterRequest(ctx, req, path)
+}
+
+func (c *userCenterDirectoryClient) doUserCenterRequest(ctx context.Context, req *http.Request, path string) ([]byte, error) {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("user center call %s: %w", path, err)
@@ -145,6 +224,30 @@ func parseUserArchiveObject(raw []byte) (*types.CASUserInfo, error) {
 		return nil, fmt.Errorf("user center person payload: %w", err)
 	}
 	return archiveToCASUserInfo(dto), nil
+}
+
+// parseUserArchiveObjectStrict treats non-zero UC code as an error (auth path),
+// unlike parseUserArchiveObject which soft-misses for directory lookup.
+func parseUserArchiveObjectStrict(raw []byte, boID string) (*types.CASUserInfo, error) {
+	env, err := decodeUserCenterEnvelope(raw)
+	if err != nil {
+		return nil, err
+	}
+	if !userCenterCodeOK(env.Code) {
+		return nil, fmt.Errorf("user center getUserArchive code=%s", strings.TrimSpace(string(env.Code)))
+	}
+	if isJSONNull(env.Data) {
+		return nil, fmt.Errorf("user archive empty for boId=%s", boID)
+	}
+	var dto userArchiveDTO
+	if err := json.Unmarshal(env.Data, &dto); err != nil {
+		return nil, fmt.Errorf("user center person payload: %w", err)
+	}
+	info := archiveToCASUserInfo(dto)
+	if info == nil || info.ID == "" {
+		return nil, fmt.Errorf("user archive empty for boId=%s", boID)
+	}
+	return info, nil
 }
 
 func parseUserArchiveList(raw []byte) ([]*types.CASUserInfo, error) {
@@ -240,4 +343,43 @@ func stringifyJSONID(raw json.RawMessage) string {
 		return strings.TrimSpace(n.String())
 	}
 	return strings.Trim(s, `"`)
+}
+
+func parseBoIDFromDataField(raw []byte) (string, error) {
+	env, err := decodeUserCenterEnvelope(raw)
+	if err != nil {
+		return "", err
+	}
+	if !userCenterCodeOK(env.Code) {
+		return "", fmt.Errorf("user center code %s", strings.TrimSpace(string(env.Code)))
+	}
+	id := stringifyJSONID(env.Data)
+	if id == "" {
+		return "", fmt.Errorf("user center empty bo id")
+	}
+	return id, nil
+}
+
+func parseBoIDFromUcTicket(raw []byte) (string, error) {
+	env, err := decodeUserCenterEnvelope(raw)
+	if err != nil {
+		return "", err
+	}
+	if !userCenterCodeOK(env.Code) {
+		return "", fmt.Errorf("user center code %s", strings.TrimSpace(string(env.Code)))
+	}
+	if isJSONNull(env.Data) {
+		return "", fmt.Errorf("user center empty bo id")
+	}
+	var payload struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if err := json.Unmarshal(env.Data, &payload); err != nil {
+		return "", fmt.Errorf("user center uc ticket payload: %w", err)
+	}
+	id := stringifyJSONID(payload.ID)
+	if id == "" {
+		return "", fmt.Errorf("user center empty bo id")
+	}
+	return id, nil
 }

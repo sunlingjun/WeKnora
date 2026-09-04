@@ -100,3 +100,105 @@ func TestUserCenterNotConfigured(t *testing.T) {
 	_, err := c.FindByAuthorizedPhone(context.Background(), "13800138000")
 	require.Error(t, err)
 }
+
+func TestGetBoIDByZNTToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/login/get-boId-by-znt-token/tok-1", r.URL.Path)
+		require.Empty(t, r.Header.Get("systemId"))
+		_, _ = w.Write([]byte(`{"code":0,"data":1787161,"error":""}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &userCenterDirectoryClient{
+		cfg:        config.CASUserCenterConfig{URL: srv.URL + "/"},
+		httpClient: srv.Client(),
+	}
+	id, err := c.GetBoIDByZNTToken(context.Background(), "tok-1")
+	require.NoError(t, err)
+	require.Equal(t, "1787161", id)
+}
+
+func TestGetBoIDByUcTicket(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/login/getUserByUcTicket", r.URL.Path)
+		body, _ := io.ReadAll(r.Body)
+		vals, _ := url.ParseQuery(string(body))
+		require.Equal(t, "sid-1", vals.Get("ticket"))
+		_, _ = w.Write([]byte(`{"code":0,"data":{"id":1787161}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &userCenterDirectoryClient{
+		cfg:        config.CASUserCenterConfig{URL: srv.URL + "/"},
+		httpClient: srv.Client(),
+	}
+	id, err := c.GetBoIDByUcTicket(context.Background(), "sid-1")
+	require.NoError(t, err)
+	require.Equal(t, "1787161", id)
+}
+
+func TestGetUserArchiveByBoID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/person/getUserArchive/1787161", r.URL.Path)
+		require.Equal(t, "sys-1", r.Header.Get("systemId"))
+		_, _ = w.Write([]byte(`{"code":0,"data":{"id":1787161,"idStr":"1787161","loginName":"u1","realName":"刘二","mobilePhone":"182****2222","unionId":"ff1bb4e8-85e9"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &userCenterDirectoryClient{
+		cfg: config.CASUserCenterConfig{
+			URL: srv.URL + "/", SystemID: "sys-1", Cert: "cert-value",
+		},
+		httpClient: srv.Client(),
+	}
+	info, err := c.GetUserArchive(context.Background(), "1787161")
+	require.NoError(t, err)
+	require.Equal(t, "1787161", info.ID)
+	require.Equal(t, "刘二", info.RealName)
+	require.Equal(t, "u1", info.LoginName)
+}
+
+func TestGetBoIDByZNTTokenNonZeroCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":20003,"data":null,"error":"invalid token"}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &userCenterDirectoryClient{
+		cfg:        config.CASUserCenterConfig{URL: srv.URL + "/"},
+		httpClient: srv.Client(),
+	}
+	_, err := c.GetBoIDByZNTToken(context.Background(), "bad-tok")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "20003")
+}
+
+func TestGetBoIDByUcTicketNonZeroCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":20010,"data":null}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &userCenterDirectoryClient{
+		cfg:        config.CASUserCenterConfig{URL: srv.URL + "/"},
+		httpClient: srv.Client(),
+	}
+	_, err := c.GetBoIDByUcTicket(context.Background(), "bad-sid")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "20010")
+}
+
+func TestGetUserArchiveByBoIDNonZeroCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":20003,"data":null}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &userCenterDirectoryClient{
+		cfg: config.CASUserCenterConfig{
+			URL: srv.URL + "/", SystemID: "sys-1", Cert: "cert-value",
+		},
+		httpClient: srv.Client(),
+	}
+	_, err := c.GetUserArchive(context.Background(), "1787161")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "20003")
+	require.NotContains(t, err.Error(), "empty")
+}

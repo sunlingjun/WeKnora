@@ -52,4 +52,12 @@ func TestJWTIdentityConflictsWithCASCookie(t *testing.T) {
 	if jwtIdentityConflictsWithCASCookie(requestWithCASCookies("uid-b"), nil, user) {
 		t.Fatal("missing CAS config must not conflict")
 	}
+
+	// ticketCookie only / no uid cookie → must not conflict
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/knowledge-bases", nil)
+	c.Request.AddCookie(&http.Cookie{Name: "ticketCookie", Value: "tk-only"})
+	if jwtIdentityConflictsWithCASCookie(c, cfg, user) {
+		t.Fatal("ticketCookie without uid must not conflict with JWT")
+	}
 }

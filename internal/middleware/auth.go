@@ -159,8 +159,9 @@ func attachTenantlessUserContext(c *gin.Context, user *types.User) {
 //     忽略该 JWT（换账号后本地 token 未刷新），改走后续通道。
 //     没有 CAS cookie 不算冲突：纯 Bearer / API 客户端继续可用。
 //  3. X-API-Key —— authenticateAPIKeyRequest。
-//  4. 可选 nxin_cas_auth（tryNXINCASAuth）—— 用 CAS sid/uid cookie
-//     校验并绑定本地用户。仅浏览器会话兜底；GET /cas/validate 本身在白名单。
+//  4. 可选 nxin_cas_auth（tryNXINCASAuth）—— Cookie 双通道：
+//     优先 ticketCookie（ZNT→getUserArchive），否则环境 cookie_sid
+//    （UcTicket→getUserArchive）；uid 非必须。GET /cas/validate 在白名单。
 //
 // 各通道都未命中时返回 401；若调用方提交过 Bearer token，错误消息
 // 明确指出 token 无效而不是笼统的 "missing authentication"，方便客户端

@@ -20,6 +20,7 @@ import (
 // casAuthService 实现 CAS 认证服务
 type casAuthService struct {
 	casClient     *CASClient
+	userCenter    interfaces.UserCenterDirectory
 	userRepo      interfaces.UserRepository
 	userService   interfaces.UserService
 	tenantService interfaces.TenantService
@@ -30,6 +31,7 @@ type casAuthService struct {
 // NewCASAuthService 创建 CAS 认证服务
 func NewCASAuthService(
 	casClient *CASClient,
+	userCenter interfaces.UserCenterDirectory,
 	userRepo interfaces.UserRepository,
 	userService interfaces.UserService,
 	tenantService interfaces.TenantService,
@@ -42,6 +44,7 @@ func NewCASAuthService(
 	}
 	return &casAuthService{
 		casClient:     casClient,
+		userCenter:    userCenter,
 		userRepo:      userRepo,
 		userService:   userService,
 		tenantService: tenantService,
@@ -50,8 +53,45 @@ func NewCASAuthService(
 	}
 }
 
-// ValidateCASSession 验证 CAS 会话（通过 _cas_sid 和 _cas_uid）
-// referer 参数用于设置 Referer 头，CAS API 需要此头进行校验
+// ResolveCASUserFromCookies follows gateway priority:
+// ticketCookie → ZNT+Archive; else casSid → UcTicket+Archive.
+// If ticketCookie is non-empty and ZNT fails, does not fall through to sid.
+func (s *casAuthService) ResolveCASUserFromCookies(ctx context.Context, ticketCookie, casSid string) (*types.CASUserInfo, error) {
+	if s.userCenter == nil || !s.userCenter.HasBaseURL() {
+		return nil, types.ErrCASUserCenterUnavailable
+	}
+	ticketCookie = strings.TrimSpace(ticketCookie)
+	casSid = strings.TrimSpace(casSid)
+
+	var boID string
+	var err error
+	switch {
+	case ticketCookie != "":
+		boID, err = s.userCenter.GetBoIDByZNTToken(ctx, ticketCookie)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", types.ErrCASTicketInvalid, err)
+		}
+	case casSid != "":
+		boID, err = s.userCenter.GetBoIDByUcTicket(ctx, casSid)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", types.ErrCASTicketInvalid, err)
+		}
+	default:
+		return nil, types.ErrCASCredentialsMissing
+	}
+	if !s.userCenter.Configured() {
+		return nil, types.ErrCASUserCenterUnavailable
+	}
+	info, err := s.userCenter.GetUserArchive(ctx, boID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", types.ErrCASUserCenterUnavailable, err)
+	}
+	return info, nil
+}
+
+// ValidateCASSession 验证 CAS 会话（通过 _cas_sid 和 _cas_uid）。
+// Cookie primary path is deprecated: prefer ResolveCASUserFromCookies.
+// referer 参数用于设置 Referer 头，CAS API 需要此头进行校验。
 func (s *casAuthService) ValidateCASSession(ctx context.Context, casSid, casUid string, referer string) (*types.CASUserInfo, error) {
 	if casSid == "" || casUid == "" {
 		return nil, fmt.Errorf("CAS session ID and UID are required")

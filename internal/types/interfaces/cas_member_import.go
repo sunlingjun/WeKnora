@@ -7,11 +7,19 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
-// UserCenterDirectory looks up 农信 users by phone using service credentials.
+// UserCenterDirectory looks up 农信 users (directory + session ticket resolve).
 type UserCenterDirectory interface {
 	Configured() bool
+	// HasBaseURL reports whether CAS_UC_URL (or alias) is set. ZNT/UcTicket need URL only.
+	HasBaseURL() bool
 	FindByAuthorizedPhone(ctx context.Context, phone string) (*types.CASUserInfo, error)
 	SearchByNameOrPhone(ctx context.Context, keyword string) ([]*types.CASUserInfo, error)
+	// GetBoIDByZNTToken GET login/get-boId-by-znt-token/{token} → archive id string.
+	GetBoIDByZNTToken(ctx context.Context, token string) (string, error)
+	// GetBoIDByUcTicket POST login/getUserByUcTicket ticket= → archive id string.
+	GetBoIDByUcTicket(ctx context.Context, ticket string) (string, error)
+	// GetUserArchive POST person/getUserArchive/{boID} with service credentials.
+	GetUserArchive(ctx context.Context, boID string) (*types.CASUserInfo, error)
 }
 
 // CASMemberImportService previews and imports 农信 users into a workspace.

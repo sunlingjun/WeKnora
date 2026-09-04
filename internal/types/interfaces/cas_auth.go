@@ -7,8 +7,15 @@ import (
 
 // CASAuthService 定义 CAS 认证服务接口
 type CASAuthService interface {
-	// ValidateCASSession 验证 CAS 会话（通过 _cas_sid 和 _cas_uid）
-	// referer 参数用于设置 Referer 头，CAS API 需要此头进行校验
+	// ResolveCASUserFromCookies follows gateway priority:
+	// ticketCookie → ZNT+Archive; else casSid → UcTicket+Archive.
+	// Empty both → (nil, types.ErrCASCredentialsMissing).
+	// Ticket present but invalid → wrapped types.ErrCASTicketInvalid (no sid fallback).
+	ResolveCASUserFromCookies(ctx context.Context, ticketCookie, casSid string) (*types.CASUserInfo, error)
+
+	// ValidateCASSession 验证 CAS 会话（通过 _cas_sid 和 _cas_uid）。
+	// Deprecated for Cookie primary path: use ResolveCASUserFromCookies instead.
+	// referer 参数用于设置 Referer 头，CAS API 需要此头进行校验。
 	ValidateCASSession(ctx context.Context, casSid, casUid string, referer string) (*types.CASUserInfo, error)
 
 	// AutoBindUser 自动绑定或创建用户（CAS 用户信息 → WeKnora 用户）
