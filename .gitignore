@@ -67,3 +67,5 @@ miniprogram/project.private.config.json
 
 # 分享页归档在 nxin-doc，不纳入本仓库
 docs/share/
+# Staging dir for the Docker sandbox self-check probe (removed after each run)
+.weknora-sandbox-check-*

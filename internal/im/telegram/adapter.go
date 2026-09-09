@@ -17,6 +17,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/im"
 	"github.com/Tencent/WeKnora/internal/logger"
+	secutils "github.com/Tencent/WeKnora/internal/utils"
 )
 
 // Compile-time checks.
@@ -256,7 +257,10 @@ func (a *Adapter) editMessage(ctx context.Context, chatID, messageID, text, pars
 }
 
 // httpClient is a shared HTTP client with a reasonable timeout for Telegram API calls.
-var httpClient = &http.Client{Timeout: 15 * time.Second}
+var httpClient = secutils.NewSSRFSafeHTTPClient(secutils.SSRFSafeHTTPClientConfig{
+	Timeout:      15 * time.Second,
+	MaxRedirects: 5,
+})
 
 // callAPI calls the Telegram Bot API, discarding the result.
 func (a *Adapter) callAPI(ctx context.Context, method string, body interface{}) error {

@@ -254,6 +254,7 @@ import { logout as logoutApi } from '@/api/auth';
 import { useMenuStore } from '@/stores/menu';
 import { useAuthStore } from '@/stores/auth';
 import { useCASStore } from '@/stores/cas';
+import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities';
 import { useOrganizationStore } from '@/stores/organization';
 import { useUIStore } from '@/stores/ui';
 import { useCommandPaletteStore } from '@/stores/commandPalette';
@@ -294,6 +295,7 @@ const platformLogo = (p: string): string => (p ? PLATFORM_LOGO[p] || '' : '');
 const { t } = useI18n();
 const usemenuStore = useMenuStore();
 const authStore = useAuthStore();
+const deploymentCapabilities = useDeploymentCapabilitiesStore();
 const orgStore = useOrganizationStore();
 const uiStore = useUIStore();
 const commandPaletteStore = useCommandPaletteStore();
@@ -1023,7 +1025,7 @@ onMounted(async () => {
         await syncActiveBucketFromChat(initialChatId);
     }
     // 若组织列表未加载则拉取一次，用于侧栏「待审批」角标
-    if (orgStore.organizations.length === 0) {
+    if (deploymentCapabilities.isSupported('organizations') && orgStore.organizations.length === 0) {
         orgStore.fetchOrganizations();
     }
 });

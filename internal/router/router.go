@@ -60,6 +60,9 @@ type RouterParams struct {
 	MessageSuggestionHandler     *handler.MessageSuggestionHandler
 	ModelHandler                 *handler.ModelHandler
 	ModelCredentialsHandler      *handler.ModelCredentialsHandler
+	SandboxConfigHandler         *handler.SandboxConfigHandler
+	SandboxSkillHandler          *handler.SandboxSkillHandler
+	MeEnvVarHandler              *handler.MeEnvVarHandler
 	EvaluationHandler            *handler.EvaluationHandler
 	AuthHandler                  *handler.AuthHandler
 	InitializationHandler        *handler.InitializationHandler
@@ -94,6 +97,7 @@ type RouterParams struct {
 	WikiPageService              interfaces.WikiPageService
 	WebhookEndpointHandler         *handler.WebhookEndpointHandler         `optional:"true"`
 	KnowledgeDownloadTicketHandler *handler.KnowledgeDownloadTicketHandler `optional:"true"`
+	MemoryHandler                *handler.MemoryHandler // UP-MEM-01
 }
 
 // defaultTrustedPrivateProxies 当 behind_proxy 开启但未配置 trusted_proxies 时的保守默认值（私网 + 本机）。
@@ -283,6 +287,20 @@ func NewRouter(params RouterParams) *gin.Engine {
 			params.StorageBackendResolver,
 			params.ResourceCatalog,
 		)
+		// Message-scoped image proxy: shared-agent replies belong to the
+		// caller's session but may reference resources stored in the agent's
+		// source workspace. Authorization is derived from the persisted message,
+		// never from a client-provided workspace ID.
+		serveMessageScopedFiles(
+			v1,
+			rbacGuards,
+			params.MessageService,
+			params.AgentShareService,
+			params.TenantService,
+			params.FileService,
+			params.StorageBackendResolver,
+			params.ResourceCatalog,
+		)
 		RegisterKnowledgeTagRoutes(v1, params.TagHandler, rbacGuards)
 		RegisterKnowledgeRoutes(v1, params.KnowledgeHandler, rbacGuards)
 		RegisterFAQRoutes(v1, params.FAQHandler, rbacGuards)
@@ -291,8 +309,11 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterChatRoutes(v1, params.SessionHandler, rbacGuards)
 		RegisterMessageRoutes(v1, params.MessageHandler, rbacGuards)
 		RegisterModelRoutes(v1, params.ModelHandler, params.ModelCredentialsHandler, rbacGuards)
+		RegisterSandboxConfigRoutes(v1, params.SandboxConfigHandler, params.SandboxSkillHandler, rbacGuards)
+		RegisterMyEnvVarRoutes(v1, params.MeEnvVarHandler)
 		RegisterEvaluationRoutes(v1, params.EvaluationHandler, rbacGuards)
 		RegisterInitializationRoutes(v1, params.InitializationHandler, rbacGuards)
+		params.SystemHandler.BindDeploymentCapabilities(deploymentCapabilitiesFromRouter(params))
 		RegisterSystemRoutes(v1, params.SystemHandler, rbacGuards)
 		RegisterSystemAdminRoutes(v1, params.SystemHandler, params.AuditLogHandler, rbacGuards)
 		RegisterMCPServiceRoutes(v1, params.MCPServiceHandler, params.MCPCredentialsHandler, params.MCPOAuthHandler, rbacGuards)
@@ -309,12 +330,15 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterDataSourceRoutes(v1, params.DataSourceHandler, params.DataSourceCredentialsHandler, rbacGuards)
 		RegisterWeKnoraCloudRoutes(v1, params.WeKnoraCloudHandler, rbacGuards)
 		RegisterWikiPageRoutes(v1, params.WikiPageHandler, rbacGuards)
+		// KEEP-INT-01
 		if params.KBService != nil && params.WikiPageService != nil {
 			RegisterKnowledgeMCPRoutes(v1, knowledge_mcp.GinHandler(knowledge_mcp.Dependencies{
 				KBService:   params.KBService,
 				WikiService: params.WikiPageService,
 			}), rbacGuards)
 		}
+		// UP-MEM-01
+		RegisterMemoryRoutes(v1, params.MemoryHandler, rbacGuards)
 		RegisterChunkerDebugRoutes(v1, rbacGuards)
 
 		if params.OpenRetrieveHandler != nil {

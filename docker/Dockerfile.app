@@ -31,10 +31,11 @@ RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate
     || (echo "migrate install retry 3" && sleep 15 && go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest) \
     || (echo "migrate install retry 4" && sleep 20 && go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest)
 
-# Copy go mod and sum files
+# Copy go mod files. go.mod replace-points anydoc at ./third_party/anydoc-go,
+# so that module's go.mod must exist before `go mod download`.
 COPY go.mod go.sum ./
-# go mod download：HTTP/2 GOAWAY / 代理抖动时重试
-# 不使用 RUN --mount（需 BuildKit）；兼容生产 Jenkins DOCKER_BUILDKIT=0
+# KEEP-OPS-01: anydoc go.mod required before download; no BuildKit mount (Jenkins DOCKER_BUILDKIT=0)
+COPY third_party/anydoc-go/go.mod third_party/anydoc-go/go.mod
 RUN go mod download \
     || (echo "go mod download retry 1" && sleep 5 && go mod download) \
     || (echo "go mod download retry 2" && sleep 10 && go mod download) \
@@ -76,8 +77,21 @@ ENV COMMIT_ID=${COMMIT_ID_ARG}
 ENV BUILD_TIME=${BUILD_TIME_ARG}
 ENV GO_VERSION=${GO_VERSION_ARG}
 
-# Build the application with version info（无 BuildKit cache mount，兼容 legacy builder）
-RUN make build-prod
+# UP-DOC-01 anydoc + KEEP-OPS-01 no BuildKit mounts (Jenkins DOCKER_BUILDKIT=0)
+ARG WITH_ANYDOC=1
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+RUN if [ "$WITH_ANYDOC" = "1" ]; then \
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable && \
+        ./scripts/build-anydoc-lib.sh; \
+    fi
+
+RUN if [ "$WITH_ANYDOC" = "1" ]; then \
+        make build-prod GO_BUILD_TAGS=anydoc; \
+    else \
+        make build-prod; \
+    fi
 RUN cp -r /go/pkg/mod/github.com/yanyiwu/ /app/yanyiwu/
 
 # Final stage

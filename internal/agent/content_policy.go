@@ -72,7 +72,7 @@ func (e *AgentEngine) recoverFromContentPolicy(
 		},
 	})
 	safeMessages := e.buildSafeContentPolicyMessages(ctx, sessionID, query, state)
-	fullAnswer, err := e.streamFinalAnswerMessages(ctx, sessionID, answerID, safeMessages)
+	fullAnswer, err := e.streamFinalAnswerMessages(ctx, sessionID, answerID, safeMessages, state)
 	if err == nil && strings.TrimSpace(fullAnswer) != "" {
 		state.FinalAnswer = fullAnswer
 		logger.Infof(ctx, "[Agent][FinalAnswer] Safe content-policy recovery succeeded: %d chars", len(fullAnswer))

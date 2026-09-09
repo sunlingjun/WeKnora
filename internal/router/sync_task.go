@@ -128,10 +128,12 @@ type SyncTaskParams struct {
 	DataTableSummary     interfaces.TaskHandler `name:"dataTableSummary"`
 	ImageMultimodal      interfaces.TaskHandler `name:"imageMultimodal"`
 	KnowledgePostProcess interfaces.TaskHandler `name:"knowledgePostProcess"`
+	KnowledgeAutoTag     interfaces.TaskHandler `name:"knowledgeAutoTag"`
 	WikiIngest           interfaces.TaskHandler `name:"wikiIngest"`
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	WebhookDeliverer     interfaces.WebhookDeliverer  `optional:"true"`
 	WebhookDispatcher    interfaces.WebhookDispatcher `optional:"true"`
+	MemoryService        interfaces.MemoryService
 }
 
 // RegisterSyncHandlers registers all task handlers on the SyncTaskExecutor.
@@ -153,6 +155,7 @@ func RegisterSyncHandlers(params SyncTaskParams) {
 	params.Executor.RegisterHandler(types.TypeKBDelete, params.KnowledgeBaseService.ProcessKBDelete)
 	params.Executor.RegisterHandler(types.TypeImageMultimodal, params.ImageMultimodal.Handle)
 	params.Executor.RegisterHandler(types.TypeKnowledgePostProcess, params.KnowledgePostProcess.Handle)
+	params.Executor.RegisterHandler(types.TypeKnowledgeAutoTag, params.KnowledgeAutoTag.Handle)
 	params.Executor.RegisterHandler(types.TypeDataSourceSync, params.DataSourceService.ProcessSync)
 	params.Executor.RegisterHandler(types.TypeWikiIngest, params.WikiIngest.Handle)
 	params.Executor.RegisterHandler(types.TypeWikiFinalize, params.WikiIngest.Handle)
@@ -165,5 +168,6 @@ func RegisterSyncHandlers(params SyncTaskParams) {
 			return params.WebhookDeliverer.Deliver(ctx, payload)
 		})
 	}
+	params.Executor.RegisterHandler(types.TypeMemoryExtract, params.MemoryService.Handle)
 	logger.Infof(context.Background(), "[SyncTask] All task handlers registered (Lite mode, no Redis)")
 }
