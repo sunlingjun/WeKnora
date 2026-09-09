@@ -1,5 +1,5 @@
 -- Workspace outbound knowledge event webhooks (SQLite / lite mode).
--- Mirrors migrations/versioned/000080_tenant_webhooks.up.sql without JSONB /
+-- Mirrors migrations/versioned/000091_tenant_webhooks.up.sql without JSONB /
 -- BIGSERIAL / partial indexes.
 
 CREATE TABLE IF NOT EXISTS tenant_webhook_endpoints (
