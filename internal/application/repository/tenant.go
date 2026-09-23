@@ -158,6 +158,19 @@ func (r *tenantRepository) DeleteTenant(ctx context.Context, id uint64) error {
 					u.Preferences.LastActiveTenantID = nil
 				}
 			}
+			// users.tenant_id is nullable; GORM serialises uint64(0) as 0,
+			// which violates PostgreSQL FK fk_users_tenant (no tenants.id=0).
+			// Persist SQL NULL for the tenantless sentinel — same as
+			// userRepository.UpdateUser.
+			if keepID == 0 {
+				if err := tx.Model(u).Select("Preferences", "UpdatedAt").Updates(u).Error; err != nil {
+					return err
+				}
+				if err := tx.Model(u).UpdateColumn("tenant_id", nil).Error; err != nil {
+					return err
+				}
+				continue
+			}
 			if err := tx.Model(u).Select("TenantID", "Preferences", "UpdatedAt").Updates(u).Error; err != nil {
 				return err
 			}

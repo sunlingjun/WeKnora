@@ -119,4 +119,10 @@ func TestDeleteTenant_NoSurvivingMembership_SetsHomeZero(t *testing.T) {
 	var got types.User
 	require.NoError(t, db.First(&got, "id = ?", user.ID).Error)
 	assert.Equal(t, uint64(0), got.TenantID)
+
+	// Domain zero must be persisted as SQL NULL, not 0 — otherwise PostgreSQL
+	// FK fk_users_tenant rejects the update (no tenants.id = 0).
+	var nullCount int64
+	require.NoError(t, db.Table("users").Where("id = ? AND tenant_id IS NULL", user.ID).Count(&nullCount).Error)
+	assert.Equal(t, int64(1), nullCount)
 }
