@@ -306,12 +306,41 @@ func authenticateJWTUser(
 		var err error
 		tenant, err = tenantService.GetTenantByID(ctx, targetTenantID)
 		if err != nil || tenant == nil {
-			logger.Warnf(ctx, "[auth] tenant lookup failed: tenant=%d user=%s err=%v", targetTenantID, user.ID, err)
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "Unauthorized: invalid workspace",
-			})
-			c.Abort()
-			return false
+			// JWT / home 仍指向已软删空间是删末空间后的常态：勿 401，
+			// 否则 /auth/me 刷新失败会让前端陷入登出↔CAS 死循环。
+			// 优先落到其它有效 membership，再不行则 tenantless。
+			logger.Warnf(ctx, "[auth] tenant lookup failed, recovering: tenant=%d user=%s err=%v",
+				targetTenantID, user.ID, err)
+			fallbackID := resolveFirstMembershipTarget(ctx, user, memberService, tenantService)
+			if fallbackID == 0 {
+				if isTenantOptionalAPI(c.Request.URL.Path, c.Request.Method) {
+					attachTenantlessUserContext(c, user)
+					return true
+				}
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "Workspace required",
+					"code":  "TENANT_REQUIRED",
+				})
+				c.Abort()
+				return false
+			}
+			targetTenantID = fallbackID
+			crossTenantSwitch = fallbackID != user.TenantID
+			tenant, err = tenantService.GetTenantByID(ctx, targetTenantID)
+			if err != nil || tenant == nil {
+				logger.Warnf(ctx, "[auth] fallback tenant lookup failed: tenant=%d user=%s err=%v",
+					targetTenantID, user.ID, err)
+				if isTenantOptionalAPI(c.Request.URL.Path, c.Request.Method) {
+					attachTenantlessUserContext(c, user)
+					return true
+				}
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "Workspace required",
+					"code":  "TENANT_REQUIRED",
+				})
+				c.Abort()
+				return false
+			}
 		}
 	}
 
@@ -385,26 +414,39 @@ func resolveTargetTenant(
 			c.Abort()
 			return 0, nil, false, false
 		}
+		tenantOptional := isTenantOptionalAPI(c.Request.URL.Path, c.Request.Method)
 		// 检查用户是否有权限访问目标空间：自家空间、跨空间超管、或
 		// 有 active membership 行——三选一，由 IsTenantAccessible 统一判定。
 		if !IsTenantAccessible(ctx, user, parsedTenantID, memberService, cfg) {
-			logger.Warnf(ctx, "User %s attempted to access tenant %d without permission", user.ID, parsedTenantID)
-			c.JSON(http.StatusForbidden, gin.H{
-				"error": "Forbidden: insufficient permissions to access target workspace",
-			})
-			c.Abort()
-			return 0, nil, false, false
+			// 删末空间后 localStorage 仍带旧 X-Tenant-ID：身份级路由
+			// （/auth/me）忽略坏 header，落到 JWT/membership/tenantless。
+			if !tenantOptional {
+				logger.Warnf(ctx, "User %s attempted to access tenant %d without permission", user.ID, parsedTenantID)
+				c.JSON(http.StatusForbidden, gin.H{
+					"error": "Forbidden: insufficient permissions to access target workspace",
+				})
+				c.Abort()
+				return 0, nil, false, false
+			}
+			logger.Warnf(ctx, "[auth] ignoring stale X-Tenant-ID=%d for tenant-optional %s %s (user=%s not a member)",
+				parsedTenantID, c.Request.Method, c.Request.URL.Path, user.ID)
+		} else {
+			// 验证目标空间是否存在
+			targetTenant, err := tenantService.GetTenantByID(ctx, parsedTenantID)
+			if err != nil || targetTenant == nil {
+				if !tenantOptional {
+					logger.Warnf(ctx, "Error getting target tenant by ID: %v, tenantID: %d", err, parsedTenantID)
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid target workspace ID"})
+					c.Abort()
+					return 0, nil, false, false
+				}
+				logger.Warnf(ctx, "[auth] ignoring deleted X-Tenant-ID=%d for tenant-optional %s %s (user=%s err=%v)",
+					parsedTenantID, c.Request.Method, c.Request.URL.Path, user.ID, err)
+			} else {
+				logger.Infof(ctx, "User %s switching to tenant %d", user.ID, parsedTenantID)
+				return parsedTenantID, targetTenant, parsedTenantID != user.TenantID, true
+			}
 		}
-		// 验证目标空间是否存在
-		targetTenant, err := tenantService.GetTenantByID(ctx, parsedTenantID)
-		if err != nil || targetTenant == nil {
-			logger.Warnf(ctx, "Error getting target tenant by ID: %v, tenantID: %d", err, parsedTenantID)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid target workspace ID"})
-			c.Abort()
-			return 0, nil, false, false
-		}
-		logger.Infof(ctx, "User %s switching to tenant %d", user.ID, parsedTenantID)
-		return parsedTenantID, targetTenant, parsedTenantID != user.TenantID, true
 	}
 
 	if targetTenantID == 0 {

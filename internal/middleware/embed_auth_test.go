@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -134,10 +135,21 @@ func (f *fakeEmbedChannelService) EmbedDisplayTitle(ctx context.Context, ch *typ
 }
 
 type fakeTenantService struct {
-	tenant *types.Tenant
+	tenant  *types.Tenant
+	tenants map[uint64]*types.Tenant // when set, lookup by id
+	missing map[uint64]bool          // ids that simulate soft-deleted / not found
 }
 
 func (f *fakeTenantService) GetTenantByID(ctx context.Context, id uint64) (*types.Tenant, error) {
+	if f.missing != nil && f.missing[id] {
+		return nil, errors.New("record not found")
+	}
+	if f.tenants != nil {
+		if t, ok := f.tenants[id]; ok && t != nil {
+			return t, nil
+		}
+		return nil, errors.New("record not found")
+	}
 	return f.tenant, nil
 }
 

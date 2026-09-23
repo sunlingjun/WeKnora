@@ -388,6 +388,8 @@ async function deleteCurrentTenant() {
     const resp = await deleteTenantApi(tid)
     if (resp.success) {
       MessagePlugin.success(t('tenant.deleteDangerZone.success'))
+      // 先清掉已删空间的 X-Tenant-ID，再调 /auth/me，避免中间件按旧 header 403/401。
+      authStore.setSelectedTenant(null, null)
       authStore.setMemberships(
         (authStore.memberships ?? []).filter((m) => m.tenant_id !== tid),
       )
@@ -412,8 +414,10 @@ async function deleteCurrentTenant() {
         navigateAfterTenantSwitch()
         return
       }
-      authStore.logout()
-      window.location.href = '/login'
+      // 删掉最后一个空间：保持登录态，进入创建/加入引导，勿踢到 /login
+      // （NXIN CAS 下 /login↔/auth/me 401 会死循环）。
+      authStore.setTenant(null)
+      window.location.href = '/onboarding/workspace'
     } else {
       MessagePlugin.error(resp.message || t('tenant.deleteDangerZone.failed'))
     }
