@@ -84,9 +84,9 @@ const toggleFold = () => {
 .deep-think {
     display: flex;
     flex-direction: column;
-    font-size: 12px;
+    font-size: var(--app-text-sm);
     width: 100%;
-    border-radius: 8px;
+    border-radius: var(--app-radius-md);
     background-color: var(--td-bg-color-container);
     border: .5px solid var(--td-component-stroke);
     box-shadow: 0 2px 4px color-mix(in srgb, var(--td-brand-color) 8%, transparent);
@@ -146,7 +146,7 @@ const toggleFold = () => {
             }
 
             .thinking-text {
-                font-size: 12px;
+                font-size: var(--app-text-sm);
                 color: var(--td-text-color-primary);
                 white-space: nowrap;
             }
@@ -163,19 +163,19 @@ const toggleFold = () => {
             }
 
             .done-text {
-                font-size: 12px;
+                font-size: var(--app-text-sm);
                 color: var(--td-text-color-primary);
                 white-space: nowrap;
             }
         }
 
         .toggle-icon-wrapper {
-            font-size: 14px;
+            font-size: var(--app-text-base);
             padding: 0 2px 1px 2px;
             color: var(--td-brand-color);
 
             .toggle-icon {
-                transition: transform 0.2s;
+                transition: transform var(--app-motion-base);
             }
         }
     }
@@ -185,7 +185,7 @@ const toggleFold = () => {
 
         .content-inner {
             padding: 8px 14px;
-            font-size: 12px;
+            font-size: var(--app-text-sm);
             line-height: 1.6;
             color: var(--td-text-color-secondary);
             max-height: 200px;

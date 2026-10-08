@@ -1,5 +1,7 @@
 package event
 
+import "time"
+
 // EventData contains common event data structures for different stages
 
 // QueryData represents query-related event data
@@ -199,6 +201,12 @@ type AgentFinalAnswerData struct {
 	// already streamed in this turn (e.g. a partial finalize that hit content
 	// policy) before accumulating this replacement answer.
 	ReplacePrevious bool `json:"replace_previous,omitempty"`
+	// Truncated marks an answer the provider cut off at the completion-token
+	// cap. The text is what the model had produced when the cap hit, not a
+	// finished answer, so a client should say so rather than present it as
+	// complete. Carried on both the content event and the Done marker,
+	// because a live-streamed answer only learns of the cap at the close.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // ContextCompactedData reports that older conversation was replaced by a
@@ -218,6 +226,17 @@ type ContextCompactedData struct {
 	Degraded bool `json:"degraded,omitempty"`
 	// SplitTurn marks a cut that landed inside a single turn.
 	SplitTurn bool `json:"split_turn,omitempty"`
+}
+
+// UserMessageInjectedData reports that a message the user appended while the
+// run was in flight was accepted into the running turn: a user-role row has
+// been persisted under the run's request ID and the text was appended to the
+// agent's message list, so the next LLM call already sees it.
+type UserMessageInjectedData struct {
+	SteerID       string `json:"steer_id"`   // Correlates with the queued steer event
+	Content       string `json:"content"`    // The injected text, as sent to the model
+	MessageID     string `json:"message_id"` // Durable assistant message of the run
+	UserMessageID string `json:"user_message_id,omitempty"`
 }
 
 // AgentReflectionData represents agent reflection data
@@ -295,4 +314,14 @@ type MCPOAuthResolvedData struct {
 	Reason     string `json:"reason,omitempty"`
 	TimedOut   bool   `json:"timed_out,omitempty"`
 	Canceled   bool   `json:"canceled,omitempty"`
+}
+
+// CommandOutputData is a cumulative tail, so reconnect/replay needs no
+// byte offsets and a missed update does not corrupt the displayed log.
+type CommandOutputData struct {
+	ToolCallID string    `json:"tool_call_id"`
+	Command    string    `json:"command"`
+	StartedAt  time.Time `json:"started_at"`
+	Output     string    `json:"output"`
+	Done       bool      `json:"done"`
 }

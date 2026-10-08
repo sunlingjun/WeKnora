@@ -25,7 +25,11 @@ func NewStreamManager(rdb redis.UniversalClient) (interfaces.StreamManager, erro
 		if rdb == nil {
 			return nil, fmt.Errorf("STREAM_MANAGER_TYPE=redis requires a Redis client (check REDIS_ADDR / REDIS_MODE=cluster + REDIS_CLUSTER_ADDRS)")
 		}
-		ttl := time.Hour // 默认1小时
+		// Default 1h. Live-run keys are refreshed while the turn is still
+		// streaming (AppendEvent / GetEvents / steer writes), so a run that
+		// lasts longer than this TTL does not look idle to /steer.
+		// Reuse the injected UniversalClient (standalone or cluster).
+		ttl := time.Hour
 		return NewRedisStreamManager(rdb, os.Getenv("REDIS_PREFIX"), ttl)
 	default:
 		return NewMemoryStreamManager(), nil

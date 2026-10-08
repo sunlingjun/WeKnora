@@ -14,11 +14,13 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/dig"
 
+	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/handler"
 	"github.com/Tencent/WeKnora/internal/handler/session"
 	"github.com/Tencent/WeKnora/internal/knowledge_mcp"
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/mcpserver"
 	"github.com/Tencent/WeKnora/internal/middleware"
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -86,6 +88,9 @@ type RouterParams struct {
 	IMHandler                    *handler.IMHandler
 	EmbedChannelHandler          *handler.EmbedChannelHandler
 	EmbedChannelService          interfaces.EmbedChannelService
+	MCPEndpointHandler           *handler.MCPEndpointHandler
+	MCPEndpointService           interfaces.MCPEndpointService
+	MCPServer                    *mcpserver.Server
 	RedisClient                  redis.UniversalClient
 	DataSourceHandler            *handler.DataSourceHandler
 	DataSourceCredentialsHandler *handler.DataSourceCredentialsHandler
@@ -97,7 +102,8 @@ type RouterParams struct {
 	WikiPageService              interfaces.WikiPageService
 	WebhookEndpointHandler         *handler.WebhookEndpointHandler         `optional:"true"`
 	KnowledgeDownloadTicketHandler *handler.KnowledgeDownloadTicketHandler `optional:"true"`
-	MemoryHandler                *handler.MemoryHandler // UP-MEM-01
+	MemoryHandler                *handler.MemoryHandler
+	HostSandbox                  service.HostSandboxManager
 }
 
 // defaultTrustedPrivateProxies 当 behind_proxy 开启但未配置 trusted_proxies 时的保守默认值（私网 + 本机）。
@@ -129,6 +135,8 @@ func applyGinTrustedProxies(r *gin.Engine, cfg *config.Config) {
 func NewRouter(params RouterParams) *gin.Engine {
 	r := gin.New()
 	r.ContextWithFallback = true
+	r.Use(middleware.MultipartFormCleanup())
+
 	if params.Config != nil && params.Config.Server != nil && params.Config.Server.BehindProxy {
 		applyGinTrustedProxies(r, params.Config)
 	} else if err := r.SetTrustedProxies(trustedProxies()); err != nil {
@@ -177,12 +185,13 @@ func NewRouter(params RouterParams) *gin.Engine {
 		AllowHeaders: []string{
 			"Origin", "Content-Type", "Accept", "Authorization",
 			"X-API-Key", "X-Open-Retrieve-Api-Key", "X-Request-ID", "X-Tenant-ID", "X-Embed-Session",
-			"X-External-User-ID", "X-External-User-Token",
+			"X-External-User-ID", "X-External-User-Token", "X-WeKnora-Desktop-Token",
 			"Cache-Control", "Pragma", "X-Requested-With", "DNT", "If-Modified-Since",
 			"Keep-Alive", "User-Agent", "pd", "systemid",
 			"X-WeKnora-Download-Ticket",
+			"MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID",
 		},
-		ExposeHeaders:    []string{"Content-Length", "Access-Control-Allow-Origin"},
+		ExposeHeaders:    []string{"Content-Length", "Access-Control-Allow-Origin", "Mcp-Session-Id"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
@@ -233,7 +242,15 @@ func NewRouter(params RouterParams) *gin.Engine {
 		params.ResourceCatalog,
 	)
 
+	RegisterMCPServerRoutes(r, params.MCPServer, params.MCPEndpointService, params.TenantService)
+
 	serveResourceGrants(r, params.ResourceCatalog, params.TenantService, params.FileService, params.StorageBackendResolver)
+
+	RegisterSandboxTerminalRoutes(r, params.SessionHandler)
+	RegisterSandboxDesktopRoutes(r, params.SessionHandler)
+	r.GET("/api/v1/local-browser/extension", params.SessionHandler.BrowserSkillExtension)
+	r.POST("/api/v1/local-browser/extension/authorize", params.SessionHandler.BrowserSkillAuthorize)
+	r.POST("/api/v1/local-browser/internal", params.SessionHandler.BrowserSkillInternal)
 
 	r.Use(middleware.Auth(
 		params.TenantService,
@@ -247,7 +264,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 
 	serveFilesWithResources(r, params.FileService, params.StorageBackendResolver, params.ResourceCatalog)
 	servePresignedFiles(r, params.TenantService, params.StorageBackendResolver)
-	servePresignedPreview(r, params.Config, params.StorageBackendResolver)
+	servePresignedPreview(r, params.Config, params.StorageBackendResolver, params.ResourceCatalog)
 	serveKnowledgeDownloadTickets(r, params.KnowledgeDownloadTicketHandler)
 
 	r.Use(langfuse.GinMiddleware())
@@ -290,7 +307,9 @@ func NewRouter(params RouterParams) *gin.Engine {
 		// Message-scoped image proxy: shared-agent replies belong to the
 		// caller's session but may reference resources stored in the agent's
 		// source workspace. Authorization is derived from the persisted message,
-		// never from a client-provided workspace ID.
+		// never from a client-provided workspace ID. Replies produced by the
+		// caller's own agent over an org-shared KB fall back to the KB share
+		// relation instead (#3022).
 		serveMessageScopedFiles(
 			v1,
 			rbacGuards,
@@ -300,6 +319,9 @@ func NewRouter(params RouterParams) *gin.Engine {
 			params.FileService,
 			params.StorageBackendResolver,
 			params.ResourceCatalog,
+			params.KBShareService,
+			params.KBService,
+			params.KnowledgeService,
 		)
 		RegisterKnowledgeTagRoutes(v1, params.TagHandler, rbacGuards)
 		RegisterKnowledgeRoutes(v1, params.KnowledgeHandler, rbacGuards)
@@ -311,6 +333,9 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterModelRoutes(v1, params.ModelHandler, params.ModelCredentialsHandler, rbacGuards)
 		RegisterSandboxConfigRoutes(v1, params.SandboxConfigHandler, params.SandboxSkillHandler, rbacGuards)
 		RegisterMyEnvVarRoutes(v1, params.MeEnvVarHandler)
+		v1.GET("/me/browser", params.SessionHandler.BrowserSkillAccount)
+		v1.GET("/me/browser/extension", params.SessionHandler.BrowserSkillDownload)
+		v1.POST("/me/browser", params.SessionHandler.BrowserSkillAccount)
 		RegisterEvaluationRoutes(v1, params.EvaluationHandler, rbacGuards)
 		RegisterInitializationRoutes(v1, params.InitializationHandler, rbacGuards)
 		params.SystemHandler.BindDeploymentCapabilities(deploymentCapabilitiesFromRouter(params))
@@ -327,6 +352,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)
 		RegisterIMChannelRoutes(v1, params.IMHandler, rbacGuards)
 		RegisterEmbedChannelRoutes(v1, params.EmbedChannelHandler, rbacGuards)
+		RegisterMCPEndpointRoutes(v1, params.MCPEndpointHandler, rbacGuards)
 		RegisterDataSourceRoutes(v1, params.DataSourceHandler, params.DataSourceCredentialsHandler, rbacGuards)
 		RegisterWeKnoraCloudRoutes(v1, params.WeKnoraCloudHandler, rbacGuards)
 		RegisterWikiPageRoutes(v1, params.WikiPageHandler, rbacGuards)

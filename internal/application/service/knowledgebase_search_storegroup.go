@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/access"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -184,15 +185,13 @@ func classifyFactoryError(
 }
 
 // authorizeKBAccess rejects multi-KB searches whose scope includes a KB
-// that the caller is not entitled to read. Same-tenant KBs always pass.
+// that the original caller is not entitled to read. Same-tenant KBs always pass.
 // Foreign-tenant KBs must pass either:
-//   - Organization share: kbShareService.HasTenantKBPermission (3-D cap:
-//     share role + caller's tenant-org role + tenant Viewer), or
-//   - Plaza membership: sharedKBService.GetMemberRoleByKBAndUser
-//     (visibility=shared + knowledge_base_members), same as middleware /
-//     userCanAccessSharedKB.
-// Without the plaza branch, cmdk / HybridSearch silently returned empty
-// for joined shared KBs while the document list still worked.
+//   - Exact upstream grants / organization share via access.KBPermissions
+//     (share role + caller tenant role + tenant Viewer cap), or
+//   - Plaza membership: sharedKBService.GetMemberRoleByKBAndUser.
+//
+// Open retrieve is gated by X-Open-Retrieve-Api-Key only and skips these checks.
 //
 // Returning NotFound rather than Forbidden avoids leaking the existence
 // of unauthorized KB IDs that the caller could not otherwise observe.
@@ -202,44 +201,44 @@ func classifyFactoryError(
 func (s *knowledgeBaseService) authorizeKBAccess(
 	ctx context.Context,
 	kbs []*types.KnowledgeBase,
-	requestTenantID uint64,
 ) error {
 	if len(kbs) == 0 {
 		return nil
 	}
-
-	// Open retrieve is gated by X-Open-Retrieve-Api-Key only. SearchKnowledgeOpen
-	// sets context tenant to the first target for model/rerank listing; multi-KB
-	// requests routinely span tenants. Skipping share checks here matches the
-	// open-retrieve contract (no user/visibility ACL) and avoids failing the
-	// whole combined HybridSearch when one KB is owned by another tenant.
 	if types.IsOpenRetrieve(ctx) {
 		return nil
 	}
 
-	callerTenantRole := types.TenantRoleFromContext(ctx)
-	userID, _ := types.UserIDFromContext(ctx)
-
+	kbIDs := make([]string, 0, len(kbs))
 	for _, kb := range kbs {
-		if kb.TenantID == requestTenantID {
+		if kb == nil {
 			continue
 		}
-		hasPermission := false
-		if s.kbShareService != nil {
-			ok, permErr := s.kbShareService.HasTenantKBPermission(
-				ctx, kb.ID, requestTenantID, callerTenantRole, types.OrgRoleViewer)
-			if permErr != nil {
-				logger.ErrorWithFields(ctx, permErr, map[string]interface{}{
-					"caller_tenant_id": requestTenantID,
-					"kb_tenant_id":     kb.TenantID,
-					"kb_id":            kb.ID,
-					"reason":           "shared-KB permission lookup failed",
-				})
-				return apperrors.NewInternalServerError("failed to verify knowledge base access")
-			}
-			hasPermission = ok
+		kbIDs = append(kbIDs, kb.ID)
+	}
+	if err := types.AuthorizeTenantAPIKeyKnowledgeBases(ctx, kbIDs...); err != nil {
+		return err
+	}
+
+	requestTenantID := types.CallerFromContext(ctx).TenantID
+	userID, _ := types.UserIDFromContext(ctx)
+	permissions := access.NewKBPermissions(ctx, s.kbShareService)
+
+	for _, kb := range kbs {
+		if kb == nil {
+			continue
 		}
-		if !hasPermission && userID != "" && s.sharedKBService != nil {
+		hasPermission, permErr := permissions.Check(kb.ID, kb.TenantID, types.OrgRoleViewer)
+		if permErr != nil {
+			logger.ErrorWithFields(ctx, permErr, map[string]interface{}{
+				"caller_tenant_id": requestTenantID,
+				"kb_tenant_id":     kb.TenantID,
+				"kb_id":            kb.ID,
+				"reason":           "shared-KB permission lookup failed",
+			})
+			return apperrors.NewInternalServerError("failed to verify knowledge base access")
+		}
+		if !hasPermission && userID != "" && s.sharedKBService != nil && kb.TenantID != requestTenantID {
 			role, memberErr := s.sharedKBService.GetMemberRoleByKBAndUser(ctx, kb.ID, userID)
 			if memberErr != nil {
 				logger.ErrorWithFields(ctx, memberErr, map[string]interface{}{

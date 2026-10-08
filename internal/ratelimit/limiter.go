@@ -37,7 +37,7 @@ return 0
 // call so callers (e.g. embed channels) can vary budgets without rebuilding
 // the limiter.
 type Limiter struct {
-	redis      *redis.Client
+	redis      redis.UniversalClient
 	local      *localLimiter
 	keyPrefix  string
 	window     time.Duration
@@ -46,7 +46,7 @@ type Limiter struct {
 
 // New constructs a limiter. keyPrefix should include a trailing delimiter
 // (e.g. "embed:ratelimit:"). When redis is nil, only the local fallback runs.
-func New(redisClient *redis.Client, keyPrefix string, window time.Duration, instanceID string) *Limiter {
+func New(redisClient redis.UniversalClient, keyPrefix string, window time.Duration, instanceID string) *Limiter {
 	if window <= 0 {
 		window = time.Minute
 	}

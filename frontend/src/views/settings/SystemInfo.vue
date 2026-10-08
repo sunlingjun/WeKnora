@@ -230,6 +230,38 @@ function formatUptime(totalSeconds: number): string {
   return parts.join(' ')
 }
 
+const troubleshootingDocsURL =
+  'https://github.com/Tencent/WeKnora/blob/main/website-docs/01-getting-started/05-troubleshooting.md#database-migrations'
+
+// Pre-fills a new issue with the current migration error so users don't have to
+// paste it manually. Body is intentionally minimal — the bug template will fill
+// in the rest. Encode aggressively to survive newlines / quotes.
+const reportIssueURL = computed(() => {
+  const base = 'https://github.com/Tencent/WeKnora/issues/new'
+  const params = new URLSearchParams({
+    template: 'bug_report.yml',
+    title: '[Bug]: Database migration failed at startup',
+    labels: 'bug',
+  })
+  const errMsg = systemInfo.value?.db_migration_error
+  if (errMsg) {
+    const body = [
+      '### Environment',
+      `- WeKnora version: ${systemInfo.value?.version || 'unknown'}`,
+      `- Commit: ${systemInfo.value?.commit_id || 'unknown'}`,
+      `- Frontend version: ${frontendVersion} (${frontendCommit})`,
+      `- DB version reported: ${systemInfo.value?.db_version || 'unknown'}`,
+      '',
+      '### Migration error',
+      '```',
+      errMsg,
+      '```',
+    ].join('\n')
+    params.set('body', body)
+  }
+  return `${base}?${params.toString()}`
+})
+
 // Methods
 const loadInfo = async () => {
   try {
@@ -267,26 +299,14 @@ onUnmounted(() => {
 </script>
 
 <style lang="less" scoped>
+@import (reference) '@/components/css/settings-section.less';
+
 .system-info {
   width: 100%;
 }
 
 .section-header {
-  margin-bottom: 32px;
-
-  h2 {
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--td-text-color-primary);
-    margin: 0 0 8px 0;
-  }
-
-  .section-description {
-    font-size: 14px;
-    color: var(--td-text-color-secondary);
-    margin: 0;
-    line-height: 1.5;
-  }
+  .settings-section-header();
 }
 
 .loading-inline {
@@ -296,7 +316,7 @@ onUnmounted(() => {
   padding: 40px 0;
   justify-content: center;
   color: var(--td-text-color-secondary);
-  font-size: 14px;
+  font-size: var(--app-text-base);
 }
 
 .error-inline {
@@ -310,36 +330,11 @@ onUnmounted(() => {
 }
 
 .setting-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 20px 0;
-  border-bottom: 1px solid var(--td-component-stroke);
-
-  &:last-child {
-    border-bottom: none;
-  }
+  .setting-row();
 }
 
 .setting-info {
-  flex: 1;
-  max-width: 65%;
-  padding-right: 24px;
-
-  label {
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--td-text-color-primary);
-    display: block;
-    margin-bottom: 4px;
-  }
-
-  .desc {
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
-    margin: 0;
-    line-height: 1.5;
-  }
+  .setting-info();
 }
 
 .migration-error-row {
@@ -350,7 +345,7 @@ onUnmounted(() => {
 
 .migration-error-desc {
   margin: 0 0 8px 0;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   line-height: 1.5;
   color: var(--td-text-color-primary);
 }
@@ -359,8 +354,8 @@ onUnmounted(() => {
   margin: 0 0 12px 0;
   padding: 8px 12px;
   background: var(--td-bg-color-container-hover);
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: var(--app-radius-xs);
+  font-size: var(--app-text-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -369,22 +364,29 @@ onUnmounted(() => {
   color: var(--td-text-color-secondary);
 }
 
-.setting-control {
-  flex-shrink: 0;
-  min-width: 280px;
+.migration-error-actions {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
+  gap: 8px;
+  font-size: var(--app-text-md);
+
+  .migration-error-actions-sep {
+    color: var(--td-text-color-placeholder);
+  }
+}
+
+.setting-control {
+  .setting-control();
 
   .info-value {
-    font-size: 14px;
+    font-size: var(--app-text-base);
     color: var(--td-text-color-primary);
     text-align: right;
     word-break: break-word;
 
     .commit-info {
       color: var(--td-text-color-placeholder);
-      font-size: 12px;
+      font-size: var(--app-text-sm);
       margin-left: 6px;
     }
   }
