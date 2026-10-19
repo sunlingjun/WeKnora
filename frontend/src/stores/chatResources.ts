@@ -40,25 +40,6 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
   const webSearchProviders = ref<WebSearchProviderEntity[]>([])
   const sandboxConfigs = ref<SandboxConfigRecord[]>([])
 
-  const loadedAt = ref<Partial<Record<ResourceKey, number>>>({})
-  const inflight = new Map<ResourceKey, Promise<void>>()
-  // creator==='all' 的列表请求单独去重：首屏 platform 预取与对话页 onMounted
-  // 可能并发触发，缓存尚未写入时不去重会重复打 listKnowledgeBases / listAgents。
-  let kbAllInflight: Promise<any[]> | null = null
-  let agentsAllInflight: Promise<{ data: CustomAgent[]; disabled_own_agent_ids: string[] }> | null = null
-  // 代际计数：force 与非 force 并发时句柄会被后来者覆盖，旧请求结束时凭此判断
-  // 自己是否仍是最新的那次，避免误清正在飞行的句柄。
-  let kbAllGen = 0
-  let agentsAllGen = 0
-  // 模型列表同样用代际挡住过期的 inflight：设置页保存后会 replaceModels，
-  // 不能让保存前发出的 ensureModels 把旧列表写回来。
-  let modelsGen = 0
-
-  const agentKbCache = new Map<string, { at: number; data: any[] }>()
-  const agentKbInflight = new Map<string, Promise<any[]>>()
-  const kbDetailCache = new Map<string, { at: number; data: any }>()
-  const kbDetailInflight = new Map<string, Promise<any | null>>()
-
   /** Tenant KBs + plaza-joined, for @-mention / readiness checks. */
   const validKnowledgeBases = computed(() => {
     const seen = new Set<string>()
@@ -202,31 +183,8 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
       return res?.data && Array.isArray(res.data) ? res.data : []
     }
 
-    if (!force && isFresh('knowledgeBases')) {
-      return rawKnowledgeBases.value
-    }
-    if (!force && kbAllInflight) return kbAllInflight
-
-    const gen = ++kbAllGen
-    kbAllInflight = (async () => {
-      try {
-        const [res, joinedRes]: any[] = await Promise.all([
-          listKnowledgeBases(),
-          listJoinedKnowledgeBases().catch(() => ({ data: [] })),
-        ])
-        const data = res?.data && Array.isArray(res.data) ? res.data : []
-        const joined = joinedRes?.data && Array.isArray(joinedRes.data) ? joinedRes.data : []
-        rawKnowledgeBases.value = data
-        joinedKnowledgeBases.value = joined
-        loadedAt.value.knowledgeBases = Date.now()
-        const orgStore = useOrganizationStore()
-        await orgStore.fetchSharedKnowledgeBases({ force })
-        return data
-      } finally {
-        if (kbAllGen === gen) kbAllInflight = null
-      }
-    })()
-    return kbAllInflight
+    await ensureKnowledgeBases(force)
+    return rawKnowledgeBases.value
   }
 
   // 共享资源是附带刷新：它的接口挂了不能连坐自己的列表，否则调用方的 catch
@@ -238,6 +196,11 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     const orgStore = useOrganizationStore()
     await Promise.all([
       knowledgeBasesResource.ensure(force),
+      listJoinedKnowledgeBases()
+        .then((res: any) => {
+          joinedKnowledgeBases.value = res?.data && Array.isArray(res.data) ? res.data : []
+        })
+        .catch(() => undefined),
       swallow(orgStore.fetchSharedKnowledgeBases({ force })),
     ])
   }
@@ -353,9 +316,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     if (keys.includes('knowledgeBases')) {
       rawKnowledgeBases.value = []
       joinedKnowledgeBases.value = []
-      agentKbCache.clear()
-      agentKbInflight.clear()
-      kbAllInflight = null
+      agentKbCache.invalidate()
       invalidateKnowledgeBaseDetail()
     }
     if (keys.includes('agents')) {

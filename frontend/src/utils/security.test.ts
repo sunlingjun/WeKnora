@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { collectSessionKnowledgeBaseIds, protectProviderImageSrcInHTML } from './security.ts'
-import { documentPreviewDomPurifyConfig, protectProviderImageSrcInHTML } from './security.ts'
+import {
+  collectSessionKnowledgeBaseIds,
+  documentPreviewDomPurifyConfig,
+  protectProviderImageSrcInHTML,
+} from './security.ts'
 
 test('protectProviderImageSrcInHTML uses a placeholder src for provider images', () => {
   const html = '<p><img alt="preview" src="local://10000/exports/a.jpg"></p>'

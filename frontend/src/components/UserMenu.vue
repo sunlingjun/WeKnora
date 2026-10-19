@@ -207,7 +207,7 @@ import { useAuthStore } from '@/stores/auth'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { getCurrentUser, logout as logoutApi, userInfoFromApi } from '@/api/auth'
 import { useCASStore } from '@/stores/cas'
-import { logout as logoutApi } from '@/api/auth'
+import { docsUrl } from '@/utils/docsUrl'
 import { useI18n } from 'vue-i18n'
 import CreateTenantDialog from '@/components/CreateTenantDialog.vue'
 import {
@@ -223,8 +223,6 @@ import { SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE } from '@/config/settingsAccess'
 import { SKILL_ICON } from '@/types/mention'
 
 const userGuidesEnabled = USER_GUIDES_ENABLED
-
-import { docsUrl } from '@/utils/docsUrl'
 const { t } = useI18n()
 
 const router = useRouter()
