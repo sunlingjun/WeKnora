@@ -692,8 +692,9 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { copyWithToast } from '@/utils/clipboard'
-import { getCurrentUser } from '@/api/auth'
-import { listAgents, BUILTIN_SMART_REASONING_ID, type CustomAgent } from '@/api/agent'
+import { BUILTIN_SMART_REASONING_ID, type CustomAgent } from '@/api/agent'
+import { useAuthStore } from '@/stores/auth'
+import { useChatResourcesStore } from '@/stores/chatResources'
 import SettingDrawer from '@/components/settings/SettingDrawer.vue'
 import {
   createTenantAPIKey,
@@ -708,7 +709,6 @@ import {
   type TenantAPIKey,
   type TenantAPIKeyCapability,
 } from '@/api/tenant'
-import { listKnowledgeBases } from '@/api/knowledge-base'
 import { getApiBaseUrl } from '@/utils/api-base'
 import {
   DEFAULT_TENANT_API_KEY_CAPABILITIES,
@@ -719,6 +719,7 @@ import {
 } from '@/config/apiKeyCapabilities'
 import { normalizeAPIKeyKnowledgeBaseIDs } from './apiKeyScope'
 import { consumeApiPlaygroundSSE } from './apiPlaygroundSSE'
+import { docsUrl } from '@/utils/docsUrl'
 
 const { t } = useI18n()
 
@@ -728,6 +729,8 @@ const DEFAULT_TOKEN_HEADER_NAME = 'X-External-User-Token'
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
+const authStore = useAuthStore()
+const chatResources = useChatResourcesStore()
 const tenantId = ref(0)
 const apiKey = ref('')
 const config = ref<APIPrincipalConfig | null>(null)
@@ -1169,15 +1172,14 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [userResp] = await Promise.all([
-      getCurrentUser(),
-      loadAgents(),
-    ])
-    const tenant = (userResp as any)?.data?.tenant
-    if (!tenant?.id) {
+    // 当前生效空间就是每个请求 X-Tenant-ID 指向的空间，auth store 里已有，
+    // 不必再为拿一个 id 打一次 /auth/me。
+    await loadAgents()
+    const activeTenantId = authStore.effectiveTenantId
+    if (!activeTenantId) {
       throw new Error(t('integrations.api.loadFailed'))
     }
-    tenantId.value = Number(tenant.id)
+    tenantId.value = Number(activeTenantId)
     await Promise.all([
       loadAPIKeys(),
       loadKnowledgeBaseOptions(),
@@ -1226,9 +1228,8 @@ async function loadAPIKeys() {
 async function loadKnowledgeBaseOptions() {
   knowledgeBasesLoading.value = true
   try {
-    const resp: any = await listKnowledgeBases({ creator: 'all' })
-    const rows = Array.isArray(resp?.data) ? resp.data : []
-    knowledgeBases.value = rows.map((item: any) => ({
+    await chatResources.ensureKnowledgeBases()
+    knowledgeBases.value = chatResources.rawKnowledgeBases.map((item: any) => ({
       id: String(item.id),
       name: item.name || item.id,
     }))
@@ -1243,8 +1244,8 @@ async function loadAgents() {
   agentsLoading.value = true
   agentsError.value = ''
   try {
-    const resp = await listAgents({ creator: 'all' }) as any
-    agents.value = Array.isArray(resp?.data) ? resp.data : []
+    await chatResources.ensureAgents()
+    agents.value = chatResources.agents as CustomAgent[]
     ensurePlaygroundAgent()
   } catch (err: any) {
     agentsError.value = err?.message || t('integrations.api.playgroundAgentsLoadFailed')
@@ -1471,7 +1472,7 @@ const saveDesktopPort = async () => {
 }
 
 function openApiDoc() {
-  window.open('https://github.com/Tencent/WeKnora/blob/main/website-docs/04-api/01-api-overview.md', '_blank')
+  window.open(docsUrl('apiOverview'), '_blank')
 }
 
 function openCreateAPIKeyDialog() {
@@ -2248,7 +2249,6 @@ onBeforeUnmount(stopPlayground)
   flex-direction: column;
   gap: 12px;
   width: 100%;
-  max-width: 760px;
 }
 
 .mode-callout {
@@ -2624,10 +2624,6 @@ onBeforeUnmount(stopPlayground)
       flex: 1 1 0;
       min-width: 0;
     }
-  }
-
-  .mode-detail {
-    max-width: none;
   }
 
   .playground-entry {

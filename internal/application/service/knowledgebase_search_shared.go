@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
 
-	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -57,23 +55,25 @@ func (s *knowledgeBaseService) fetchKnowledgeDataWithShared(ctx context.Context,
 		appendAllowed(k)
 	}
 	userID, _ := s.extractUserID(ctx)
-	for _, id := range knowledgeIDs {
-		if rows[id] != nil {
+	missing := s.findMissingIDs(knowledgeIDs, func(id string) bool { return rows[id] != nil })
+	if len(missing) == 0 {
+		return knowledgeMap, nil
+	}
+	crossRows, err := s.kgRepo.GetKnowledgeBatchByIDOnly(ctx, missing)
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range crossRows {
+		appendAllowed(k)
+		if k == nil {
 			continue
 		}
-		k, err := s.kgRepo.GetKnowledgeByIDOnly(ctx, id)
-		if err != nil && !errors.Is(err, repository.ErrKnowledgeNotFound) {
-			return nil, err
-		}
-		if err != nil || k == nil {
+		if _, ok := knowledgeMap[k.ID]; ok {
 			continue
 		}
 		if s.userCanAccessSharedKB(ctx, k.KnowledgeBaseID, userID) {
-			logger.Debugf(ctx, "[fetchKnowledgeDataWithShared] Found shared knowledge %s in KB %s", id, k.KnowledgeBaseID)
 			knowledgeMap[k.ID] = k
-			continue
 		}
-		appendAllowed(k)
 	}
 	return knowledgeMap, nil
 }

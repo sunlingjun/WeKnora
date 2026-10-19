@@ -64,7 +64,15 @@ type SessionService interface {
 	// SearchKnowledge performs knowledge-based search, without summarization
 	// knowledgeBaseIDs: list of knowledge base IDs to search (supports multi-KB)
 	// knowledgeIDs: list of specific knowledge (file) IDs to search
-	SearchKnowledge(ctx context.Context, knowledgeBaseIDs []string, knowledgeIDs []string, tagScopes []types.TagScope, query string) ([]*types.SearchResult, error)
+	// opts: caller overrides of the tenant retrieval config; nil keeps it
+	SearchKnowledge(
+		ctx context.Context,
+		knowledgeBaseIDs []string,
+		knowledgeIDs []string,
+		tagScopes []types.TagScope,
+		query string,
+		opts *types.KnowledgeSearchOptions,
+	) (*types.RetrievalResult, error)
 	// SearchKnowledgeOpen performs retrieval without user login or user-scoped KB permission checks.
 	// Caller must be gated by open_retrieve API key middleware. matchCount<=0 uses tenant retrieval defaults.
 	SearchKnowledgeOpen(ctx context.Context, knowledgeBaseIDs []string, knowledgeIDs []string, query string, matchCount int) ([]*types.SearchResult, error)

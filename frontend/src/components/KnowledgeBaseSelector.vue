@@ -98,6 +98,7 @@ const settingsStore = useSettingsStore()
 // 本地状态
 const searchQuery = ref('')
 const highlightedIndex = ref(0)
+const chatResources = useChatResourcesStore()
 const knowledgeBases = ref<KnowledgeBase[]>([])
 const searchInput = ref<HTMLInputElement | null>(null)
 const kbList = ref<HTMLElement | null>(null)

@@ -32,78 +32,78 @@ import (
 type RouterParams struct {
 	dig.In
 
-	Config                       *config.Config
-	FileService                  interfaces.FileService
-	UserService                  interfaces.UserService
-	KBService                    interfaces.KnowledgeBaseService
-	KnowledgeService             interfaces.KnowledgeService
-	ChunkService                 interfaces.ChunkService
-	SessionService               interfaces.SessionService
-	MessageService               interfaces.MessageService
-	ModelService                 interfaces.ModelService
-	EvaluationService            interfaces.EvaluationService
-	KBShareService               interfaces.KBShareService
-	SharedKBService              interfaces.SharedKnowledgeBaseService
-	AgentShareService            interfaces.AgentShareService
-	KBHandler                    *handler.KnowledgeBaseHandler
-	KnowledgeCatalogHandler      *handler.KnowledgeCatalogHandler
-	KnowledgeHandler             *handler.KnowledgeHandler
-	TenantHandler                *handler.TenantHandler
-	TenantService                interfaces.TenantService
-	TenantAPIKeyService          interfaces.TenantAPIKeyService
-	TenantMemberService          interfaces.TenantMemberService
-	TenantMemberHandler          *handler.TenantMemberHandler
-	TenantInvitationHandler      *handler.TenantInvitationHandler
-	AuditLogHandler              *handler.AuditLogHandler
-	AuditLogService              interfaces.AuditLogService
-	ChunkHandler                 *handler.ChunkHandler
-	SessionHandler               *session.Handler
-	MessageHandler               *handler.MessageHandler
-	MessageSuggestionHandler     *handler.MessageSuggestionHandler
-	ModelHandler                 *handler.ModelHandler
-	ModelCredentialsHandler      *handler.ModelCredentialsHandler
-	SandboxConfigHandler         *handler.SandboxConfigHandler
-	SandboxSkillHandler          *handler.SandboxSkillHandler
-	MeEnvVarHandler              *handler.MeEnvVarHandler
-	EvaluationHandler            *handler.EvaluationHandler
-	AuthHandler                  *handler.AuthHandler
-	InitializationHandler        *handler.InitializationHandler
-	SystemHandler                *handler.SystemHandler
-	MCPServiceHandler            *handler.MCPServiceHandler
-	MCPCredentialsHandler        *handler.MCPCredentialsHandler
-	MCPOAuthHandler              *handler.MCPOAuthHandler
-	WebSearchHandler             *handler.WebSearchHandler
-	WebSearchProviderHandler     *handler.WebSearchProviderHandler
-	WebSearchCredentialsHandler  *handler.WebSearchProviderCredentialsHandler
-	VectorStoreHandler           *handler.VectorStoreHandler
-	StorageBackendHandler        *handler.StorageBackendHandler
-	StorageBackendResolver       interfaces.StorageBackendResolver
-	ResourceCatalog              interfaces.ResourceCatalog
-	FAQHandler                   *handler.FAQHandler
-	TagHandler                   *handler.TagHandler
-	CustomAgentHandler           *handler.CustomAgentHandler
-	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
-	SkillHandler                 *handler.SkillHandler
-	OrganizationHandler          *handler.OrganizationHandler
-	IMHandler                    *handler.IMHandler
-	EmbedChannelHandler          *handler.EmbedChannelHandler
-	EmbedChannelService          interfaces.EmbedChannelService
-	MCPEndpointHandler           *handler.MCPEndpointHandler
-	MCPEndpointService           interfaces.MCPEndpointService
-	MCPServer                    *mcpserver.Server
-	RedisClient                  redis.UniversalClient
-	DataSourceHandler            *handler.DataSourceHandler
-	DataSourceCredentialsHandler *handler.DataSourceCredentialsHandler
-	CASAuthHandler               *handler.CASAuthHandler
-	CASAuthService               interfaces.CASAuthService
-	OpenRetrieveHandler          *handler.OpenRetrieveHandler
-	WeKnoraCloudHandler          *handler.WeKnoraCloudHandler
-	WikiPageHandler              *handler.WikiPageHandler
-	WikiPageService              interfaces.WikiPageService
+	Config                         *config.Config
+	FileService                    interfaces.FileService
+	UserService                    interfaces.UserService
+	KBService                      interfaces.KnowledgeBaseService
+	KnowledgeService               interfaces.KnowledgeService
+	ChunkService                   interfaces.ChunkService
+	SessionService                 interfaces.SessionService
+	MessageService                 interfaces.MessageService
+	ModelService                   interfaces.ModelService
+	EvaluationService              interfaces.EvaluationService
+	KBShareService                 interfaces.KBShareService
+	SharedKBService                interfaces.SharedKnowledgeBaseService
+	AgentShareService              interfaces.AgentShareService
+	KBHandler                      *handler.KnowledgeBaseHandler
+	KnowledgeCatalogHandler        *handler.KnowledgeCatalogHandler
+	KnowledgeHandler               *handler.KnowledgeHandler
+	TenantHandler                  *handler.TenantHandler
+	TenantService                  interfaces.TenantService
+	TenantAPIKeyService            interfaces.TenantAPIKeyService
+	TenantMemberService            interfaces.TenantMemberService
+	TenantMemberHandler            *handler.TenantMemberHandler
+	TenantInvitationHandler        *handler.TenantInvitationHandler
+	AuditLogHandler                *handler.AuditLogHandler
+	AuditLogService                interfaces.AuditLogService
+	ChunkHandler                   *handler.ChunkHandler
+	SessionHandler                 *session.Handler
+	MessageHandler                 *handler.MessageHandler
+	MessageSuggestionHandler       *handler.MessageSuggestionHandler
+	ModelHandler                   *handler.ModelHandler
+	ModelCredentialsHandler        *handler.ModelCredentialsHandler
+	SandboxConfigHandler           *handler.SandboxConfigHandler
+	SandboxSkillHandler            *handler.SandboxSkillHandler
+	MeEnvVarHandler                *handler.MeEnvVarHandler
+	EvaluationHandler              *handler.EvaluationHandler
+	AuthHandler                    *handler.AuthHandler
+	InitializationHandler          *handler.InitializationHandler
+	SystemHandler                  *handler.SystemHandler
+	MCPServiceHandler              *handler.MCPServiceHandler
+	MCPCredentialsHandler          *handler.MCPCredentialsHandler
+	MCPOAuthHandler                *handler.MCPOAuthHandler
+	WebSearchHandler               *handler.WebSearchHandler
+	WebSearchProviderHandler       *handler.WebSearchProviderHandler
+	WebSearchCredentialsHandler    *handler.WebSearchProviderCredentialsHandler
+	VectorStoreHandler             *handler.VectorStoreHandler
+	StorageBackendHandler          *handler.StorageBackendHandler
+	StorageBackendResolver         interfaces.StorageBackendResolver
+	ResourceCatalog                interfaces.ResourceCatalog
+	FAQHandler                     *handler.FAQHandler
+	TagHandler                     *handler.TagHandler
+	CustomAgentHandler             *handler.CustomAgentHandler
+	UserFavoriteHandler            *handler.UserResourceFavoriteHandler
+	SkillHandler                   *handler.SkillHandler
+	OrganizationHandler            *handler.OrganizationHandler
+	IMHandler                      *handler.IMHandler
+	EmbedChannelHandler            *handler.EmbedChannelHandler
+	EmbedChannelService            interfaces.EmbedChannelService
+	MCPEndpointHandler             *handler.MCPEndpointHandler
+	MCPEndpointService             interfaces.MCPEndpointService
+	MCPServer                      *mcpserver.Server
+	RedisClient                    redis.UniversalClient
+	DataSourceHandler              *handler.DataSourceHandler
+	DataSourceCredentialsHandler   *handler.DataSourceCredentialsHandler
+	CASAuthHandler                 *handler.CASAuthHandler
+	CASAuthService                 interfaces.CASAuthService
+	OpenRetrieveHandler            *handler.OpenRetrieveHandler
+	WeKnoraCloudHandler            *handler.WeKnoraCloudHandler
+	WikiPageHandler                *handler.WikiPageHandler
+	WikiPageService                interfaces.WikiPageService
 	WebhookEndpointHandler         *handler.WebhookEndpointHandler         `optional:"true"`
 	KnowledgeDownloadTicketHandler *handler.KnowledgeDownloadTicketHandler `optional:"true"`
-	MemoryHandler                *handler.MemoryHandler
-	HostSandbox                  service.HostSandboxManager
+	MemoryHandler                  *handler.MemoryHandler
+	HostSandbox                    service.HostSandboxManager
 }
 
 // defaultTrustedPrivateProxies 当 behind_proxy 开启但未配置 trusted_proxies 时的保守默认值（私网 + 本机）。
@@ -189,7 +189,9 @@ func NewRouter(params RouterParams) *gin.Engine {
 			"Cache-Control", "Pragma", "X-Requested-With", "DNT", "If-Modified-Since",
 			"Keep-Alive", "User-Agent", "pd", "systemid",
 			"X-WeKnora-Download-Ticket",
-			"MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID",
+			// Streamable HTTP MCP clients running in a browser send these on
+			// the /mcp/:endpoint_id surface.
+			"MCP-Protocol-Version", "Mcp-Method", "Mcp-Name", "Mcp-Session-Id", "Last-Event-ID",
 		},
 		ExposeHeaders:    []string{"Content-Length", "Access-Control-Allow-Origin", "Mcp-Session-Id"},
 		AllowCredentials: true,
@@ -295,6 +297,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterMyInvitationRoutes(v1, params.TenantInvitationHandler)
 		RegisterKnowledgeBaseRoutes(v1, params.KBHandler, rbacGuards)
 		RegisterKnowledgeCatalogRoutes(v1, params.KnowledgeCatalogHandler, rbacGuards)
+		RegisterImageAttrRoutes(v1, params.KBHandler, rbacGuards)
 		RegisterKnowledgeBaseActivityRoutes(v1, params.AuditLogHandler, rbacGuards)
 		serveKBScopedFiles(
 			v1,

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { collectSessionKnowledgeBaseIds, protectProviderImageSrcInHTML } from './security.ts'
+import { documentPreviewDomPurifyConfig, protectProviderImageSrcInHTML } from './security.ts'
 
 test('protectProviderImageSrcInHTML uses a placeholder src for provider images', () => {
   const html = '<p><img alt="preview" src="local://10000/exports/a.jpg"></p>'
@@ -50,4 +51,11 @@ test('collectSessionKnowledgeBaseIds merges refs, mentions, and agent stream', (
     'kb-extra',
   )
   assert.deepEqual(ids.sort(), ['kb-extra', 'kb-mention', 'kb-ref', 'kb-req', 'kb-tool', 'kb-tool-2'].sort())
+})
+test('document preview sanitizer keeps target on links alongside image attributes', () => {
+  // USE_PROFILES replaces ALLOWED_ATTR, so target must come from ADD_ATTR or
+  // the hook-added target="_blank" is stripped again.
+  for (const attr of ['target', 'loading', 'decoding', 'fetchpriority']) {
+    assert.ok(documentPreviewDomPurifyConfig.ADD_ATTR.includes(attr), attr)
+  }
 })
