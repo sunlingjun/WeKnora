@@ -22,8 +22,8 @@
           <p class="header-subtitle" style="--wails-draggable: drag">{{ $t('knowledgeList.subtitle') }}</p>
         </div>
       </div>
-      <ResourceListToolbar :hide-scopes="authStore.isLiteMode" v-model="spaceSelection" v-model:query="keyword" :count-all="allKnowledgeBases"
-      :count-mine="kbs.length" :count-by-org="effectiveSharedCountByOrg" :count-favorites="kbFavoritesCount"
+      <ResourceListToolbar :hide-scopes="authStore.isLiteMode" show-joined-scope v-model="spaceSelection" v-model:query="keyword" :count-all="allKnowledgeBases"
+      :count-mine="kbs.length" :count-joined="joinedPlazaKbs.length" :count-by-org="effectiveSharedCountByOrg" :count-favorites="kbFavoritesCount"
       :count-recents="kbRecentsCount" />
       <div class="kb-list-main">
         <EmptyState v-if="keyword.trim() && !(loading || spaceKbsLoading) && visibleResultCount === 0" icon="search"
@@ -63,7 +63,7 @@
         <!-- 卡片网格：全部 / 收藏 / 最近 — 共用同一份卡片模板，
              仅依赖 filteredKnowledgeBases 切片即可切换视图 -->
         <div
-          v-if="(spaceSelection === 'all' || spaceSelection === 'favorites' || spaceSelection === 'recents') && filteredKnowledgeBases.length > 0"
+          v-if="(spaceSelection === 'all' || spaceSelection === 'favorites' || spaceSelection === 'recents' || spaceSelection === 'joined') && filteredKnowledgeBases.length > 0"
           class="kb-card-wrap">
           <!-- 置顶分组标题 -->
           <div
@@ -127,7 +127,8 @@
               && (kb as any).joinedViaPlaza
               && !kb.is_pinned
               && (index === 0 || !(filteredKnowledgeBases[index - 1] as any).joinedViaPlaza)"
-              class="kb-section-header" role="button" tabindex="0" @click="toggleKbSection('joinedShared')"
+              class="kb-section-header" role="button" tabindex="0"
+              :aria-expanded="!isKbSectionCollapsed('joinedShared')" @click="toggleKbSection('joinedShared')"
               @keydown.enter.prevent="toggleKbSection('joinedShared')"
               @keydown.space.prevent="toggleKbSection('joinedShared')">
               <t-icon name="usergroup-add" size="14px" />
@@ -629,6 +630,9 @@
         <EmptyState v-if="!keyword.trim() && spaceSelection === 'recents' && filteredKnowledgeBases.length === 0 && !loading" icon="history" :title="$t('knowledgeList.empty.recentsTitle')"
           :description="$t('knowledgeList.empty.recentsDescription')" />
 
+        <EmptyState v-if="!keyword.trim() && spaceSelection === 'joined' && filteredKnowledgeBases.length === 0 && !loading" icon="usergroup-add" :title="$t('knowledgeList.empty.joinedTitle')"
+          :description="$t('knowledgeList.empty.joinedDescription')" />
+
         <!-- 我的知识库空状态 -->
         <EmptyState v-if="!keyword.trim() && spaceSelection === 'mine' && kbs.length === 0 && !loading" :title="$t('knowledgeList.empty.title')"
           :description="$t('knowledgeList.empty.description')">
@@ -852,14 +856,20 @@ let uploadRefreshTimer: ReturnType<typeof setTimeout> | null = null
 // not editable.
 const sharedKbs = computed<SharedKnowledgeBase[]>(() => orgStore.sharedKnowledgeBases || [])
 
-const allKnowledgeBases = computed(() => kbs.value.length + sharedKbs.value.length)
+const joinedPlazaKbs = computed(() => {
+  const owned = new Set(kbs.value.map(kb => kb.id))
+  return (chatResources.joinedKnowledgeBases || [])
+    .filter(kb => kb?.id && !owned.has(kb.id))
+    .map(kb => ({ ...kb, isMine: true as const, joinedViaPlaza: true }))
+})
+const allKnowledgeBases = computed(() => kbs.value.length + sharedKbs.value.length + joinedPlazaKbs.value.length)
 
 // 当前选中的是空间 ID（非全部、非我的、非收藏/最近这类伪 scope）
 // NB: keep the reserved-scope list in sync with ResourceListToolbar's
 // non-org buckets — otherwise a new pseudo-scope (e.g. "favorites")
 // falls through here and triggers the per-space code paths, which
 // renders an extra "no shared KB" empty state on top of the real view.
-const RESERVED_SCOPES = new Set(['all', 'mine', 'favorites', 'recents'])
+const RESERVED_SCOPES = new Set(['all', 'mine', 'favorites', 'recents', 'joined'])
 const spaceSelectionOrgId = computed(() => {
   const s = spaceSelection.value
   return !!s && !RESERVED_SCOPES.has(s)
@@ -1044,6 +1054,9 @@ const toggleKbSection = (key: KbSectionKey) => {
 // 跨空间共享条目一定带 `permission`，本空间条目永远没有，所以"无 permission"
 // 是本空间的安全标识。综合：先看 isMine，再回退到 permission 是否存在。
 // 广场已加入（joinedViaPlaza）独立成段，绝不进「本空间 · 其他成员」。
+const showShareGroupHeaders = computed(() => true)
+const kbListGroupOrder: KbSectionKey[] = ['pinned', 'mine', 'tenantOthers', 'joinedShared', 'sharedEditable', 'sharedReadonly']
+
 const kbSectionOf = (kb: any): KbSectionKey => {
   if (kb?.is_pinned && !kb?.joinedViaPlaza) return 'pinned'
   if (kb?.joinedViaPlaza) return 'joinedShared'
@@ -1088,7 +1101,7 @@ const unsearchedFilteredKnowledgeBases = computed(() => {
       favoritesList.value,
       selectedResourceSort.value,
       kbSectionOf,
-      ['pinned', 'mine', 'tenantOthers', 'sharedEditable', 'sharedReadonly'],
+      kbListGroupOrder,
       flatKnowledgeBaseSortAccessors,
     )
   }
@@ -1097,7 +1110,16 @@ const unsearchedFilteredKnowledgeBases = computed(() => {
       recentsList.value,
       selectedResourceSort.value,
       kbSectionOf,
-      ['pinned', 'mine', 'tenantOthers', 'sharedEditable', 'sharedReadonly'],
+      kbListGroupOrder,
+      flatKnowledgeBaseSortAccessors,
+    )
+  }
+  if (spaceSelection.value === 'joined') {
+    return sortResourcesWithinGroups(
+      joinedPlazaKbs.value,
+      selectedResourceSort.value,
+      kbSectionOf,
+      kbListGroupOrder,
       flatKnowledgeBaseSortAccessors,
     )
   }
@@ -1125,7 +1147,7 @@ const unsearchedFilteredKnowledgeBases = computed(() => {
     merged,
     selectedResourceSort.value,
     kbSectionOf,
-    ['pinned', 'mine', 'tenantOthers', 'sharedEditable', 'sharedReadonly'],
+    kbListGroupOrder,
     flatKnowledgeBaseSortAccessors,
   )
 })

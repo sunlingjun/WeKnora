@@ -4949,7 +4949,9 @@ export default {
       favoritesTitle: '즐겨찾기 없음',
       favoritesDescription: '카드의 별표 아이콘을 눌러 즐겨찾기에 추가하세요',
       recentsTitle: '최근 항목 없음',
-      recentsDescription: '최근에 연 지식베이스가 여기에 표시됩니다'
+      recentsDescription: '최근에 연 지식베이스가 여기에 표시됩니다',
+      joinedTitle: '참여한 공유 지식베이스가 없습니다',
+      joinedDescription: '지식베이스 광장에서 참여하면 여기에 표시됩니다'
     }
   },
   sharedKbSquare: {
@@ -7107,6 +7109,9 @@ export default {
     urlLabel: 'URL 주소',
     urlPlaceholder: '웹페이지 URL을 입력하세요. 예: https://example.com',
     urlTip: '다양한 웹페이지 콘텐츠를 가져올 수 있으며, 시스템이 자동으로 텍스트를 추출하고 분석합니다',
+    urlTitleLabel: '제목',
+    urlTitlePlaceholder: '웹페이지 제목을 입력하세요. 문서 이름으로 사용됩니다',
+    urlTitleRequired: '제목을 입력하세요',
     typeURL: '웹페이지',
     typeManual: '수동 생성',
     typeFile: '파일',

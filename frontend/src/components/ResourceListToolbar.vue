@@ -41,8 +41,10 @@ const props = withDefaults(defineProps<{
   countRecents?: number
   countCreated?: number
   countJoined?: number
+  /** Resource mode only: plaza-joined knowledge bases. Organization mode already has its own joined tab. */
+  showJoinedScope?: boolean
   countByOrg?: Record<string, number>
-}>(), { mode: 'resource', hideScopes: false, countByOrg: () => ({}) })
+}>(), { mode: 'resource', hideScopes: false, showJoinedScope: false, countByOrg: () => ({}) })
 defineEmits<{
   'update:modelValue': [value: string]
   'update:query': [value: string]
@@ -58,6 +60,9 @@ const scopes = computed(() => props.mode === 'organization' ? [
   { value: 'favorites', label: t('listSpaceSidebar.favorites'), count: props.countFavorites },
   { value: 'recents', label: t('listSpaceSidebar.recents'), count: props.countRecents },
   { value: 'mine', label: t('listSpaceSidebar.workspace'), count: props.countMine },
+  ...(props.showJoinedScope
+    ? [{ value: 'joined', label: t('knowledgeList.sections.joinedShared'), count: props.countJoined }]
+    : []),
 ])
 const selectedSpace = computed(() => scopes.value.some(s => s.value === props.modelValue) ? '' : props.modelValue)
 const spaceOptions = computed(() => (orgStore.organizations || [])

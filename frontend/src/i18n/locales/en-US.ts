@@ -667,6 +667,9 @@ export default {
     urlLabel: 'URL Address',
     urlPlaceholder: 'Enter webpage URL, e.g., https://example.com',
     urlTip: 'Supports importing various webpage contents. The system will automatically extract and parse text content from the webpage',
+    urlTitleLabel: 'Title',
+    urlTitlePlaceholder: 'Enter a page title. It will be used as the document name',
+    urlTitleRequired: 'Enter a title',
     typeURL: 'URL',
     typeManual: 'Manual',
     typeFile: 'File',
@@ -2938,7 +2941,9 @@ export default {
       favoritesTitle: 'No favorites yet',
       favoritesDescription: 'Star a knowledge base from its card to add it here',
       recentsTitle: 'Nothing here yet',
-      recentsDescription: 'Knowledge bases you recently opened will show up here'
+      recentsDescription: 'Knowledge bases you recently opened will show up here',
+      joinedTitle: 'No joined shared knowledge bases',
+      joinedDescription: 'Join one from the knowledge base square and it will show up here'
     },
     delete: {
       confirmTitle: 'Delete Confirmation',

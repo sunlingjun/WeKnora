@@ -4951,7 +4951,9 @@ export default {
       favoritesTitle: '暂无收藏',
       favoritesDescription: '在知识库卡片右上角点击星标即可收藏',
       recentsTitle: '暂无最近访问',
-      recentsDescription: '最近打开过的知识库会出现在这里'
+      recentsDescription: '最近打开过的知识库会出现在这里',
+      joinedTitle: '还没有加入的共享知识库',
+      joinedDescription: '到知识库广场加入后，会出现在这里'
     }
   },
   sharedKbSquare: {
@@ -7109,6 +7111,9 @@ export default {
     urlLabel: 'URL地址',
     urlPlaceholder: '请输入网页URL，例如：https://example.com',
     urlTip: '支持导入各类网页内容，系统会自动提取和解析网页中的文本内容',
+    urlTitleLabel: '标题',
+    urlTitlePlaceholder: '请输入网页标题，将作为文档名称',
+    urlTitleRequired: '请输入标题',
     typeURL: '网页',
     typeManual: '手动创建',
     typeFile: '文件',

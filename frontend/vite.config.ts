@@ -214,7 +214,13 @@ export default defineConfig({
         target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-      }
+      },
+      // 本地文档站：docs 容器只映射 127.0.0.1:8081，同源 /docs/ 不进 Vue。
+      // 产品 / 仍由 Vite 提供。测试和生产走 frontend nginx，不走这条代理。
+      '/docs': {
+        target: 'http://127.0.0.1:8081',
+        changeOrigin: true,
+      },
     }
   },
   // `vite preview` 用生产构建产物(dist)本地起服务，是最接近 release 镜像的环境：

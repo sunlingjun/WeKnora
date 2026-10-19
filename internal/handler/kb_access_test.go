@@ -77,6 +77,7 @@ func TestKBGuardAndHandlersShareResolution(t *testing.T) {
 				svc,
 				shares,
 				nil,
+				nil,
 				&config.Config{Tenant: &config.TenantConfig{EnableRBAC: &enabled}},
 			), func(c *gin.Context) {
 				_, _, effective, permission, err := kbHandler.validateAndGetKnowledgeBase(c)
@@ -218,7 +219,7 @@ func TestKBHandlerEnforcesAccessWhenRouteRBACIsDisabled(t *testing.T) {
 	})
 	disabled := false
 	r.GET("/:id", middleware.RequireKBAccess(middleware.KBIDFromParam("id"), types.OrgRoleViewer,
-		svc, nil, nil, &config.Config{Tenant: &config.TenantConfig{EnableRBAC: &disabled}}), func(c *gin.Context) {
+		svc, nil, nil, nil, &config.Config{Tenant: &config.TenantConfig{EnableRBAC: &disabled}}), func(c *gin.Context) {
 		_, err := resolveHandlerKBAccess(c, c.Param("id"), svc, nil, nil)
 		require.Error(t, err)
 		_ = c.Error(err)

@@ -666,6 +666,9 @@ export default {
     urlLabel: 'URLアドレス',
     urlPlaceholder: 'WebページのURLを入力してください。例: https://example.com',
     urlTip: 'さまざまなWebページの内容をインポートできます。システムがWebページからテキストを自動で抽出して解析します',
+    urlTitleLabel: 'タイトル',
+    urlTitlePlaceholder: 'ページのタイトルを入力してください。文書名になります',
+    urlTitleRequired: 'タイトルを入力してください',
     typeURL: 'URL',
     typeManual: '手動作成',
     typeFile: 'ファイル',
@@ -2808,7 +2811,9 @@ export default {
       favoritesTitle: 'お気に入りはまだありません',
       favoritesDescription: 'ナレッジベースのカードからスターを付けると、ここに追加されます',
       recentsTitle: 'まだ何もありません',
-      recentsDescription: '最近開いたナレッジベースがここに表示されます'
+      recentsDescription: '最近開いたナレッジベースがここに表示されます',
+      joinedTitle: '参加した共有ナレッジベースはまだありません',
+      joinedDescription: 'ナレッジベース広場から参加すると、ここに表示されます'
     },
     delete: {
       confirmTitle: '削除の確認',
@@ -2829,6 +2834,7 @@ export default {
     sections: {
       pinned: '固定済み',
       mine: '自分が作成',
+      joinedShared: '参加した共有',
       tenantOthers: 'ワークスペース・他のメンバー',
       tenantReadonly: 'ワークスペース・閲覧のみ',
       sharedByMe: '自分が共有',

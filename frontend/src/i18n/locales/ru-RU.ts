@@ -4949,7 +4949,9 @@ export default {
       favoritesTitle: 'No favorites yet',
       favoritesDescription: 'Star a knowledge base from its card to add it here',
       recentsTitle: 'Nothing here yet',
-      recentsDescription: 'Knowledge bases you recently opened will show up here'
+      recentsDescription: 'Knowledge bases you recently opened will show up here',
+      joinedTitle: 'Нет присоединённых общих баз',
+      joinedDescription: 'Присоединитесь на площади баз знаний — они появятся здесь'
     }
   },
   sharedKbSquare: {
@@ -7107,6 +7109,9 @@ export default {
     urlLabel: 'Адрес URL',
     urlPlaceholder: 'Введите URL веб-страницы, например: https://example.com',
     urlTip: 'Поддерживает импорт различного веб-содержимого. Система автоматически извлечет и проанализирует текстовое содержимое с веб-страницы',
+    urlTitleLabel: 'Заголовок',
+    urlTitlePlaceholder: 'Введите заголовок страницы. Он станет именем документа',
+    urlTitleRequired: 'Введите заголовок',
     typeURL: 'URL',
     typeManual: 'Вручную',
     typeFile: 'Файл',

@@ -78,6 +78,8 @@ func TestCreateInviteLink_CASModePersistsMarkerAndJoinCASURL(t *testing.T) {
 		invSvc,
 		&inviteLinkUserService{},
 		nil,
+		nil,
+		nil,
 		&config.Config{FrontendBaseURL: "https://kb.example.com"},
 	)
 	r := gin.New()
@@ -129,6 +131,8 @@ func TestCreateInviteLink_DefaultRegisterURL(t *testing.T) {
 		invSvc,
 		&inviteLinkUserService{},
 		nil,
+		nil,
+		nil,
 		&config.Config{FrontendBaseURL: "https://kb.example.com"},
 	)
 	r := gin.New()
@@ -166,7 +170,7 @@ func TestCreateInviteLink_DefaultRegisterURL(t *testing.T) {
 
 func TestProjectInvitationWithLink_CASMarkerUsesJoinCAS(t *testing.T) {
 	h := NewTenantInvitationHandler(
-		nil, nil, nil,
+		nil, nil, nil, nil, nil,
 		&config.Config{FrontendBaseURL: "https://kb.example.com"},
 	)
 	inv := &types.TenantInvitation{
