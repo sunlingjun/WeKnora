@@ -149,6 +149,74 @@
               </div>
             </template>
           </t-popup>
+            <!-- Enterprise CAS invite link. Same multi-use share-link
+                 backend as register links, but landing on /join-cas so
+                 invitees authenticate via CAS instead of local register. -->
+            <t-popup v-if="canManage" v-model="enterpriseLinkPopupVisible" trigger="click" placement="bottom-end"
+              destroy-on-close overlay-class-name="member-invite-popup-overlay">
+            <t-button theme="default" variant="text" size="small" class="members-list-add-btn"
+            :title="$t('tenantMember.inviteEnterprise')"
+            :aria-label="$t('tenantMember.inviteEnterprise')">
+            <template #icon><t-icon name="usergroup" /></template>
+            {{ $t('tenantMember.inviteEnterprise') }}
+          </t-button>
+              <template #content>
+                <div class="member-invite-popup-inner" @click.stop>
+                  <div class="member-invite-popup-title">
+                    {{
+                      enterpriseLinkResult
+                        ? $t('tenantInvitation.enterpriseLink.resultTitle')
+                        : $t('tenantInvitation.enterpriseLinkTitle')
+                    }}
+                  </div>
+                  <div v-if="!enterpriseLinkResult" class="member-invite-form">
+                    <p class="invite-confirm-body">
+                      {{ $t('tenantInvitation.enterpriseLink.description', { days: INVITATION_TTL_DAYS }) }}
+                    </p>
+                    <t-form :data="enterpriseLinkForm" :label-width="80">
+                      <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
+                        <t-select v-model="enterpriseLinkForm.role" :options="roleOptions"
+                          :popup-props="roleSelectPopupProps" />
+                      </t-form-item>
+                    </t-form>
+                  </div>
+                  <div v-else class="share-link-result">
+                    <p class="invite-confirm-body">
+                      {{ $t('tenantInvitation.enterpriseLink.resultBody') }}
+                    </p>
+                    <div class="share-link-row">
+                      <input class="share-link-row__input"
+                        :value="absoluteInviteURL(enterpriseLinkResult.invite_url || '')"
+                        readonly @click="($event.target as HTMLInputElement).select()" />
+                      <t-button size="small" theme="primary" variant="outline"
+                        @click="copyText(absoluteInviteURL(enterpriseLinkResult.invite_url || ''))">
+                        <template #icon><t-icon name="copy" /></template>
+                        {{ $t('tenantInvitation.copyLink') }}
+                      </t-button>
+                    </div>
+                  </div>
+                  <div class="invite-popup-footer">
+                    <t-button v-if="!enterpriseLinkResult" variant="outline" :disabled="creatingEnterpriseLink"
+                      @click="enterpriseLinkPopupVisible = false">
+                      {{ $t('common.cancel') }}
+                    </t-button>
+                    <t-button v-else variant="outline" @click="enterpriseLinkPopupVisible = false">
+                      {{ $t('common.close') }}
+                    </t-button>
+                    <t-button v-if="!enterpriseLinkResult" theme="primary" :loading="creatingEnterpriseLink"
+                      @click="submitEnterpriseLink">
+                      {{ $t('tenantInvitation.enterpriseLink.generate') }}
+                    </t-button>
+                  </div>
+                </div>
+              </template>
+            </t-popup>
+          <t-button v-if="canManage" theme="default" variant="text" size="small"
+            class="members-list-add-btn" :title="$t('tenantMember.casImport.button')"
+            :aria-label="$t('tenantMember.casImport.button')" @click="openCasImportDialog">
+            <template #icon><t-icon name="upload" /></template>
+            {{ $t('tenantMember.casImport.button') }}
+          </t-button>
         </div>
       </div>
       <p class="section-description">
@@ -298,192 +366,6 @@
            渲染，loading / error / empty / 表格作为下方的内容状态切换。
            这样搜索时输入框不会被卸载，避免焦点丢失与页面抖动。 -->
       <div class="members-list-wrap">
-        <div class="members-list-header">
-          <div class="members-list-titlewrap">
-            <span class="members-list-title">{{ $t('tenantMember.listTitle') }}</span>
-            <span class="members-list-count-badge">{{ membersTotal }}</span>
-          </div>
-          <div class="members-list-actions">
-            <div class="members-list-search">
-              <t-input v-model="searchQuery" size="small" :placeholder="$t('tenantMember.searchPlaceholder')" clearable>
-                <template #prefix-icon><t-icon name="search" /></template>
-              </t-input>
-            </div>
-            <t-popup v-if="canManage" v-model="invitePopupVisible" trigger="click" placement="bottom-end"
-              destroy-on-close overlay-class-name="wk-popover member-invite-popup-overlay">
-              <t-button theme="primary" variant="outline" shape="square" size="small" class="members-list-add-btn"
-                :title="$t('tenantMember.add.button')" :aria-label="$t('tenantMember.add.button')">
-                <template #icon><t-icon name="user-add" /></template>
-              </t-button>
-              <template #content>
-                <div class="member-invite-popup-inner" @click.stop>
-                  <div class="member-invite-popup-title">
-                    {{
-                      addDialogStep === 'form'
-                        ? $t('tenantMember.add.dialogTitle')
-                        : $t('tenantInvitation.confirmInviteTitle')
-                    }}
-                  </div>
-                  <t-form v-if="addDialogStep === 'form'" ref="addFormRef" :data="addForm" :rules="addFormRules"
-                    :label-width="80" class="member-invite-form">
-                    <t-form-item :label="$t('tenantMember.add.emailLabel')" name="email">
-                      <t-input v-model="addForm.email" :placeholder="$t('tenantMember.add.emailPlaceholder')"
-                        clearable />
-                    </t-form-item>
-                    <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
-                      <t-select v-model="addForm.role" :options="roleOptions" :popup-props="roleSelectPopupProps" />
-                    </t-form-item>
-                  </t-form>
-                  <div v-else class="invite-confirm-body">
-                    {{ $t('tenantInvitation.confirmInviteBody', {
-                      email: addConfirmEmail,
-                      role: addConfirmRoleLabel,
-                    }) }}
-                  </div>
-                  <div class="invite-popup-footer">
-                    <t-button v-if="addDialogStep === 'form'" variant="outline" :disabled="adding"
-                      @click="invitePopupVisible = false">
-                      {{ $t('common.cancel') }}
-                    </t-button>
-                    <t-button v-else variant="outline" :disabled="adding" @click="goBackToForm">
-                      {{ $t('common.back') }}
-                    </t-button>
-                    <t-button theme="primary" :loading="adding" @click="submitAdd">
-                      {{ dialogConfirmLabel }}
-                    </t-button>
-                  </div>
-                </div>
-              </template>
-            </t-popup>
-            <!-- Share-link generator. Sits next to the invite-by-email
-                 popup so the two flows live side-by-side: "I know who"
-                 (email input) vs "I don't" (one link, group chat). -->
-            <t-popup v-if="canManage" v-model="shareLinkPopupVisible" trigger="click" placement="bottom-end"
-              destroy-on-close overlay-class-name="wk-popover member-invite-popup-overlay">
-              <t-button theme="default" variant="outline" shape="square" size="small" class="members-list-add-btn"
-                :title="$t('tenantInvitation.shareLink.button')"
-                :aria-label="$t('tenantInvitation.shareLink.button')">
-                <template #icon><t-icon name="link" /></template>
-              </t-button>
-              <template #content>
-                <div class="member-invite-popup-inner" @click.stop>
-                  <div class="member-invite-popup-title">
-                    {{
-                      shareLinkResult
-                        ? $t('tenantInvitation.shareLink.resultTitle')
-                        : $t('tenantInvitation.shareLink.dialogTitle')
-                    }}
-                  </div>
-                  <div v-if="!shareLinkResult" class="member-invite-form">
-                    <p class="invite-confirm-body">
-                      {{ $t('tenantInvitation.shareLink.description', { days: INVITATION_TTL_DAYS }) }}
-                    </p>
-                    <t-form :data="shareLinkForm" :label-width="80">
-                      <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
-                        <t-select v-model="shareLinkForm.role" :options="roleOptions"
-                          :popup-props="roleSelectPopupProps" />
-                      </t-form-item>
-                    </t-form>
-                  </div>
-                  <div v-else class="share-link-result">
-                    <p class="invite-confirm-body">
-                      {{ $t('tenantInvitation.shareLink.resultBody') }}
-                    </p>
-                    <div class="share-link-row">
-                      <input class="share-link-row__input"
-                        :value="absoluteInviteURL(shareLinkResult.invite_url || '')"
-                        readonly @click="($event.target as HTMLInputElement).select()" />
-                      <t-button size="small" theme="primary" variant="outline"
-                        @click="copyText(absoluteInviteURL(shareLinkResult.invite_url || ''))">
-                        <template #icon><t-icon name="copy" /></template>
-                        {{ $t('tenantInvitation.copyLink') }}
-                      </t-button>
-                    </div>
-                  </div>
-                  <div class="invite-popup-footer">
-                    <t-button v-if="!shareLinkResult" variant="outline" :disabled="creatingShareLink"
-                      @click="shareLinkPopupVisible = false">
-                      {{ $t('common.cancel') }}
-                    </t-button>
-                    <t-button v-else variant="outline" @click="shareLinkPopupVisible = false">
-                      {{ $t('common.close') }}
-                    </t-button>
-                    <t-button v-if="!shareLinkResult" theme="primary" :loading="creatingShareLink"
-                      @click="submitShareLink">
-                      {{ $t('tenantInvitation.shareLink.generate') }}
-                    </t-button>
-                  </div>
-                </div>
-              </template>
-            </t-popup>
-            <!-- Enterprise CAS invite link. Same multi-use share-link
-                 backend as register links, but landing on /join-cas so
-                 invitees authenticate via CAS instead of local register. -->
-            <t-popup v-if="canManage" v-model="enterpriseLinkPopupVisible" trigger="click" placement="bottom-end"
-              destroy-on-close overlay-class-name="member-invite-popup-overlay">
-              <t-button theme="default" variant="outline" shape="square" size="small" class="members-list-add-btn"
-                :title="$t('tenantMember.inviteEnterprise')"
-                :aria-label="$t('tenantMember.inviteEnterprise')">
-                <template #icon><t-icon name="usergroup" /></template>
-              </t-button>
-              <template #content>
-                <div class="member-invite-popup-inner" @click.stop>
-                  <div class="member-invite-popup-title">
-                    {{
-                      enterpriseLinkResult
-                        ? $t('tenantInvitation.enterpriseLink.resultTitle')
-                        : $t('tenantInvitation.enterpriseLinkTitle')
-                    }}
-                  </div>
-                  <div v-if="!enterpriseLinkResult" class="member-invite-form">
-                    <p class="invite-confirm-body">
-                      {{ $t('tenantInvitation.enterpriseLink.description', { days: INVITATION_TTL_DAYS }) }}
-                    </p>
-                    <t-form :data="enterpriseLinkForm" :label-width="80">
-                      <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
-                        <t-select v-model="enterpriseLinkForm.role" :options="roleOptions"
-                          :popup-props="roleSelectPopupProps" />
-                      </t-form-item>
-                    </t-form>
-                  </div>
-                  <div v-else class="share-link-result">
-                    <p class="invite-confirm-body">
-                      {{ $t('tenantInvitation.enterpriseLink.resultBody') }}
-                    </p>
-                    <div class="share-link-row">
-                      <input class="share-link-row__input"
-                        :value="absoluteInviteURL(enterpriseLinkResult.invite_url || '')"
-                        readonly @click="($event.target as HTMLInputElement).select()" />
-                      <t-button size="small" theme="primary" variant="outline"
-                        @click="copyText(absoluteInviteURL(enterpriseLinkResult.invite_url || ''))">
-                        <template #icon><t-icon name="copy" /></template>
-                        {{ $t('tenantInvitation.copyLink') }}
-                      </t-button>
-                    </div>
-                  </div>
-                  <div class="invite-popup-footer">
-                    <t-button v-if="!enterpriseLinkResult" variant="outline" :disabled="creatingEnterpriseLink"
-                      @click="enterpriseLinkPopupVisible = false">
-                      {{ $t('common.cancel') }}
-                    </t-button>
-                    <t-button v-else variant="outline" @click="enterpriseLinkPopupVisible = false">
-                      {{ $t('common.close') }}
-                    </t-button>
-                    <t-button v-if="!enterpriseLinkResult" theme="primary" :loading="creatingEnterpriseLink"
-                      @click="submitEnterpriseLink">
-                      {{ $t('tenantInvitation.enterpriseLink.generate') }}
-                    </t-button>
-                  </div>
-                </div>
-              </template>
-            </t-popup>
-            <t-button v-if="canManage" theme="default" variant="outline" shape="square" size="small"
-              class="members-list-add-btn" :title="$t('tenantMember.casImport.button')"
-              :aria-label="$t('tenantMember.casImport.button')" @click="openCasImportDialog">
-              <template #icon><t-icon name="upload" /></template>
-            </t-button>
-          </div>
-        </div>
         <div v-if="loading && members.length === 0" class="loading-inline">
           <t-loading size="small" />
           <span>{{ $t('tenantMember.loading') }}</span>
