@@ -68,6 +68,28 @@ func (r *chunkRepository) ListImageAssets(
 	return rows, total, err
 }
 
+// HasImageAssetURL is the gallery's authorization check for a stored image
+// URL. Only a row in this knowledge base's chunk_images projection counts.
+func (r *chunkRepository) HasImageAssetURL(
+	ctx context.Context, tenantID uint64, kbID, imageURL string,
+) (bool, error) {
+	imageURL = strings.TrimSpace(imageURL)
+	if tenantID == 0 || kbID == "" || imageURL == "" {
+		return false, nil
+	}
+	var chunkID string
+	err := r.db.WithContext(ctx).Table("chunk_images").
+		Select("chunk_id").
+		Where("tenant_id = ? AND knowledge_base_id = ? AND (url = ? OR original_url = ?)",
+			tenantID, kbID, imageURL, imageURL).
+		Limit(1).
+		Scan(&chunkID).Error
+	if err != nil {
+		return false, err
+	}
+	return chunkID != "", nil
+}
+
 // winnerClause keeps one copy per image: the one on the most recently updated
 // chunk, ties broken by chunk id and then array position. The copies index
 // serves the probe.

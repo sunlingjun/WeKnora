@@ -103,7 +103,8 @@ const activeSearchIds = computed(() => {
 // Backend returns storage handles (local://, minio://, resource://, ...) which
 // the browser cannot render directly. They must be fetched through the KB file
 // proxy (galleryImageRequest) and turned into object URLs first.
-// Normal http(s) URLs pass through untouched.
+// Private MinIO HTTP URLs (localhost:9000/<bucket>/images/...) take the same
+// path. Public http(s) URLs pass through untouched.
 // ---------------------------------------------------------------------------
 const thumbUrls = ref<Record<string, string>>({})
 const thumbBroken = ref<Record<string, boolean>>({})

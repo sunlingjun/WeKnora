@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,7 @@ type KnowledgeHandler struct {
 	kbShareService    interfaces.KBShareService
 	agentShareService interfaces.AgentShareService
 	chunkService      interfaces.ChunkService
+	fileService       interfaces.FileService
 	systemSettingSvc  interfaces.SystemSettingService
 	userSvc           interfaces.UserService
 	asynqClient       interfaces.TaskEnqueuer
@@ -93,6 +95,7 @@ func NewKnowledgeHandler(
 	kbShareService interfaces.KBShareService,
 	agentShareService interfaces.AgentShareService,
 	chunkService interfaces.ChunkService,
+	fileService interfaces.FileService,
 	systemSettingSvc interfaces.SystemSettingService,
 	userSvc interfaces.UserService,
 	asynqClient interfaces.TaskEnqueuer,
@@ -112,6 +115,7 @@ func NewKnowledgeHandler(
 		kbShareService:    kbShareService,
 		agentShareService: agentShareService,
 		chunkService:      chunkService,
+		fileService:       fileService,
 		systemSettingSvc:  systemSettingSvc,
 		userSvc:           userSvc,
 		asynqClient:       asynqClient,
@@ -1495,6 +1499,61 @@ func (h *KnowledgeHandler) GetGalleryConfig(c *gin.Context) {
 			"status":            status,
 		},
 	})
+}
+
+// GetGalleryImageContent streams one gallery image whose stored URL points at
+// this deployment's private MinIO. The knowledge-base file proxy only accepts
+// tenant export paths, and a browser cannot open localhost:9000, so the bytes
+// are read with the server's storage credentials after the URL is shown to
+// belong to this knowledge base.
+func (h *KnowledgeHandler) GetGalleryImageContent(c *gin.Context) {
+	_, kbID, effectiveTenantID, _, err := h.validateKnowledgeBaseAccess(c)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	rawURL := strings.TrimSpace(c.Query("url"))
+	bucket, objectKey, ok := secutils.ParseInternalMinIOHTTPURL(
+		rawURL, os.Getenv("MINIO_ENDPOINT"), os.Getenv("MINIO_PUBLIC_ENDPOINT"),
+	)
+	if !ok {
+		_ = c.Error(errors.NewBadRequestError("image url is not an internal object"))
+		return
+	}
+	configuredBucket := strings.TrimSpace(os.Getenv("MINIO_BUCKET_NAME"))
+	if configuredBucket == "" || bucket != configuredBucket {
+		_ = c.Error(errors.NewForbiddenError("image bucket is not served"))
+		return
+	}
+	if h.chunkService == nil || h.chunkService.GetRepository() == nil || h.fileService == nil {
+		_ = c.Error(errors.NewInternalServerError("image storage is unavailable"))
+		return
+	}
+
+	ctx := types.WithExecutionTenant(c.Request.Context(), effectiveTenantID)
+	owned, err := h.chunkService.GetRepository().HasImageAssetURL(ctx, effectiveTenantID, kbID, rawURL)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"kb_id": kbID})
+		_ = c.Error(errors.NewInternalServerError("failed to resolve gallery image"))
+		return
+	}
+	if !owned {
+		_ = c.Error(errors.NewNotFoundError("gallery image not found"))
+		return
+	}
+
+	reader, err := h.fileService.GetFile(ctx, "minio://"+bucket+"/"+objectKey)
+	if err != nil {
+		logger.Warnf(ctx, "gallery image read failed kb_id=%s key=%s err=%v", kbID, objectKey, err)
+		_ = c.Error(errors.NewNotFoundError("gallery image not found"))
+		return
+	}
+	if err := filetransport.Serve(c.Writer, c.Request, reader, filetransport.Options{
+		Filename:     objectKey,
+		CacheControl: "private, max-age=3600",
+	}); err != nil {
+		logger.Warnf(ctx, "gallery image write failed kb_id=%s key=%s err=%v", kbID, objectKey, err)
+	}
 }
 
 // ListKnowledgeFolders godoc

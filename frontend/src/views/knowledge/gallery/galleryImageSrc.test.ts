@@ -24,3 +24,34 @@ test('browser-renderable URLs are used as is', () => {
   assert.equal(galleryImageRequest('https://cdn.example.com/a.png', 'kb-1'), null)
   assert.equal(galleryImageRequest('', 'kb-1'), null)
 })
+
+const STORED_MINIO = 'http://localhost:9000/nxinweknora/images/a00fbdb2461240f99855168f2432b3c4.png'
+
+test('private MinIO HTTP images load through the gallery content endpoint', () => {
+  const req = galleryImageRequest(STORED_MINIO, 'kb-1')
+  assert.equal(
+    req?.url,
+    `/api/v1/knowledge-bases/kb-1/images/content?url=${encodeURIComponent(STORED_MINIO)}`,
+  )
+})
+
+for (const url of [
+  'http://127.0.0.1:9000/nxinweknora/images/a.png',
+  'http://minio:9000/nxinweknora/images/a.png',
+  'https://host.docker.internal:9000/nxinweknora/images/a.png',
+]) {
+  test(`${url} is an internal MinIO image`, () => {
+    assert.ok(galleryImageRequest(url, 'kb-1')?.url.includes('/images/content?url='))
+  })
+}
+
+for (const url of [
+  'http://localhost/nxinweknora/images/a.png',
+  'http://evil.example:9000/nxinweknora/images/a.png',
+  'http://localhost:9000/nxinweknora/exports/a.png',
+  'http://localhost:9000/nxinweknora/images/../secret.png',
+]) {
+  test(`${url} stays out of the gallery content endpoint`, () => {
+    assert.equal(galleryImageRequest(url, 'kb-1'), null)
+  })
+}

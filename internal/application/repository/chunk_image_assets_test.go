@@ -439,3 +439,24 @@ func TestListImageAssets_MigrationBackfillsExistingChunks(t *testing.T) {
 		}
 	})
 }
+
+func TestHasImageAssetURL(t *testing.T) {
+	imageAssetBackends(t, func(t *testing.T, db *gorm.DB) {
+		fx := newImageFixture(t, db)
+		const stored = "http://localhost:9000/nxinweknora/images/a00fbdb2461240f99855168f2432b3c4.png"
+		fx.add("text", 1, fixtureImage{URL: stored})
+		repo := NewChunkRepository(db)
+
+		owned, err := repo.HasImageAssetURL(context.Background(), 1, fx.kbID, stored)
+		require.NoError(t, err)
+		require.True(t, owned)
+
+		owned, err = repo.HasImageAssetURL(context.Background(), 1, fx.kbID, stored+"-other")
+		require.NoError(t, err)
+		require.False(t, owned)
+
+		owned, err = repo.HasImageAssetURL(context.Background(), 2, fx.kbID, stored)
+		require.NoError(t, err)
+		require.False(t, owned)
+	})
+}

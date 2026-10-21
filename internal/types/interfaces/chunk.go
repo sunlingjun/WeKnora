@@ -118,6 +118,10 @@ type ChunkRepository interface {
 	ListImageAssets(
 		ctx context.Context, tenantID uint64, kbID string, q *types.ImageAssetQuery,
 	) ([]types.ImageAssetRow, int64, error)
+	// HasImageAssetURL reports whether this knowledge base stores imageURL on a
+	// live chunk image. The match is the stored url or original_url, not a
+	// free-text search of chunk content.
+	HasImageAssetURL(ctx context.Context, tenantID uint64, kbID, imageURL string) (bool, error)
 	// MoveChunksByKnowledgeID updates knowledge_base_id for all chunks of a knowledge item
 	MoveChunksByKnowledgeID(ctx context.Context, tenantID uint64, knowledgeID string, targetKBID string) error
 	// DeleteChunksByTagID deletes all chunks with the specified tag ID

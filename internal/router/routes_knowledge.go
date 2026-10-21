@@ -90,6 +90,10 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 	kbImagesRead := kbImages.With(apiKeyRetrieve(apiKeyFullAccess()))
 	{
 		kbImagesRead.GET("/images", g.Viewer(), g.KBAccessRead("id"), handler.ListImages)
+		// Gallery bytes for images stored as an internal MinIO HTTP URL.
+		// The path stays off /files so a gateway rule for that prefix cannot
+		// capture the request.
+		kbImagesRead.GET("/images/content", g.Viewer(), g.KBAccessRead("id"), handler.GetGalleryImageContent)
 		// Same listing with the filter as a JSON body: knowledge_ids escapes
 		// the URL-length cap, so the source picker's select-all can name
 		// every document of a large KB.
