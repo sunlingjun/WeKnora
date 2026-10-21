@@ -110,7 +110,7 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN if [ "$WITH_ANYDOC" = "1" ]; then \
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --profile minimal --default-toolchain stable && \
-        ./scripts/build-anydoc-lib.sh; \
+        bash ./scripts/build-anydoc-lib.sh; \
     fi
 
 RUN if [ "$WITH_ANYDOC" = "1" ]; then \
