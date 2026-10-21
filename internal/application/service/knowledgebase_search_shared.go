@@ -29,6 +29,29 @@ func (s *knowledgeBaseService) fetchKnowledgeData(ctx context.Context,
 	return knowledgeMap, nil
 }
 
+// fetchKnowledgeByIDOnly loads knowledge rows for open retrieve.
+// The caller already named the knowledge bases, and there is no user to
+// authorize through a share. Rows are not filtered by the context tenant.
+func (s *knowledgeBaseService) fetchKnowledgeByIDOnly(ctx context.Context,
+	knowledgeIDs []string,
+) (map[string]*types.Knowledge, error) {
+	rows, err := s.kgRepo.GetKnowledgeBatchByIDOnly(ctx, knowledgeIDs)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"knowledge_ids": knowledgeIDs,
+		})
+		return nil, err
+	}
+	knowledgeMap := make(map[string]*types.Knowledge, len(rows))
+	for _, knowledge := range rows {
+		if knowledge == nil {
+			continue
+		}
+		knowledgeMap[knowledge.ID] = knowledge
+	}
+	return knowledgeMap, nil
+}
+
 // fetchKnowledgeDataWithShared gets knowledge data in batch, including knowledge
 // from KBs authorized for the original caller. Initial tenant-scoped rows
 // require the same permission check as cross-tenant expansion.

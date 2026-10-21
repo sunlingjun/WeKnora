@@ -111,6 +111,10 @@ const (
 	// Security boundary is the open_retrieve API key; HybridSearch must skip
 	// tenant-share authorizeKBAccess so multi-KB queries can span tenants.
 	OpenRetrieveContextKey ContextKey = "OpenRetrieve"
+	// OpenRetrieveWarningContextKey carries *OpenRetrieveWarningCollector.
+	// The handler reads it after the pipeline. The value is a pointer, so a
+	// cloned context still appends into the same box.
+	OpenRetrieveWarningContextKey ContextKey = "OpenRetrieveWarnings"
 	// ChatParserEngineContextKey carries the resolved parser engine
 	// from the agent's ChatParserEngineRules for chat attachment processing.
 	ChatParserEngineContextKey ContextKey = "ChatParserEngine"

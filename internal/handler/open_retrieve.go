@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/gin-gonic/gin"
 )
@@ -32,6 +33,7 @@ type OpenRetrieveRequest struct {
 // Retrieve runs hybrid retrieval without user-scoped permission checks.
 func (h *OpenRetrieveHandler) Retrieve(c *gin.Context) {
 	ctx := logger.CloneContext(c.Request.Context())
+	ctx, warnings := types.WithOpenRetrieveWarningCollector(ctx)
 
 	var req OpenRetrieveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -57,8 +59,12 @@ func (h *OpenRetrieveHandler) Retrieve(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	body := gin.H{
 		"success": true,
 		"data":    results,
-	})
+	}
+	if items := warnings.Items(); len(items) > 0 {
+		body["warnings"] = items
+	}
+	c.JSON(http.StatusOK, body)
 }

@@ -427,107 +427,16 @@ func (p *PluginSearch) searchByTargets(
 		wg.Add(1)
 		go func(modelKey string, targets []*types.SearchTarget) {
 			defer wg.Done()
-
-			// Compute embedding once for this model group. When that fails, retain
-			// only targets that have a real keyword index; vector-only targets must
-			// propagate the embedding failure instead of looking like empty recall.
-			var queryEmbedding []float32
-			disableVector := chatManage.DisableVectorMatch
-			searchableTargets := targets
-			if modelKey != "" && !disableVector {
-				emb, err := p.knowledgeBaseService.GetQueryEmbedding(ctx, targets[0].KnowledgeBaseID, queryText)
-				if err != nil {
-					searchableTargets = make([]*types.SearchTarget, 0, len(targets))
-					for _, target := range targets {
-						kb := kbMap[target.KnowledgeBaseID]
-						if !targetReportsEmbedFailure(kb) {
-							searchableTargets = append(searchableTargets, target)
-							continue
-						}
-						recordError(fmt.Errorf("knowledge base %s has no keyword fallback: %w", target.KnowledgeBaseID, err))
-					}
-					pipelineWarn(ctx, "Search", "group_embed_degrade_keyword", map[string]interface{}{
-						"model_key":        modelKey,
-						"kb_id":            targets[0].KnowledgeBaseID,
-						"error":            err.Error(),
-						"fallback_targets": len(searchableTargets),
-						"failed_targets":   len(targets) - len(searchableTargets),
-					})
-					disableVector = true
-				} else {
-					queryEmbedding = emb
-				}
+			batches := []openRetrieveBatch{{ctx: ctx, targets: targets}}
+			// One HybridSearch under the first KB's tenant drops every other
+			// tenant: the query embedding, unbound engine and chunk hydrate
+			// all read that context tenant. Search each owner on its own.
+			if types.IsOpenRetrieve(ctx) {
+				batches = openRetrieveTenantBatches(ctx, p.tenantService, targets)
 			}
-
-			// Separate full-KB targets (can be combined into one retrieval)
-			// from specific-knowledge targets (need per-target direct loading).
-			var fullKBIDs []string
-			var knowledgeTargets []*types.SearchTarget
-			for _, t := range searchableTargets {
-				if t.Type == types.SearchTargetTypeKnowledgeBase && len(t.TagIDs) == 0 {
-					fullKBIDs = append(fullKBIDs, t.KnowledgeBaseID)
-				} else {
-					knowledgeTargets = append(knowledgeTargets, t)
-				}
+			for _, batch := range batches {
+				p.searchModelGroup(batch.ctx, chatManage, modelKey, batch.targets, queryText, kbMap, &mu, &results, recordError)
 			}
-
-			pipelineInfo(ctx, "Search", "group_plan", map[string]interface{}{
-				"model_key":          modelKey,
-				"combined_kb_count":  len(fullKBIDs),
-				"individual_targets": len(knowledgeTargets),
-				"vector_len":         len(queryEmbedding),
-			})
-
-			var innerWg sync.WaitGroup
-
-			// Combined search: one HybridSearch call spanning all full-KB targets
-			if len(fullKBIDs) > 0 {
-				innerWg.Add(1)
-				go func() {
-					defer innerWg.Done()
-
-					params := types.SearchParams{
-						QueryText:             queryText,
-						QueryEmbedding:        queryEmbedding,
-						KnowledgeBaseIDs:      fullKBIDs,
-						VectorThreshold:       chatManage.VectorThreshold,
-						KeywordThreshold:      chatManage.KeywordThreshold,
-						MatchCount:            chatManage.EmbeddingTopK,
-						SkipContextEnrichment: true,
-						DisableVectorMatch:    disableVector,
-						DisableKeywordsMatch:  chatManage.DisableKeywordsMatch,
-					}
-					res, err := p.knowledgeBaseService.HybridSearch(ctx, fullKBIDs[0], params)
-					if err != nil {
-						pipelineWarn(ctx, "Search", "combined_kb_search_error", map[string]interface{}{
-							"kb_ids": fullKBIDs,
-							"error":  err.Error(),
-						})
-						recordError(err)
-						return
-					}
-					pipelineInfo(ctx, "Search", "combined_kb_result", map[string]interface{}{
-						"kb_ids":    fullKBIDs,
-						"hit_count": len(res),
-					})
-					mu.Lock()
-					results = append(results, res...)
-					mu.Unlock()
-				}()
-			}
-
-			// Individual search: per-target handling for specific-knowledge targets
-			for _, target := range knowledgeTargets {
-				innerWg.Add(1)
-				go func(t *types.SearchTarget) {
-					defer innerWg.Done()
-					recordError(p.searchSingleTarget(
-						ctx, chatManage, t, queryText, queryEmbedding, disableVector, &mu, &results,
-					))
-				}(target)
-			}
-
-			innerWg.Wait()
 		}(modelKey, targets)
 	}
 
@@ -537,6 +446,209 @@ func (p *PluginSearch) searchByTargets(
 		"total_hits": len(results),
 	})
 	return results, firstErr
+}
+
+type openRetrieveBatch struct {
+	ctx     context.Context
+	targets []*types.SearchTarget
+}
+
+// openRetrieveTenantBatches keeps target order inside each tenant and runs
+// tenants in the order they first appear. Tenant 0 stays on the incoming
+// context; a real owner tenant gets that tenant's execution scope so model
+// credentials and unbound retrieve engines match the index.
+func openRetrieveTenantBatches(
+	ctx context.Context,
+	tenants interfaces.TenantService,
+	targets []*types.SearchTarget,
+) []openRetrieveBatch {
+	order := make([]uint64, 0, len(targets))
+	buckets := make(map[uint64][]*types.SearchTarget, len(targets))
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+		if _, ok := buckets[target.TenantID]; !ok {
+			order = append(order, target.TenantID)
+		}
+		buckets[target.TenantID] = append(buckets[target.TenantID], target)
+	}
+	out := make([]openRetrieveBatch, 0, len(order))
+	for _, tenantID := range order {
+		out = append(out, openRetrieveBatch{
+			ctx:     openRetrieveExecutionContext(ctx, tenants, tenantID),
+			targets: buckets[tenantID],
+		})
+	}
+	return out
+}
+
+func openRetrieveExecutionContext(ctx context.Context, tenants interfaces.TenantService, tenantID uint64) context.Context {
+	if tenantID == 0 {
+		return ctx
+	}
+	next := types.WithExecutionTenant(ctx, tenantID)
+	var tenant *types.Tenant
+	if tenants != nil {
+		loaded, err := tenants.GetTenantByID(next, tenantID)
+		if err == nil {
+			tenant = loaded
+		}
+	}
+	if tenant == nil {
+		tenant = &types.Tenant{ID: tenantID}
+	}
+	return context.WithValue(next, types.TenantInfoContextKey, tenant)
+}
+
+func noteOpenRetrieveSkip(ctx context.Context, kbIDs []string, reason string) {
+	if box := types.OpenRetrieveWarningCollectorFromContext(ctx); box != nil {
+		box.Add(kbIDs, reason)
+	}
+}
+
+func targetKnowledgeBaseIDs(targets []*types.SearchTarget) []string {
+	ids := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target == nil || target.KnowledgeBaseID == "" {
+			continue
+		}
+		ids = append(ids, target.KnowledgeBaseID)
+	}
+	return ids
+}
+
+// searchModelGroup embeds the query once and retrieves every target that
+// shares one embedding model. Callers that span tenants must pass a context
+// already switched to the owner of targets.
+func (p *PluginSearch) searchModelGroup(
+	ctx context.Context,
+	chatManage *types.ChatManage,
+	modelKey string,
+	targets []*types.SearchTarget,
+	queryText string,
+	kbMap map[string]*types.KnowledgeBase,
+	mu *sync.Mutex,
+	results *[]*types.SearchResult,
+	recordError func(error),
+) {
+	if len(targets) == 0 {
+		return
+	}
+
+	// Compute embedding once for this model group. When that fails, retain
+	// only targets that have a real keyword index; vector-only targets must
+	// propagate the embedding failure instead of looking like empty recall.
+	var queryEmbedding []float32
+	disableVector := chatManage.DisableVectorMatch
+	searchableTargets := targets
+	if modelKey != "" && !disableVector {
+		emb, err := p.knowledgeBaseService.GetQueryEmbedding(ctx, targets[0].KnowledgeBaseID, queryText)
+		if err != nil {
+			searchableTargets = make([]*types.SearchTarget, 0, len(targets))
+			var dropped []string
+			for _, target := range targets {
+				kb := kbMap[target.KnowledgeBaseID]
+				if !targetReportsEmbedFailure(kb) {
+					searchableTargets = append(searchableTargets, target)
+					continue
+				}
+				dropped = append(dropped, target.KnowledgeBaseID)
+				recordError(fmt.Errorf("knowledge base %s has no keyword fallback: %w", target.KnowledgeBaseID, err))
+			}
+			if len(dropped) > 0 {
+				noteOpenRetrieveSkip(ctx, dropped, "embedding failed and the knowledge base has no keyword index: "+err.Error())
+			}
+			if len(searchableTargets) > 0 {
+				noteOpenRetrieveSkip(ctx, targetKnowledgeBaseIDs(searchableTargets), "embedding failed, keyword search only: "+err.Error())
+			}
+			pipelineWarn(ctx, "Search", "group_embed_degrade_keyword", map[string]interface{}{
+				"model_key":        modelKey,
+				"kb_id":            targets[0].KnowledgeBaseID,
+				"error":            err.Error(),
+				"fallback_targets": len(searchableTargets),
+				"failed_targets":   len(targets) - len(searchableTargets),
+			})
+			disableVector = true
+		} else {
+			queryEmbedding = emb
+		}
+	}
+
+	// Separate full-KB targets (can be combined into one retrieval)
+	// from specific-knowledge targets (need per-target direct loading).
+	var fullKBIDs []string
+	var knowledgeTargets []*types.SearchTarget
+	for _, t := range searchableTargets {
+		if t.Type == types.SearchTargetTypeKnowledgeBase && len(t.TagIDs) == 0 {
+			fullKBIDs = append(fullKBIDs, t.KnowledgeBaseID)
+		} else {
+			knowledgeTargets = append(knowledgeTargets, t)
+		}
+	}
+
+	pipelineInfo(ctx, "Search", "group_plan", map[string]interface{}{
+		"model_key":          modelKey,
+		"combined_kb_count":  len(fullKBIDs),
+		"individual_targets": len(knowledgeTargets),
+		"vector_len":         len(queryEmbedding),
+	})
+
+	var innerWg sync.WaitGroup
+
+	// Combined search: one HybridSearch call spanning all full-KB targets
+	if len(fullKBIDs) > 0 {
+		innerWg.Add(1)
+		go func() {
+			defer innerWg.Done()
+
+			params := types.SearchParams{
+				QueryText:             queryText,
+				QueryEmbedding:        queryEmbedding,
+				KnowledgeBaseIDs:      fullKBIDs,
+				VectorThreshold:       chatManage.VectorThreshold,
+				KeywordThreshold:      chatManage.KeywordThreshold,
+				MatchCount:            chatManage.EmbeddingTopK,
+				SkipContextEnrichment: true,
+				DisableVectorMatch:    disableVector,
+				DisableKeywordsMatch:  chatManage.DisableKeywordsMatch,
+			}
+			res, err := p.knowledgeBaseService.HybridSearch(ctx, fullKBIDs[0], params)
+			if err != nil {
+				pipelineWarn(ctx, "Search", "combined_kb_search_error", map[string]interface{}{
+					"kb_ids": fullKBIDs,
+					"error":  err.Error(),
+				})
+				noteOpenRetrieveSkip(ctx, fullKBIDs, "knowledge base search failed: "+err.Error())
+				recordError(err)
+				return
+			}
+			pipelineInfo(ctx, "Search", "combined_kb_result", map[string]interface{}{
+				"kb_ids":    fullKBIDs,
+				"hit_count": len(res),
+			})
+			mu.Lock()
+			*results = append(*results, res...)
+			mu.Unlock()
+		}()
+	}
+
+	// Individual search: per-target handling for specific-knowledge targets
+	for _, target := range knowledgeTargets {
+		innerWg.Add(1)
+		go func(t *types.SearchTarget) {
+			defer innerWg.Done()
+			err := p.searchSingleTarget(
+				ctx, chatManage, t, queryText, queryEmbedding, disableVector, mu, results,
+			)
+			if err != nil {
+				noteOpenRetrieveSkip(ctx, []string{t.KnowledgeBaseID}, "knowledge base search failed: "+err.Error())
+				recordError(err)
+			}
+		}(target)
+	}
+
+	innerWg.Wait()
 }
 
 // searchSingleTarget performs hybrid retrieval inside one constrained target.

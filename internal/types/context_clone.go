@@ -82,6 +82,9 @@ var contextCloneAcrossDetach = map[ContextKey]bool{
 	// Open retrieve: keep the skip-share-auth flag across CloneContext
 	// so HybridSearch authorizeKBAccess still sees the open path.
 	OpenRetrieveContextKey: true,
+	// Same request's warning box. Dropping the pointer would hide a tenant
+	// group that failed while the other groups still returned hits.
+	OpenRetrieveWarningContextKey: true,
 
 	// Marks model calls as coming from an asynq worker so the per-model chat
 	// concurrency governor throttles them, leaving interactive chat latency
