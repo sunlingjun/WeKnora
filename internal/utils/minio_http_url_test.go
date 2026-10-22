@@ -43,4 +43,58 @@ func TestParseInternalMinIOHTTPURL(t *testing.T) {
 			t.Fatalf("expected rejection: %s", raw)
 		}
 	}
+
+	exportsHTTP := "http://localhost:9000/nxinweknora/10005/exports/096384ee-423d-44fd-bc17-4b6e473dfffe.jpg"
+	bucket, key, ok = ParseInternalMinIOHTTPURL(exportsHTTP)
+	if !ok || bucket != "nxinweknora" || key != "10005/exports/096384ee-423d-44fd-bc17-4b6e473dfffe.jpg" {
+		t.Fatalf("exports http: bucket=%q key=%q ok=%v", bucket, key, ok)
+	}
+}
+
+func TestGalleryImageStoragePath(t *testing.T) {
+	const bucket = "nxinweknora"
+	const owner uint64 = 10005
+	exports := "minio://nxinweknora/10005/exports/096384ee-423d-44fd-bc17-4b6e473dfffe.jpg"
+	got, ok := GalleryImageStoragePath(exports, bucket, owner)
+	if !ok || got != exports {
+		t.Fatalf("provider exports: got=%q ok=%v", got, ok)
+	}
+
+	httpExports := "http://localhost:9000/nxinweknora/10005/exports/096384ee-423d-44fd-bc17-4b6e473dfffe.jpg"
+	got, ok = GalleryImageStoragePath(httpExports, bucket, owner)
+	if !ok || got != exports {
+		t.Fatalf("http exports: got=%q ok=%v", got, ok)
+	}
+
+	for _, raw := range []string{
+		"minio://nxinweknora/images/a.png",
+		"local://10005/exports/a.png",
+		"cos://bucket/10005/exports/a.png",
+		"s3://bucket/10005/exports/a.png",
+		"tos://bucket/exports/10005/a.png",
+		"oss://bucket/10005/exports/a.png",
+		"ks3://bucket/10005/exports/a.png",
+		"obs://bucket/10005/exports/a.png",
+		"storage://backend-1/minio://nxinweknora/10005/exports/a.jpg",
+		"storage://backend-1/local://10005/exports/a.png",
+	} {
+		got, ok := GalleryImageStoragePath(raw, bucket, owner)
+		if !ok || got != raw {
+			t.Fatalf("same-type object %s: got=%q ok=%v", raw, got, ok)
+		}
+	}
+
+	for _, raw := range []string{
+		"minio://other/10005/exports/a.jpg",
+		"minio://nxinweknora/1/exports/a.jpg",
+		"minio://nxinweknora/10005/raw/secret.jpg",
+		"local://1/exports/a.png",
+		"resource://AbCdEfGhIjKlMnOpQrStUv",
+		"https://cdn.example.com/a.png",
+		"http://localhost:9000/nxinweknora/10005/raw/secret.jpg",
+	} {
+		if _, ok := GalleryImageStoragePath(raw, bucket, owner); ok {
+			t.Fatalf("expected rejection: %s", raw)
+		}
+	}
 }

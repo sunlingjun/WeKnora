@@ -102,6 +102,55 @@ func TestGetGalleryImageContent(t *testing.T) {
 	}
 }
 
+func TestGetGalleryImageContentProviderExports(t *testing.T) {
+	t.Setenv("MINIO_BUCKET_NAME", "nxinweknora")
+	const stored = "minio://nxinweknora/1/exports/096384ee-423d-44fd-bc17-4b6e473dfffe.jpg"
+	repo := &galleryImageRepo{owned: true}
+	files := &galleryImageFiles{body: "jpeg-bytes"}
+	router := newGalleryImageRouter(repo, files)
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, galleryImageContentURL(stored), nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", resp.Code, resp.Body.String())
+	}
+	if files.gotPath != stored {
+		t.Fatalf("storage path %q", files.gotPath)
+	}
+	if ct := resp.Header().Get("Content-Type"); !strings.HasPrefix(ct, "image/jpeg") {
+		t.Fatalf("content type %q", ct)
+	}
+
+	for _, raw := range []string{
+		"local://1/exports/a.png",
+		"cos://bucket/1/exports/a.png",
+		"storage://backend-1/minio://nxinweknora/1/exports/a.jpg",
+		"http://localhost:9000/nxinweknora/1/exports/a.jpg",
+	} {
+		files.gotPath = ""
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, galleryImageContentURL(raw), nil))
+		if resp.Code != http.StatusOK {
+			t.Fatalf("%s status %d body %s", raw, resp.Code, resp.Body.String())
+		}
+		want := raw
+		if strings.HasPrefix(raw, "http://") {
+			want = "minio://nxinweknora/1/exports/a.jpg"
+		}
+		if files.gotPath != want {
+			t.Fatalf("%s storage path %q", raw, files.gotPath)
+		}
+	}
+
+	foreign := httptest.NewRecorder()
+	router.ServeHTTP(foreign, httptest.NewRequest(http.MethodGet, galleryImageContentURL(
+		"minio://nxinweknora/10005/exports/096384ee-423d-44fd-bc17-4b6e473dfffe.jpg",
+	), nil))
+	if foreign.Code != http.StatusBadRequest {
+		t.Fatalf("foreign tenant status %d", foreign.Code)
+	}
+}
+
 func TestGetGalleryImageContentRejectsUnownedAndPublicURLs(t *testing.T) {
 	t.Setenv("MINIO_BUCKET_NAME", "nxinweknora")
 	repo := &galleryImageRepo{owned: false}

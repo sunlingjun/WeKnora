@@ -4,19 +4,37 @@ import test from 'node:test'
 import { galleryImageRequest } from './galleryImageSrc.ts'
 
 const KB_PROXY = '/api/v1/knowledge-bases/kb-1/files?file_path='
+const CONTENT = '/api/v1/knowledge-bases/kb-1/images/content?url='
 
-// The default local storage writes local:// handles; they, and every other
-// storage scheme, must reach the knowledge-base proxy instead of <img src>.
+// Handles that are not an images/ or {tenant}/exports/ object stay on the
+// binding-checked file proxy. resource:// is one of those.
 for (const url of [
-  'local://10001/exports/a.png',
   'minio://bucket/a.png',
   'cos://bucket/a.png',
   's3://bucket/a.png',
   'resource://AbCdEfGhIjKlMnOpQrStUv',
   'storage://backend-1/local://10001/a.png',
 ]) {
-  test(`${url.split('://')[0]}:// images load through the knowledge-base file proxy`, () => {
+  test(`${url.split('://')[0]}:// images stay on the knowledge-base file proxy`, () => {
     assert.equal(galleryImageRequest(url, 'kb-1')?.url, `${KB_PROXY}${encodeURIComponent(url)}`)
+  })
+}
+
+for (const url of [
+  'local://10001/exports/a.png',
+  'minio://nxinweknora/10005/exports/096384ee-423d-44fd-bc17-4b6e473dfffe.jpg',
+  'minio://nxinweknora/images/a00fbdb2461240f99855168f2432b3c4.png',
+  'cos://bucket/10005/exports/a.png',
+  's3://bucket/10005/exports/a.png',
+  'tos://bucket/exports/10005/a.png',
+  'oss://bucket/10005/exports/a.png',
+  'ks3://bucket/10005/exports/a.png',
+  'obs://bucket/10005/exports/a.png',
+  'storage://backend-1/minio://nxinweknora/10005/exports/a.jpg',
+  'http://localhost:9000/nxinweknora/10005/exports/096384ee-423d-44fd-bc17-4b6e473dfffe.jpg',
+]) {
+  test(`${url} loads through the gallery content endpoint`, () => {
+    assert.equal(galleryImageRequest(url, 'kb-1')?.url, `${CONTENT}${encodeURIComponent(url)}`)
   })
 }
 
@@ -49,6 +67,7 @@ for (const url of [
   'http://localhost/nxinweknora/images/a.png',
   'http://evil.example:9000/nxinweknora/images/a.png',
   'http://localhost:9000/nxinweknora/exports/a.png',
+  'http://localhost:9000/nxinweknora/10005/raw/secret.jpg',
   'http://localhost:9000/nxinweknora/images/../secret.png',
 ]) {
   test(`${url} stays out of the gallery content endpoint`, () => {

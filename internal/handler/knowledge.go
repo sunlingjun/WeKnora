@@ -1501,11 +1501,12 @@ func (h *KnowledgeHandler) GetGalleryConfig(c *gin.Context) {
 	})
 }
 
-// GetGalleryImageContent streams one gallery image whose stored URL points at
-// this deployment's private MinIO. The knowledge-base file proxy only accepts
-// tenant export paths, and a browser cannot open localhost:9000, so the bytes
-// are read with the server's storage credentials after the URL is shown to
-// belong to this knowledge base.
+// GetGalleryImageContent streams one gallery image stored as a private object
+// locator: an internal MinIO HTTP URL, or a provider handle such as
+// minio://bucket/{tenant}/exports/... and the same layout on local/cos/s3/tos/
+// oss/ks3/obs. The KB file proxy only serves paths that also have a resource
+// binding, and these image rows usually do not, so membership in this
+// knowledge base's image list is the authorization.
 func (h *KnowledgeHandler) GetGalleryImageContent(c *gin.Context) {
 	_, kbID, effectiveTenantID, _, err := h.validateKnowledgeBaseAccess(c)
 	if err != nil {
@@ -1513,16 +1514,15 @@ func (h *KnowledgeHandler) GetGalleryImageContent(c *gin.Context) {
 		return
 	}
 	rawURL := strings.TrimSpace(c.Query("url"))
-	bucket, objectKey, ok := secutils.ParseInternalMinIOHTTPURL(
-		rawURL, os.Getenv("MINIO_ENDPOINT"), os.Getenv("MINIO_PUBLIC_ENDPOINT"),
+	storagePath, ok := secutils.GalleryImageStoragePath(
+		rawURL,
+		os.Getenv("MINIO_BUCKET_NAME"),
+		effectiveTenantID,
+		os.Getenv("MINIO_ENDPOINT"),
+		os.Getenv("MINIO_PUBLIC_ENDPOINT"),
 	)
 	if !ok {
-		_ = c.Error(errors.NewBadRequestError("image url is not an internal object"))
-		return
-	}
-	configuredBucket := strings.TrimSpace(os.Getenv("MINIO_BUCKET_NAME"))
-	if configuredBucket == "" || bucket != configuredBucket {
-		_ = c.Error(errors.NewForbiddenError("image bucket is not served"))
+		_ = c.Error(errors.NewBadRequestError("image url is not a gallery object"))
 		return
 	}
 	if h.chunkService == nil || h.chunkService.GetRepository() == nil || h.fileService == nil {
@@ -1542,17 +1542,17 @@ func (h *KnowledgeHandler) GetGalleryImageContent(c *gin.Context) {
 		return
 	}
 
-	reader, err := h.fileService.GetFile(ctx, "minio://"+bucket+"/"+objectKey)
+	reader, err := h.fileService.GetFile(ctx, storagePath)
 	if err != nil {
-		logger.Warnf(ctx, "gallery image read failed kb_id=%s key=%s err=%v", kbID, objectKey, err)
+		logger.Warnf(ctx, "gallery image read failed kb_id=%s path=%s err=%v", kbID, storagePath, err)
 		_ = c.Error(errors.NewNotFoundError("gallery image not found"))
 		return
 	}
 	if err := filetransport.Serve(c.Writer, c.Request, reader, filetransport.Options{
-		Filename:     objectKey,
+		Filename:     storagePath,
 		CacheControl: "private, max-age=3600",
 	}); err != nil {
-		logger.Warnf(ctx, "gallery image write failed kb_id=%s key=%s err=%v", kbID, objectKey, err)
+		logger.Warnf(ctx, "gallery image write failed kb_id=%s path=%s err=%v", kbID, storagePath, err)
 	}
 }
 
