@@ -95,6 +95,69 @@ func ResolveKBFile(
 	return file, nil
 }
 
+// KBGalleryImageLookup is the gallery's own record of an image URL. It is
+// narrower than a document binding: a resource:// handle shown in this
+// knowledge base's image list may have no resource_bindings row.
+type KBGalleryImageLookup interface {
+	HasImageAssetURL(ctx context.Context, tenantID uint64, kbID, imageURL string) (bool, error)
+}
+
+// ResolveKBGalleryImage serves a resource:// handle that the knowledge base
+// file proxy would otherwise reject. Document bindings and the exports-only
+// path check stay in force for every other file. This path is only for a
+// canonical resource handle that this knowledge base lists as an image, owned
+// by the KB tenant, whose physical object is an extracted image or a KB export.
+func ResolveKBGalleryImage(
+	ctx context.Context,
+	grant *KBAccess,
+	kbID, reference string,
+	catalog interfaces.ResourceCatalog,
+	images KBGalleryImageLookup,
+	configuredBucket string,
+	endpoints ...string,
+) (FileAccess, error) {
+	var empty FileAccess
+	if grant == nil || grant.KnowledgeBase == nil || grant.KnowledgeBase.ID != kbID ||
+		grant.Caller != types.CallerFromContext(ctx) || !grant.Permission.HasPermission(types.OrgRoleViewer) {
+		return empty, ErrForbidden
+	}
+	if err := types.AuthorizeTenantAPIKeyKnowledgeBases(ctx, kbID); err != nil {
+		return empty, err
+	}
+	if _, ok := types.ParseResourcePath(reference); !ok || catalog == nil || images == nil {
+		return empty, ErrForbidden
+	}
+	owner := grant.EffectiveTenantID
+	if owner == 0 {
+		return empty, ErrForbidden
+	}
+	owned, err := images.HasImageAssetURL(ctx, owner, kbID, reference)
+	if err != nil {
+		return empty, fmt.Errorf("check gallery image: %w", err)
+	}
+	if !owned {
+		return empty, ErrForbidden
+	}
+	resource, err := catalog.Resolve(ctx, reference)
+	if err != nil || resource == nil || resource.TenantID != owner || strings.TrimSpace(resource.PhysicalPath) == "" {
+		return empty, ErrNotFound
+	}
+	path, ok := secutils.GalleryImageStoragePath(resource.PhysicalPath, configuredBucket, owner, endpoints...)
+	if !ok {
+		return empty, ErrForbidden
+	}
+	filename := strings.TrimSpace(resource.OriginalName)
+	if filename == "" {
+		filename = path
+	}
+	return FileAccess{
+		OwnerTenantID:    owner,
+		Path:             path,
+		Filename:         filename,
+		StorageBackendID: resource.StorageBackendID,
+	}, nil
+}
+
 // artifactRefState says whether a reference names one of this message's
 // artifacts, and if so whether the user has deleted it.
 type artifactRefState int

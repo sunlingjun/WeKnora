@@ -22,9 +22,9 @@ const BUCKET_PROVIDER_SCHEMES = new Set(['minio', 'cos', 'tos', 's3', 'oss', 'ks
  * Private object locators cannot be opened by the browser. Internal MinIO HTTP
  * URLs, and provider handles whose key is images/... or {tenant}/exports/...,
  * load through the gallery content endpoint. That endpoint authorizes the
- * exact URL against this knowledge base's image list. resource:// and other
- * handles stay on the knowledge-base file proxy, which checks resource
- * bindings. Public https URLs stay direct.
+ * exact URL against this knowledge base's image list. resource:// handles
+ * stay on the knowledge-base file proxy: a document binding or a row in this
+ * knowledge base's image list authorizes them. Public https URLs stay direct.
  */
 export function galleryImageRequest(rawUrl: string, kbId: string): ProtectedFileRequest | null {
   if (!rawUrl) return null

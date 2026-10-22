@@ -306,6 +306,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			params.FileService,
 			params.StorageBackendResolver,
 			params.ResourceCatalog,
+			params.ChunkService,
 		)
 		// Message-scoped image proxy: shared-agent replies belong to the
 		// caller's session but may reference resources stored in the agent's

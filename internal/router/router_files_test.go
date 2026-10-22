@@ -427,6 +427,7 @@ func newKBScopedFilesTestEngine(
 			&stubResourceCatalog{bound: func(_ context.Context, _ uint64, kb, ref string) (bool, error) {
 				return kb == "kb-1" && ref == "local://10008/exports/img.jpg", nil
 			}},
+			nil,
 		),
 	)
 	return engine
@@ -563,6 +564,128 @@ func TestKBScopedFilesRejectsUnboundFileBeforeStorage(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status=%d, want 403", w.Code)
 	}
+}
+
+// Gallery images are often resource:// handles with no document binding.
+// Membership in this knowledge base's image list is enough to stream the
+// object, including paths the exports-only check would reject.
+func TestKBScopedFilesServesGalleryResourceWithoutBinding(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("STORAGE_TYPE", "local")
+	t.Setenv("MINIO_BUCKET_NAME", "nxinweknora")
+
+	const (
+		ownerTenantID = uint64(10008)
+		ref           = "resource://b8squ_z2s4zDY5Fvmaqh8A"
+		physical      = "local://images/b8squ.jpg"
+	)
+	var requestedPath string
+	engine := newKBGalleryResourceEngine(
+		ownerTenantID,
+		&types.StoredResource{
+			TenantID:     ownerTenantID,
+			PhysicalPath: physical,
+			OriginalName: "b8squ.jpg",
+		},
+		map[string]bool{ref: true},
+		&stubFileService{getFile: func(_ context.Context, filePath string) (io.ReadCloser, error) {
+			requestedPath = filePath
+			return io.NopCloser(strings.NewReader("image-bytes")), nil
+		}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/knowledge-bases/kb-1/files?file_path="+url.QueryEscape(ref), nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if requestedPath != physical {
+		t.Fatalf("requested path %q", requestedPath)
+	}
+	if recorder.Body.String() != "image-bytes" {
+		t.Fatalf("body %q", recorder.Body.String())
+	}
+
+	for _, blocked := range []struct {
+		name     string
+		resource *types.StoredResource
+		listed   bool
+	}{
+		{name: "not a gallery image", resource: &types.StoredResource{TenantID: ownerTenantID, PhysicalPath: physical}},
+		{name: "other tenant", resource: &types.StoredResource{TenantID: 1, PhysicalPath: physical}, listed: true},
+		{
+			name: "raw upload",
+			resource: &types.StoredResource{
+				TenantID:     ownerTenantID,
+				PhysicalPath: "local://10008/knowledge-id/secret.pdf",
+			},
+			listed: true,
+		},
+	} {
+		t.Run(blocked.name, func(t *testing.T) {
+			requestedPath = ""
+			blockedEngine := newKBGalleryResourceEngine(
+				ownerTenantID,
+				blocked.resource,
+				map[string]bool{ref: blocked.listed},
+				&stubFileService{getFile: func(_ context.Context, filePath string) (io.ReadCloser, error) {
+					t.Fatalf("GetFile called for %s: %s", blocked.name, filePath)
+					return nil, nil
+				}},
+			)
+			resp := httptest.NewRecorder()
+			blockedEngine.ServeHTTP(resp, httptest.NewRequest(http.MethodGet,
+				"/knowledge-bases/kb-1/files?file_path="+url.QueryEscape(ref), nil))
+			if resp.Code != http.StatusForbidden && resp.Code != http.StatusNotFound {
+				t.Fatalf("status %d body %s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+type stubGalleryImages struct {
+	listed map[string]bool
+}
+
+func (s *stubGalleryImages) HasImageAssetURL(_ context.Context, tenant uint64, kbID, imageURL string) (bool, error) {
+	if tenant != 10008 || kbID != "kb-1" {
+		return false, nil
+	}
+	return s.listed[imageURL], nil
+}
+
+func newKBGalleryResourceEngine(
+	effectiveTenantID uint64,
+	resource *types.StoredResource,
+	listed map[string]bool,
+	global interfaces.FileService,
+) *gin.Engine {
+	engine := gin.New()
+	engine.GET("/knowledge-bases/:id/files",
+		func(c *gin.Context) {
+			ctx := context.WithValue(c.Request.Context(), types.TenantIDContextKey, effectiveTenantID)
+			grant := &middleware.KBAccess{
+				KnowledgeBase:     &types.KnowledgeBase{ID: "kb-1", TenantID: effectiveTenantID},
+				Caller:            types.CallerFromContext(ctx),
+				EffectiveTenantID: effectiveTenantID,
+				Permission:        types.OrgRoleViewer,
+			}
+			c.Set(middleware.KBAccessContextKey, grant)
+			c.Request = c.Request.WithContext(grant.Context(ctx))
+			c.Next()
+		},
+		newKBScopedFileServeHandlerWithResources(
+			&stubTenantService{get: func(_ context.Context, id uint64) (*types.Tenant, error) {
+				return &types.Tenant{ID: id}, nil
+			}},
+			global,
+			nil,
+			&stubResourceCatalog{resource: resource},
+			&stubGalleryImages{listed: listed},
+		),
+	)
+	return engine
 }
 
 func newMessageScopedFilesTestEngine(

@@ -317,8 +317,10 @@ func serveResourceGrants(
 // embedded in a knowledge base's content (chunks / wiki pages). Unlike the
 // tenant-scoped /files route, this route consumes RequireKBAccess's exact KB
 // grant. The file must be owned by that KB's tenant and have a live document
-// binding or an exact reference in the KB's chunks/wiki pages. Only then does
-// storage execute under the owner tenant.
+// binding. A resource:// handle listed in this knowledge base's gallery is
+// also served when it has no binding, as long as the stored object is an
+// extracted image or a KB export. Only then does storage execute under the
+// owner tenant.
 //
 // Route:
 //   - GET /api/v1/knowledge-bases/:id/files?file_path=<provider://...>
@@ -328,9 +330,14 @@ func serveKBScopedFiles(
 	tenantService interfaces.TenantService,
 	globalFileService interfaces.FileService,
 	storageResolver interfaces.StorageBackendResolver,
-	resourceCatalogs ...interfaces.ResourceCatalog,
+	resourceCatalog interfaces.ResourceCatalog,
+	chunks interfaces.ChunkService,
 ) {
 	logger.Infof(context.Background(), "[Router] Serving KB-scoped files from /knowledge-bases/:id/files")
+	var gallery access.KBGalleryImageLookup
+	if chunks != nil && chunks.GetRepository() != nil {
+		gallery = chunks.GetRepository()
+	}
 	// Preserve the existing file-route API-key policy: KB-restricted keys are
 	// denied; full-access and tenant-wide retrieve keys still need KBAccessRead.
 	g.apiKeyRoute(r, http.MethodGet, "/knowledge-bases/:id/files",
@@ -342,7 +349,8 @@ func serveKBScopedFiles(
 			tenantService,
 			globalFileService,
 			storageResolver,
-			firstResourceCatalog(resourceCatalogs),
+			resourceCatalog,
+			gallery,
 		),
 	)
 }
@@ -359,6 +367,7 @@ func newKBScopedFileServeHandlerWithResources(
 	globalFileService interfaces.FileService,
 	storageResolver interfaces.StorageBackendResolver,
 	resourceCatalog interfaces.ResourceCatalog,
+	gallery access.KBGalleryImageLookup,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reference, ok := requireFilePathQuery(c)
@@ -367,14 +376,35 @@ func newKBScopedFileServeHandlerWithResources(
 		}
 		grant, _ := middleware.KBAccessFromContext(c)
 		bindings, _ := resourceCatalog.(interfaces.KBResourceLookup)
+		ctx := c.Request.Context()
 		file, err := access.ResolveKBFile(
-			c.Request.Context(),
+			ctx,
 			grant,
 			c.Param("id"),
 			reference,
 			resourceCatalog,
 			bindings,
 		)
+		if err != nil {
+			if _, isResource := types.ParseResourcePath(reference); isResource && gallery != nil {
+				alt, altErr := access.ResolveKBGalleryImage(
+					ctx,
+					grant,
+					c.Param("id"),
+					reference,
+					resourceCatalog,
+					gallery,
+					os.Getenv("MINIO_BUCKET_NAME"),
+					os.Getenv("MINIO_ENDPOINT"),
+					os.Getenv("MINIO_PUBLIC_ENDPOINT"),
+				)
+				if altErr == nil {
+					file, err = alt, nil
+				} else if !errors.Is(altErr, access.ErrForbidden) && !errors.Is(altErr, access.ErrNotFound) {
+					err = altErr
+				}
+			}
+		}
 		if fileAccessError(c, err) {
 			return
 		}
