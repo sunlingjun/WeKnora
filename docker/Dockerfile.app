@@ -23,6 +23,23 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN bash scripts/build_browserskill.sh /opt/weknora/browserskill "${TARGETOS}/${TARGETARCH}"
 
+# Anydoc static library. Kept out of the app source layer so a gallery or
+# handler edit does not reinstall Rust or recompile this archive. The script
+# resolves the crate from its own location, so the copy layout must stay
+# /src/scripts and /src/third_party/anydoc-go.
+FROM golang:1.26-bookworm AS anydoc
+WORKDIR /src
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --profile minimal --default-toolchain 1.99.1
+COPY scripts/build-anydoc-lib.sh scripts/build-anydoc-lib.sh
+COPY third_party/anydoc-go third_party/anydoc-go
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/third_party/anydoc-go/target \
+    bash scripts/build-anydoc-lib.sh
+
 # Build stage
 FROM golang:1.26-bookworm AS builder
 
@@ -59,7 +76,8 @@ RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate
 # Copy go mod files. go.mod replace-points anydoc at ./third_party/anydoc-go,
 # so that module's go.mod must exist before `go mod download`.
 COPY go.mod go.sum ./
-# KEEP-OPS-01: anydoc go.mod required before download; no BuildKit mount (Jenkins DOCKER_BUILDKIT=0)
+# KEEP-OPS-01: anydoc go.mod required before download. Do not cache-mount
+# /go/pkg/mod over this layer; an empty mount would hide the modules just downloaded.
 COPY third_party/anydoc-go/go.mod third_party/anydoc-go/go.mod
 RUN go mod download \
     || (echo "go mod download retry 1" && sleep 5 && go mod download) \
@@ -103,17 +121,14 @@ ENV COMMIT_ID=${COMMIT_ID_ARG}
 ENV BUILD_TIME=${BUILD_TIME_ARG}
 ENV GO_VERSION=${GO_VERSION_ARG}
 
-# UP-DOC-01 anydoc + KEEP-OPS-01 no BuildKit mounts (Jenkins DOCKER_BUILDKIT=0)
+# UP-DOC-01 anydoc. The archive comes from the anydoc stage, after COPY . .
+# so a source checkout cannot replace it with a stale or missing file.
+# cgo looks for lib/linux_amd64_gnu on the Debian builder (linux && !musl).
 ARG WITH_ANYDOC=1
-ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
-ENV PATH=/usr/local/cargo/bin:$PATH
-RUN if [ "$WITH_ANYDOC" = "1" ]; then \
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain stable && \
-        bash ./scripts/build-anydoc-lib.sh; \
-    fi
-
-RUN if [ "$WITH_ANYDOC" = "1" ]; then \
+COPY --from=anydoc /src/third_party/anydoc-go/lib/linux_amd64_gnu/libanydoc_go.a \
+    /app/third_party/anydoc-go/lib/linux_amd64_gnu/libanydoc_go.a
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    if [ "$WITH_ANYDOC" = "1" ]; then \
         make build-prod GO_BUILD_TAGS=anydoc; \
     else \
         make build-prod; \
