@@ -12,12 +12,22 @@ import (
 
 // OpenRetrieveHandler serves POST /api/v1/open/knowledge/retrieve (no user login).
 type OpenRetrieveHandler struct {
-	sessionService interfaces.SessionService
+	sessionService  interfaces.SessionService
+	fileService     interfaces.FileService
+	storageResolver interfaces.StorageBackendResolver
 }
 
 // NewOpenRetrieveHandler constructs OpenRetrieveHandler.
-func NewOpenRetrieveHandler(sessionService interfaces.SessionService) *OpenRetrieveHandler {
-	return &OpenRetrieveHandler{sessionService: sessionService}
+func NewOpenRetrieveHandler(
+	sessionService interfaces.SessionService,
+	fileService interfaces.FileService,
+	storageResolver interfaces.StorageBackendResolver,
+) *OpenRetrieveHandler {
+	return &OpenRetrieveHandler{
+		sessionService:  sessionService,
+		fileService:     fileService,
+		storageResolver: storageResolver,
+	}
 }
 
 // OpenRetrieveRequest is the JSON body for open knowledge retrieve.
@@ -49,6 +59,13 @@ func (h *OpenRetrieveHandler) Retrieve(c *gin.Context) {
 		return
 	}
 
+	rewriter, err := resolveOpenRetrieveResourceRewriter(c, h.fileService, h.storageResolver)
+	if err != nil {
+		logger.Warnf(ctx, "Rejected open retrieve resource URL mode: %v", err)
+		_ = c.Error(err)
+		return
+	}
+
 	logger.Infof(ctx, "open knowledge retrieve, kb_count=%d, knowledge_count=%d",
 		len(req.KnowledgeBaseIDs), len(req.KnowledgeIDs))
 
@@ -59,9 +76,11 @@ func (h *OpenRetrieveHandler) Retrieve(c *gin.Context) {
 		return
 	}
 
+	data := buildOpenRetrieveChunks(ctx, results, rewriter)
+
 	body := gin.H{
 		"success": true,
-		"data":    results,
+		"data":    data,
 	}
 	if items := warnings.Items(); len(items) > 0 {
 		body["warnings"] = items
