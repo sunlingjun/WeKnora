@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/searchutil"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/gin-gonic/gin"
 )
@@ -67,6 +69,21 @@ func (h *OpenRetrieveHandler) ChunksMedia(c *gin.Context) {
 		return
 	}
 
+	parentsByID := map[string]*types.Chunk{}
+	if parentIDs := collectParentIDsForMediaFallback(chunks); len(parentIDs) > 0 {
+		parents, parentErr := h.chunkRepo.ListChunksByIDOnly(ctx, parentIDs)
+		if parentErr != nil {
+			logger.Warnf(ctx, "open chunks media parent fallback load failed: %v", parentErr)
+		} else {
+			for _, parent := range parents {
+				if parent == nil || strings.TrimSpace(parent.ID) == "" {
+					continue
+				}
+				parentsByID[parent.ID] = parent
+			}
+		}
+	}
+
 	refs := make([]*types.SearchResult, 0, len(chunks))
 	chunkOrder := make(map[string]int, len(ids))
 	for i, id := range ids {
@@ -76,7 +93,7 @@ func (h *OpenRetrieveHandler) ChunksMedia(c *gin.Context) {
 		if chunk == nil || strings.TrimSpace(chunk.ID) == "" {
 			continue
 		}
-		refs = append(refs, chunkToOpenRetrieveSearchResult(chunk))
+		refs = append(refs, enrichOpenRetrieveMediaRef(chunk, parentsByID))
 	}
 
 	rewritten := buildOpenRetrieveChunks(ctx, refs, rewriter)
@@ -117,6 +134,82 @@ func chunkToOpenRetrieveSearchResult(chunk *types.Chunk) *types.SearchResult {
 		ChunkType:       string(chunk.ChunkType),
 		ParentChunkID:   chunk.ParentChunkID,
 	}
+}
+
+// enrichOpenRetrieveMediaRef keeps the leaf chunk identity but, when the leaf
+// itself has no image candidates, borrows Content/ImageInfo from its
+// parent_text. Chatbot history stores retrieve hit IDs (usually text children)
+// while PDF/page images often live only on the parent row.
+func enrichOpenRetrieveMediaRef(chunk *types.Chunk, parentsByID map[string]*types.Chunk) *types.SearchResult {
+	ref := chunkToOpenRetrieveSearchResult(chunk)
+	if chunkHasMediaSourceCandidates(chunk) {
+		return ref
+	}
+	if chunk.ChunkType != types.ChunkTypeText {
+		return ref
+	}
+	parentID := strings.TrimSpace(chunk.ParentChunkID)
+	if parentID == "" || parentsByID == nil {
+		return ref
+	}
+	parent := parentsByID[parentID]
+	if parent == nil || parent.ChunkType != types.ChunkTypeParentText {
+		return ref
+	}
+	if !chunkHasMediaSourceCandidates(parent) {
+		return ref
+	}
+	ref.Content = parent.Content
+	if strings.TrimSpace(ref.ImageInfo) == "" {
+		ref.ImageInfo = parent.ImageInfo
+	}
+	return ref
+}
+
+func collectParentIDsForMediaFallback(chunks []*types.Chunk) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0)
+	for _, chunk := range chunks {
+		if chunk == nil || chunk.ChunkType != types.ChunkTypeText {
+			continue
+		}
+		if chunkHasMediaSourceCandidates(chunk) {
+			continue
+		}
+		parentID := strings.TrimSpace(chunk.ParentChunkID)
+		if parentID == "" {
+			continue
+		}
+		if _, ok := seen[parentID]; ok {
+			continue
+		}
+		seen[parentID] = struct{}{}
+		out = append(out, parentID)
+	}
+	return out
+}
+
+func chunkHasMediaSourceCandidates(chunk *types.Chunk) bool {
+	if chunk == nil {
+		return false
+	}
+	if len(searchutil.MarkdownImageRegex.FindAllStringIndex(chunk.Content, -1)) > 0 {
+		return true
+	}
+	raw := strings.TrimSpace(chunk.ImageInfo)
+	if raw == "" || raw == "[]" || raw == "null" {
+		return false
+	}
+	var infos []types.ImageInfo
+	if err := json.Unmarshal([]byte(raw), &infos); err != nil {
+		return false
+	}
+	for _, info := range infos {
+		if strings.TrimSpace(info.URL) != "" || strings.TrimSpace(info.OriginalURL) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func dedupeNonEmptyChunkIDs(raw []string) []string {

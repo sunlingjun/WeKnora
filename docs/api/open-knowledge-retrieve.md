@@ -431,6 +431,7 @@ curl -sS -X POST "https://{host}/api/v1/open/knowledge/retrieve" \
 
 - **响应**: `{ "success": true, "data": [{ "chunk_id": "…", "knowledge_base_id": "…", "images": [{ "url": "https://…", "alt": "…", "chunk_id": "…" }] }] }`
 - **限制**: 单次最多 64 个 `chunk_id`（去重后）
+- **父子分块**: 请求 ID 为 `text` 子块且自身无图时，自动回退读取其 `parent_text` 的 markdown / `image_info` 换签；响应 `chunk_id` 仍为请求的叶子 ID（与 chatbot 落库的 `kbMedia.items[].chunkId` 对齐）
 
 ---
 
