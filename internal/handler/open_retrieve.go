@@ -15,6 +15,7 @@ type OpenRetrieveHandler struct {
 	sessionService  interfaces.SessionService
 	fileService     interfaces.FileService
 	storageResolver interfaces.StorageBackendResolver
+	chunkRepo       interfaces.ChunkRepository
 }
 
 // NewOpenRetrieveHandler constructs OpenRetrieveHandler.
@@ -22,11 +23,13 @@ func NewOpenRetrieveHandler(
 	sessionService interfaces.SessionService,
 	fileService interfaces.FileService,
 	storageResolver interfaces.StorageBackendResolver,
+	chunkRepo interfaces.ChunkRepository,
 ) *OpenRetrieveHandler {
 	return &OpenRetrieveHandler{
 		sessionService:  sessionService,
 		fileService:     fileService,
 		storageResolver: storageResolver,
+		chunkRepo:       chunkRepo,
 	}
 }
 

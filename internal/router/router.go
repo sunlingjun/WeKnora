@@ -375,6 +375,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			openG := v1.Group("/open")
 			openG.Use(middleware.OpenRetrieveApiKey(params.Config))
 			openG.POST("/knowledge/retrieve", params.OpenRetrieveHandler.Retrieve)
+			openG.POST("/knowledge/chunks/media", params.OpenRetrieveHandler.ChunksMedia)
 		}
 
 		rbacGuards.assertAPIKeyPoliciesMatchRoutes(r)

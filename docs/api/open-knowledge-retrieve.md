@@ -415,6 +415,25 @@ curl -sS -X POST "https://{host}/api/v1/open/knowledge/retrieve" \
 
 ---
 
+## 批量分片图片换签（无登录）
+
+用于 chatbot 历史会话：按稳定 `chunk_id` 批量换取 `resource_urls=public` 的可加载图片 URL，**不做**向量召回。
+
+- **方法**: `POST`
+- **路径**: `/api/v1/open/knowledge/chunks/media`
+- **认证**: 同开放检索，`X-Open-Retrieve-Api-Key`
+- **查询参数**: `resource_urls=public`（推荐；与 retrieve 一致）
+- **请求体**:
+
+```json
+{ "chunk_ids": ["61a843af-0d16-41aa-aa80-50741028636f"] }
+```
+
+- **响应**: `{ "success": true, "data": [{ "chunk_id": "…", "knowledge_base_id": "…", "images": [{ "url": "https://…", "alt": "…", "chunk_id": "…" }] }] }`
+- **限制**: 单次最多 64 个 `chunk_id`（去重后）
+
+---
+
 ## 安全建议（精简）
 
 - **HTTPS**：传输层保护 API Key。
