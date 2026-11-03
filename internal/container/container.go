@@ -53,6 +53,7 @@ import (
 	chatpipeline "github.com/Tencent/WeKnora/internal/application/service/chat_pipeline"
 	"github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/Tencent/WeKnora/internal/application/service/memory"
+	mydocsvc "github.com/Tencent/WeKnora/internal/application/service/mydoc"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	"github.com/Tencent/WeKnora/internal/browserskill"
 	"github.com/Tencent/WeKnora/internal/common"
@@ -584,6 +585,15 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		return handler.NewSandboxSkillHandler(s, streams)
 	}))
 	must(container.Provide(handler.NewMeEnvVarHandler))
+	must(container.Provide(repository.NewMyDocRepository))
+	must(container.Provide(func(
+		repo *repository.MyDocRepository,
+		files interfaces.FileService,
+		messages interfaces.MessageService,
+	) *mydocsvc.Service {
+		return mydocsvc.NewService(repo, files, messages)
+	}))
+	must(container.Provide(handler.NewMyDocHandler))
 	must(container.Provide(handler.NewEvaluationHandler))
 	must(container.Provide(handler.NewInitializationHandler))
 	must(container.Provide(handler.NewAuthHandler))

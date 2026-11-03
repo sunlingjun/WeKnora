@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	mydocsvc "github.com/Tencent/WeKnora/internal/application/service/mydoc"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/ratelimit"
@@ -54,6 +55,7 @@ type Server struct {
 	resourceCatalog  interfaces.ResourceCatalog
 	fileService      interfaces.FileService
 	storageResolver  interfaces.StorageBackendResolver
+	mydocService     *mydocsvc.Service
 	endpointRepo     interfaces.MCPEndpointRepository
 	db               *gorm.DB
 	cfg              *config.Config
@@ -83,6 +85,7 @@ func NewServer(
 	resourceCatalog interfaces.ResourceCatalog,
 	fileService interfaces.FileService,
 	storageResolver interfaces.StorageBackendResolver,
+	mydocService *mydocsvc.Service,
 ) *Server {
 	s := &Server{
 		kbService:        kbService,
@@ -100,6 +103,7 @@ func NewServer(
 		resourceCatalog:  resourceCatalog,
 		fileService:      fileService,
 		storageResolver:  storageResolver,
+		mydocService:     mydocService,
 		limiter:          ratelimit.New(redisClient, rateLimitKeyPrefix, time.Minute, ""),
 	}
 	// The local fallback map only grows without periodic eviction; the server
@@ -218,6 +222,13 @@ func (s *Server) toolCatalog() []server.ServerTool {
 		{Tool: addDocumentTool(), Handler: s.handleAddDocument},
 		{Tool: updateDocumentTool(), Handler: s.handleUpdateDocument},
 		{Tool: deleteDocumentTool(), Handler: s.handleDeleteDocument},
+		{Tool: mydocListTool(), Handler: s.handleMyDocList},
+		{Tool: mydocMkdirTool(), Handler: s.handleMyDocMkdir},
+		{Tool: mydocRenameTool(), Handler: s.handleMyDocRename},
+		{Tool: mydocMoveTool(), Handler: s.handleMyDocMove},
+		{Tool: mydocArchiveTool(), Handler: s.handleMyDocArchive},
+		{Tool: mydocReadTool(), Handler: s.handleMyDocRead},
+		{Tool: mydocWriteTool(), Handler: s.handleMyDocWrite},
 	}
 }
 

@@ -13,6 +13,7 @@ const (
 	MCPEndpointToolGroupChat     MCPEndpointToolGroup = "chat"
 	MCPEndpointToolGroupWiki     MCPEndpointToolGroup = "wiki"
 	MCPEndpointToolGroupIngest   MCPEndpointToolGroup = "ingest"
+	MCPEndpointToolGroupMyDoc    MCPEndpointToolGroup = "mydoc"
 )
 
 // MCP endpoint tool names. These are the names external MCP clients see.
@@ -31,6 +32,13 @@ const (
 	MCPEndpointToolAddDocument        = "add_document"
 	MCPEndpointToolUpdateDocument     = "update_document"
 	MCPEndpointToolDeleteDocument     = "delete_document"
+	MCPEndpointToolMyDocList          = "mydoc_list"
+	MCPEndpointToolMyDocMkdir         = "mydoc_mkdir"
+	MCPEndpointToolMyDocRename        = "mydoc_rename"
+	MCPEndpointToolMyDocMove          = "mydoc_move"
+	MCPEndpointToolMyDocArchive       = "mydoc_archive"
+	MCPEndpointToolMyDocRead          = "mydoc_read"
+	MCPEndpointToolMyDocWrite         = "mydoc_write"
 )
 
 // MCPEndpointToolDefinition is the settings-facing description of one tool.
@@ -58,6 +66,13 @@ var mcpEndpointToolCatalog = []MCPEndpointToolDefinition{
 	{Name: MCPEndpointToolAddDocument, Group: MCPEndpointToolGroupIngest, Destructive: true},
 	{Name: MCPEndpointToolUpdateDocument, Group: MCPEndpointToolGroupIngest, Destructive: true},
 	{Name: MCPEndpointToolDeleteDocument, Group: MCPEndpointToolGroupIngest, Destructive: true},
+	{Name: MCPEndpointToolMyDocList, Group: MCPEndpointToolGroupMyDoc},
+	{Name: MCPEndpointToolMyDocMkdir, Group: MCPEndpointToolGroupMyDoc, Destructive: true},
+	{Name: MCPEndpointToolMyDocRename, Group: MCPEndpointToolGroupMyDoc, Destructive: true},
+	{Name: MCPEndpointToolMyDocMove, Group: MCPEndpointToolGroupMyDoc, Destructive: true},
+	{Name: MCPEndpointToolMyDocArchive, Group: MCPEndpointToolGroupMyDoc, Destructive: true},
+	{Name: MCPEndpointToolMyDocRead, Group: MCPEndpointToolGroupMyDoc},
+	{Name: MCPEndpointToolMyDocWrite, Group: MCPEndpointToolGroupMyDoc, Destructive: true},
 }
 
 // MCPEndpointToolCatalog returns a copy of the ordered tool catalog.
@@ -74,6 +89,7 @@ func MCPEndpointToolGroups() []MCPEndpointToolGroup {
 		MCPEndpointToolGroupChat,
 		MCPEndpointToolGroupWiki,
 		MCPEndpointToolGroupIngest,
+		MCPEndpointToolGroupMyDoc,
 	}
 }
 
@@ -138,6 +154,11 @@ func MCPEndpointCapabilitiesForTools(tools []string) []string {
 	}
 	if groups[MCPEndpointToolGroupIngest] {
 		caps = append(caps, string(APIKeyCapabilityIngest))
+	}
+	if groups[MCPEndpointToolGroupMyDoc] {
+		// MyDoc is account-scoped; capability is only used for API-key style
+		// route gates on MCP endpoints. Prefer ingest so destructive tools pass.
+		caps = append(caps, string(APIKeyCapabilityIngest), string(APIKeyCapabilityRetrieve))
 	}
 	return caps
 }

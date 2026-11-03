@@ -102,6 +102,7 @@ type RouterParams struct {
 	WikiPageService                interfaces.WikiPageService
 	WebhookEndpointHandler         *handler.WebhookEndpointHandler         `optional:"true"`
 	KnowledgeDownloadTicketHandler *handler.KnowledgeDownloadTicketHandler `optional:"true"`
+	MyDocHandler                   *handler.MyDocHandler                   `optional:"true"`
 	MemoryHandler                  *handler.MemoryHandler
 	HostSandbox                    service.HostSandboxManager
 }
@@ -337,6 +338,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterModelRoutes(v1, params.ModelHandler, params.ModelCredentialsHandler, rbacGuards)
 		RegisterSandboxConfigRoutes(v1, params.SandboxConfigHandler, params.SandboxSkillHandler, rbacGuards)
 		RegisterMyEnvVarRoutes(v1, params.MeEnvVarHandler)
+		RegisterMyDocRoutes(v1, params.MyDocHandler)
 		v1.GET("/me/browser", params.SessionHandler.BrowserSkillAccount)
 		v1.GET("/me/browser/extension", params.SessionHandler.BrowserSkillDownload)
 		v1.POST("/me/browser", params.SessionHandler.BrowserSkillAccount)
