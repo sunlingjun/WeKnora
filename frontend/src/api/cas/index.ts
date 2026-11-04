@@ -26,7 +26,11 @@ export interface CASValidateResponse {
   code: number
   data?: {
     user: any
+    /** Active workspace (same tenant_id as the issued JWT). */
     tenant: any
+    /** Optional alias of tenant for login-shaped consumers. */
+    active_tenant?: any
+    memberships?: Array<{ tenant_id: number; tenant_name?: string; role: string }>
     token: string
     refresh_token: string
   }

@@ -570,18 +570,11 @@ const persistLoginResponse = async (response: any, skipRedirect = false) => {
     if (Array.isArray(response.memberships)) {
       authStore.setMemberships(response.memberships)
     }
-    // If the backend dropped us into a non-home tenant (honoured a
-    // remembered "last active tenant" preference), set the override so
-    // subsequent requests carry X-Tenant-ID and the UI stays consistent.
-    // Otherwise clear any stale override left in localStorage by a
-    // previous session for a different account.
-    const activeIdNum = Number(activeTenant?.id)
-    const homeIdNum = Number(homeTenantIdRaw)
-    if (Number.isFinite(activeIdNum) && Number.isFinite(homeIdNum) && activeIdNum !== homeIdNum) {
-      authStore.setSelectedTenant(activeIdNum, activeTenant?.name || null)
-    } else {
-      authStore.setSelectedTenant(null, null)
-    }
+    // Always pin the active workspace (including home) so request.ts
+    // attaches X-Tenant-ID. Clearing the override on home used to make
+    // KB list calls fall back to the JWT claim, which can disagree with
+    // the UI after last_active / CAS reconcile.
+    authStore.pinActiveTenant(activeTenant)
   }
 
   // Pull runtime capabilities (including whether ordinary users may create

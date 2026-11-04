@@ -85,17 +85,9 @@ const syncOIDCUserContext = async () => {
   if (typeof capabilities?.can_create_tenant === 'boolean') {
     authStore.setCanCreateTenant(capabilities.can_create_tenant)
   }
-  // Same active-vs-home reconciliation as Login.vue: if the OIDC login
-  // landed us in a non-home tenant (because the backend honoured a
-  // remembered last-active-tenant preference) make sure X-Tenant-ID
-  // override is set; otherwise drop any stale override.
-  const activeIdNum = tenant?.id != null ? Number(tenant.id) : NaN
-  const homeIdNum = user.tenant_id != null ? Number(user.tenant_id) : NaN
-  if (Number.isFinite(activeIdNum) && Number.isFinite(homeIdNum) && activeIdNum !== homeIdNum) {
-    authStore.setSelectedTenant(activeIdNum, tenant?.name || null)
-  } else {
-    authStore.setSelectedTenant(null, null)
-  }
+  // Always pin the active workspace (including home) so subsequent
+  // requests carry X-Tenant-ID — same contract as Login / UserMenu.
+  authStore.pinActiveTenant(tenant)
 }
 
 const persistOIDCLoginResponse = async (response: any) => {

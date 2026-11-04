@@ -1240,16 +1240,20 @@ watch(creatorFilter, () => {
 })
 
 onMounted(() => {
-  fetchList().then(() => {
-    // 检查路由参数中是否有需要高亮的知识库ID
-    const highlightKbId = route.query.highlightKbId as string
-    if (highlightKbId) {
-      triggerHighlightFlash(highlightKbId)
-      // Drop the transient highlight param but preserve other state
-      // (scope / creator / q) so refreshing doesn't reset the user's view.
-      const { highlightKbId: _drop, ...rest } = route.query
-      router.replace({ query: rest })
-    }
+  // Wait for /auth/me (and CAS pinActiveTenant) so the first list call
+  // already carries X-Tenant-ID for the active workspace.
+  void authStore.ensureAuthMe().finally(() => {
+    fetchList().then(() => {
+      // 检查路由参数中是否有需要高亮的知识库ID
+      const highlightKbId = route.query.highlightKbId as string
+      if (highlightKbId) {
+        triggerHighlightFlash(highlightKbId)
+        // Drop the transient highlight param but preserve other state
+        // (scope / creator / q) so refreshing doesn't reset the user's view.
+        const { highlightKbId: _drop, ...rest } = route.query
+        router.replace({ query: rest })
+      }
+    })
   })
 
   window.addEventListener('knowledgeFileUploaded', handleUploadFinishedEvent as EventListener)

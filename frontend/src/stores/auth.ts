@@ -287,6 +287,26 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // pinActiveTenant always writes the override — including when the active
+  // workspace is the user's home. Leaving selectedTenantId null means
+  // request.ts omits X-Tenant-ID and the API falls back to the JWT claim,
+  // which can disagree with the UI after last_active / CAS reconcile
+  // (see UserMenu.switchToTenant). Pass null only for tenantless sessions.
+  const pinActiveTenant = (
+    active: { id?: number | string | null; name?: string | null } | null | undefined,
+  ) => {
+    if (!active || active.id == null || active.id === '') {
+      setSelectedTenant(null, null)
+      return
+    }
+    const id = Number(active.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      setSelectedTenant(null, null)
+      return
+    }
+    setSelectedTenant(id, active.name || null)
+  }
+
   const setAllTenants = (tenants: TenantInfoFromAPI[]) => {
     allTenants.value = tenants
   }
@@ -372,7 +392,9 @@ export const useAuthStore = defineStore('auth', () => {
     const u = response.data?.user
     if (!response.success || !u) return false
 
-    setUser(userInfoFromApi(u, response.data?.tenant?.id))
+    // user.tenant_id is the immutable home workspace; do not fall back to
+    // the active tenant snapshot (that may be a peer via last_active).
+    setUser(userInfoFromApi(u, u.tenant_id))
 
     const tenantSnapshot = response.data?.tenant
     if (tenantSnapshot) {
@@ -388,8 +410,10 @@ export const useAuthStore = defineStore('auth', () => {
         created_at: tenantSnapshot.created_at || new Date().toISOString(),
         updated_at: tenantSnapshot.updated_at || new Date().toISOString(),
       })
+      pinActiveTenant(tenantSnapshot)
     } else {
       setTenant(null)
+      pinActiveTenant(null)
     }
 
     const list = response.data?.memberships
@@ -609,6 +633,7 @@ export const useAuthStore = defineStore('auth', () => {
     setKnowledgeBases,
     setCurrentKnowledgeBase,
     setSelectedTenant,
+    pinActiveTenant,
     setAllTenants,
     setMemberships,
     setPendingInvitationCount,

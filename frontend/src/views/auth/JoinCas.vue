@@ -110,13 +110,7 @@ function applyLoginResponse(response: {
   if (Array.isArray(response.memberships)) {
     authStore.setMemberships(response.memberships)
   }
-  const activeIdNum = Number(activeTenant?.id)
-  const homeIdNum = Number(homeTenantIdRaw)
-  if (Number.isFinite(activeIdNum) && Number.isFinite(homeIdNum) && activeIdNum !== homeIdNum) {
-    authStore.setSelectedTenant(activeIdNum, activeTenant?.name || null)
-  } else {
-    authStore.setSelectedTenant(null, null)
-  }
+  authStore.pinActiveTenant(activeTenant)
   return true
 }
 

@@ -93,8 +93,10 @@ func (h *CASAuthHandler) ValidateCASSession(c *gin.Context) {
 		return
 	}
 
-	tenant, err := h.casAuthService.AutoBindTenant(ctx, casUserInfo, user)
-	if err != nil {
+	// Ensure the user has a home / bindable workspace. The returned
+	// tenant is NOT necessarily the session's active workspace — that
+	// follows resolveLoginTenantID inside GenerateTokens (last_active).
+	if _, err := h.casAuthService.AutoBindTenant(ctx, casUserInfo, user); err != nil {
 		logger.Errorf(ctx, "Failed to bind tenant: %v", err)
 		c.Error(apperrors.NewInternalServerError("租户绑定失败"))
 		return
@@ -107,11 +109,28 @@ func (h *CASAuthHandler) ValidateCASSession(c *gin.Context) {
 		return
 	}
 
+	// Align response.tenant with the JWT claim so the SPA can pin
+	// X-Tenant-ID to the same workspace the token encodes.
+	var activeTenant *types.Tenant
+	if _, jwtTenantID, verr := h.userService.ValidateToken(ctx, token); verr == nil && jwtTenantID > 0 {
+		if t, terr := h.tenantService.GetTenantByID(ctx, jwtTenantID); terr == nil {
+			activeTenant = t
+		} else {
+			logger.Warnf(ctx, "CAS validate: failed to load active tenant %d: %v", jwtTenantID, terr)
+		}
+	} else if verr != nil {
+		logger.Warnf(ctx, "CAS validate: failed to read tenant claim from new token: %v", verr)
+	}
+
+	memberships := h.userService.BuildLoginMemberships(ctx, user, activeTenant)
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"data": gin.H{
 			"user":          user.ToUserInfo(),
-			"tenant":        tenant,
+			"tenant":        activeTenant,
+			"active_tenant": activeTenant,
+			"memberships":   memberships,
 			"token":         token,
 			"refresh_token": refreshToken,
 		},
