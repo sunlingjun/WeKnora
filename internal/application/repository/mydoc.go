@@ -11,6 +11,7 @@ import (
 )
 
 var (
+	// Stable English sentinels for errors.Is; UI copy lives in i18n (mydoc.errors.*).
 	ErrMyDocNotFound      = errors.New("mydoc: not found")
 	ErrMyDocDuplicateName = errors.New("mydoc: duplicate name under parent")
 )

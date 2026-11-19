@@ -133,3 +133,17 @@ func TestMyDocService_DuplicateName(t *testing.T) {
 	require.ErrorIs(t, err, ErrDuplicateName)
 	_ = time.Now()
 }
+
+func TestMyDocService_DuplicateNameMessage(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+	_, err := svc.Mkdir(ctx, "u1", "", "report")
+	require.NoError(t, err)
+	_, err = svc.Mkdir(ctx, "u1", "", "report")
+	require.ErrorIs(t, err, ErrDuplicateName)
+	var dup *DuplicateNameError
+	require.ErrorAs(t, err, &dup)
+	require.Equal(t, types.MyDocNodeFolder, dup.Kind)
+	require.Equal(t, ErrCodeDuplicateFolder, dup.Code())
+	require.Contains(t, dup.Error(), "report")
+}

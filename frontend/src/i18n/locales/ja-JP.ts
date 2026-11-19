@@ -4989,6 +4989,21 @@ export default {
       testFailed: 'テストに失敗しました'
     }
   },
+  // MyDoc personal hub — codes match internal/application/service/mydoc ErrCode*
+  mydoc: {
+    errors: {
+      MYDOC_DUPLICATE_FOLDER: '同じディレクトリに「{name}」フォルダが既に存在します',
+      MYDOC_DUPLICATE_FILE: '同じディレクトリに「{name}」ファイルが既に存在します',
+      MYDOC_DUPLICATE_NAME: '同じディレクトリに「{name}」が既に存在します',
+      MYDOC_NOT_FOUND: 'ドキュメントが存在しないか、アーカイブ済みです',
+      MYDOC_FORBIDDEN: 'この操作を行う権限がありません',
+      MYDOC_NOT_OWNER: '所有者のみがこの操作を実行できます',
+      MYDOC_MOVE_CYCLE: 'フォルダを自身またはそのサブフォルダへ移動できません',
+      MYDOC_NOT_TEXT: 'テキストまたは Markdown ファイルのみ編集できます',
+      MYDOC_INVALID_INPUT: 'パラメータが正しくありません',
+      MYDOC_MACHINE_CALLER: 'マイドキュメントはログインアカウントで操作してください。API Key や MCP エンドポイントは使用できません',
+    },
+  },
   model: {
     reasoning: {
       levels: {

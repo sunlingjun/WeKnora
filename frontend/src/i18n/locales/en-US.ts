@@ -5172,6 +5172,21 @@ export default {
       testFailed: 'Test failed'
     }
   },
+  // MyDoc personal hub — codes match internal/application/service/mydoc ErrCode*
+  mydoc: {
+    errors: {
+      MYDOC_DUPLICATE_FOLDER: 'A folder named "{name}" already exists in this directory',
+      MYDOC_DUPLICATE_FILE: 'A file named "{name}" already exists in this directory',
+      MYDOC_DUPLICATE_NAME: 'An item named "{name}" already exists in this directory',
+      MYDOC_NOT_FOUND: 'Document not found or archived',
+      MYDOC_FORBIDDEN: 'You do not have permission for this action',
+      MYDOC_NOT_OWNER: 'Only the owner can perform this action',
+      MYDOC_MOVE_CYCLE: 'Cannot move a folder into itself or its subfolder',
+      MYDOC_NOT_TEXT: 'Only text or Markdown files can be edited',
+      MYDOC_INVALID_INPUT: 'Invalid parameters',
+      MYDOC_MACHINE_CALLER: 'Sign in with a user account to use My Documents; API keys and MCP endpoints are not allowed',
+    },
+  },
   model: {
     reasoning: {
       levels: {

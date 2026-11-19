@@ -71,7 +71,7 @@ func (s *Service) assertUniqueName(ctx context.Context, ownerUserID string, pare
 		return err
 	}
 	if dup != nil {
-		return ErrDuplicateName
+		return &DuplicateNameError{Name: name, Kind: dup.Type}
 	}
 	return nil
 }

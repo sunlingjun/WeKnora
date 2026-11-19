@@ -3280,6 +3280,21 @@ export default {
       validateTokenFailed: 'Ошибка проверки токена'
     }
   },
+  // MyDoc personal hub — codes match internal/application/service/mydoc ErrCode*
+  mydoc: {
+    errors: {
+      MYDOC_DUPLICATE_FOLDER: 'Папка «{name}» уже существует в этой директории',
+      MYDOC_DUPLICATE_FILE: 'Файл «{name}» уже существует в этой директории',
+      MYDOC_DUPLICATE_NAME: 'Элемент «{name}» уже существует в этой директории',
+      MYDOC_NOT_FOUND: 'Документ не найден или архивирован',
+      MYDOC_FORBIDDEN: 'Недостаточно прав для этого действия',
+      MYDOC_NOT_OWNER: 'Только владелец может выполнить это действие',
+      MYDOC_MOVE_CYCLE: 'Нельзя переместить папку в себя или в её подпапку',
+      MYDOC_NOT_TEXT: 'Редактируются только текстовые или Markdown-файлы',
+      MYDOC_INVALID_INPUT: 'Некорректные параметры',
+      MYDOC_MACHINE_CALLER: 'Для «Моих документов» войдите под учётной записью; API-ключ и MCP-эндпоинт не допускаются',
+    },
+  },
   mcp: {
     testResult: {
       title: 'Результат теста: {name}',

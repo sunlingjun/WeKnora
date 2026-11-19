@@ -3280,6 +3280,21 @@ export default {
       validateTokenFailed: '토큰 검증 실패'
     }
   },
+  // MyDoc personal hub — codes match internal/application/service/mydoc ErrCode*
+  mydoc: {
+    errors: {
+      MYDOC_DUPLICATE_FOLDER: '같은 디렉터리에 "{name}" 폴더가 이미 있습니다',
+      MYDOC_DUPLICATE_FILE: '같은 디렉터리에 "{name}" 파일이 이미 있습니다',
+      MYDOC_DUPLICATE_NAME: '같은 디렉터리에 "{name}" 항목이 이미 있습니다',
+      MYDOC_NOT_FOUND: '문서를 찾을 수 없거나 보관되었습니다',
+      MYDOC_FORBIDDEN: '이 작업을 수행할 권한이 없습니다',
+      MYDOC_NOT_OWNER: '소유자만 이 작업을 수행할 수 있습니다',
+      MYDOC_MOVE_CYCLE: '폴더를 자신 또는 하위 폴더로 이동할 수 없습니다',
+      MYDOC_NOT_TEXT: '텍스트 또는 Markdown 파일만 편집할 수 있습니다',
+      MYDOC_INVALID_INPUT: '잘못된 매개변수입니다',
+      MYDOC_MACHINE_CALLER: '내 문서는 로그인 계정으로만 사용할 수 있으며 API Key 또는 MCP 엔드포인트는 허용되지 않습니다',
+    },
+  },
   mcp: {
     testResult: {
       title: '테스트 결과: {name}',

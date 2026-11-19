@@ -28,7 +28,9 @@ func (h *MyDocHandler) requireUser(c *gin.Context) (string, bool) {
 	uid, err := mydoc.RequireHumanUser(c.Request.Context())
 	if err != nil {
 		if errors.Is(err, mydoc.ErrMachineCaller) {
-			c.Error(apperrors.NewForbiddenError("MyDoc requires a signed-in user, not an API key or MCP endpoint"))
+			c.Error(apperrors.NewForbiddenError(mydoc.ErrMachineCaller.Error()).WithDetails(map[string]any{
+				"code": mydoc.ErrCodeMachineCaller,
+			}))
 		} else {
 			c.Error(apperrors.NewUnauthorizedError("unauthorized"))
 		}
@@ -40,12 +42,46 @@ func (h *MyDocHandler) requireUser(c *gin.Context) (string, bool) {
 func (h *MyDocHandler) respondErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, mydoc.ErrNotFound):
-		c.Error(apperrors.NewNotFoundError("not found"))
-	case errors.Is(err, mydoc.ErrForbidden), errors.Is(err, mydoc.ErrNotOwner), errors.Is(err, mydoc.ErrMachineCaller):
-		c.Error(apperrors.NewForbiddenError(err.Error()))
-	case errors.Is(err, mydoc.ErrDuplicateName), errors.Is(err, mydoc.ErrCycle),
-		errors.Is(err, mydoc.ErrInvalidInput), errors.Is(err, mydoc.ErrNotText):
-		c.Error(apperrors.NewValidationError(err.Error()))
+		c.Error(apperrors.NewNotFoundError(mydoc.ErrNotFound.Error()).WithDetails(map[string]any{
+			"code": mydoc.ErrCodeNotFound,
+		}))
+	case errors.Is(err, mydoc.ErrForbidden):
+		c.Error(apperrors.NewForbiddenError(mydoc.ErrForbidden.Error()).WithDetails(map[string]any{
+			"code": mydoc.ErrCodeForbidden,
+		}))
+	case errors.Is(err, mydoc.ErrNotOwner):
+		c.Error(apperrors.NewForbiddenError(mydoc.ErrNotOwner.Error()).WithDetails(map[string]any{
+			"code": mydoc.ErrCodeNotOwner,
+		}))
+	case errors.Is(err, mydoc.ErrMachineCaller):
+		c.Error(apperrors.NewForbiddenError(mydoc.ErrMachineCaller.Error()).WithDetails(map[string]any{
+			"code": mydoc.ErrCodeMachineCaller,
+		}))
+	case errors.Is(err, mydoc.ErrDuplicateName):
+		var dup *mydoc.DuplicateNameError
+		if errors.As(err, &dup) {
+			c.Error(apperrors.NewValidationError(dup.Error()).WithDetails(map[string]any{
+				"code": dup.Code(),
+				"name": dup.Name,
+				"kind": dup.Kind,
+			}))
+			return
+		}
+		c.Error(apperrors.NewValidationError(mydoc.ErrDuplicateName.Error()).WithDetails(map[string]any{
+			"code": mydoc.ErrCodeDuplicateName,
+		}))
+	case errors.Is(err, mydoc.ErrCycle):
+		c.Error(apperrors.NewValidationError(mydoc.ErrCycle.Error()).WithDetails(map[string]any{
+			"code": mydoc.ErrCodeCycle,
+		}))
+	case errors.Is(err, mydoc.ErrNotText):
+		c.Error(apperrors.NewValidationError(mydoc.ErrNotText.Error()).WithDetails(map[string]any{
+			"code": mydoc.ErrCodeNotText,
+		}))
+	case errors.Is(err, mydoc.ErrInvalidInput):
+		c.Error(apperrors.NewValidationError(err.Error()).WithDetails(map[string]any{
+			"code": mydoc.ErrCodeInvalidInput,
+		}))
 	default:
 		c.Error(err)
 	}

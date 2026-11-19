@@ -3282,6 +3282,21 @@ export default {
       validateTokenFailed: 'Token验证失败'
     }
   },
+  // MyDoc personal hub — codes match internal/application/service/mydoc ErrCode*
+  mydoc: {
+    errors: {
+      MYDOC_DUPLICATE_FOLDER: '同目录下已存在同名文件夹「{name}」',
+      MYDOC_DUPLICATE_FILE: '同目录下已存在同名文件「{name}」',
+      MYDOC_DUPLICATE_NAME: '同目录下已存在同名文件或文件夹「{name}」',
+      MYDOC_NOT_FOUND: '文档不存在或已归档',
+      MYDOC_FORBIDDEN: '没有权限执行此操作',
+      MYDOC_NOT_OWNER: '仅所有者可执行此操作',
+      MYDOC_MOVE_CYCLE: '不能将文件夹移动到自身或其子目录下',
+      MYDOC_NOT_TEXT: '仅支持编辑文本或 Markdown 文件',
+      MYDOC_INVALID_INPUT: '参数不正确',
+      MYDOC_MACHINE_CALLER: '请使用登录账号操作我的文档，不能使用 API Key 或 MCP 端点身份',
+    },
+  },
   mcp: {
     testResult: {
       title: '测试结果: {name}',
